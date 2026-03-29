@@ -35,6 +35,9 @@ ALLOWED_HOSTS = [
     "timetify-app-env.eba-d73dae3g.us-east-2.elasticbeanstalk.com",
     "d1u7vr834uwj27.cloudfront.net",
     "d30jqul10dgn8l.amplifyapp.com",
+    'main.d30jqul10dgn8l.amplifyapp.com',
+    'timetify.net',
+    'www.timetify.net',
 ]
 
 
