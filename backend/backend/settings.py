@@ -29,7 +29,13 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-fallback-for-dev-only
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "timetify-app-env.eba-d73dae3g.us-east-2.elasticbeanstalk.com",
+    "d1u7vr834uwj27.cloudfront.net",
+    "d30jqul10dgn8l.amplifyapp.com",
+]
 
 
 # Application definition
@@ -173,7 +179,12 @@ MEDIA_ROOT = BASE_DIR / 'media'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
+    "https://main.d30jqul10dgn8l.amplifyapp.com",
+    "https://d30jqul10dgn8l.amplifyapp.com",
+    "https://d1u7vr834uwj27.cloudfront.net",
 ]
+
+CORS_ALLOW_CREDENTIALS = True
 
 AUTH_USER_MODEL = 'main.CustomUser'
 
