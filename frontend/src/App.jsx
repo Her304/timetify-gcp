@@ -104,7 +104,7 @@ const App = () => {
         const refreshToken = localStorage.getItem("refresh_token");
         if (refreshToken) {
           try {
-            const refreshRes = await fetch("http://127.0.0.1:8000/api/token/refresh/", {
+            const refreshRes = await fetch(`${import.meta.env.VITE_API_URL}/api/token/refresh/`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ refresh: refreshToken }),
@@ -153,7 +153,7 @@ const App = () => {
       const fetchData = async () => {
         try {
           // Use authenticatedFetch for the home schedule
-          const response = await authenticatedFetch("http://127.0.0.1:8000/");
+          const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/`);
           if (!response.ok) {
             throw new Error("Failed to fetch schedule");
           }
@@ -223,14 +223,14 @@ const App = () => {
       const fetchFriendsData = async () => {
         try {
           // Fetch friends list
-          const friendsRes = await authenticatedFetch("http://127.0.0.1:8000/api/friends/");
+          const friendsRes = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friends/`);
           if (friendsRes.ok) {
             const friendsData = await friendsRes.json();
             setFriendsList(friendsData);
           }
 
           // Fetch pending friend requests
-          const requestsRes = await authenticatedFetch("http://127.0.0.1:8000/api/friend-requests/pending/");
+          const requestsRes = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friend-requests/pending/`);
           if (requestsRes.ok) {
             const requestsData = await requestsRes.json();
             setFriendRequests(requestsData);
@@ -250,7 +250,7 @@ const App = () => {
   // ---------- Auth helpers ----------
   const loginUser = async (formData) => {
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/login/", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/login/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -276,7 +276,7 @@ const App = () => {
 
   const registerUser = async (formData) => {
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/register/", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/register/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -308,7 +308,7 @@ const App = () => {
       const headers = {};
       if (!isFormData) headers["Content-Type"] = "application/json";
 
-      const response = await authenticatedFetch("http://127.0.0.1:8000/api/courses/", {
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/`, {
         method: "POST",
         headers,
         body: isFormData ? courseData : JSON.stringify(courseData),
@@ -333,7 +333,7 @@ const App = () => {
   const analyzeCourse = async (formData) => {
     try {
       setCourseErrors({});
-      const response = await authenticatedFetch("http://127.0.0.1:8000/api/courses/analyze/", {
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/analyze/`, {
         method: "POST",
         body: formData,
       });
@@ -355,7 +355,7 @@ const App = () => {
   const finalizeCourse = async (coursesData) => {
     try {
       setCourseErrors({});
-      const response = await authenticatedFetch("http://127.0.0.1:8000/api/courses/finalize/", {
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/finalize/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ courses: coursesData }),
@@ -378,7 +378,7 @@ const App = () => {
 
   const searchFriends = async (query) => {
     try {
-      const response = await authenticatedFetch(`http://127.0.0.1:8000/api/friends/search/?q=${query}`);
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friends/search/?q=${query}`);
       if (response.ok) {
         return await response.json();
       }
@@ -391,7 +391,7 @@ const App = () => {
 
   const sendFriendRequest = async (friendId) => {
     try {
-      const response = await authenticatedFetch("http://127.0.0.1:8000/api/friend-requests/", {
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friend-requests/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -409,7 +409,7 @@ const App = () => {
 
   const respondToFriendRequest = async (requestId, action) => {
     try {
-      const response = await authenticatedFetch(`http://127.0.0.1:8000/api/friend-requests/${requestId}/`, {
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friend-requests/${requestId}/`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -418,12 +418,12 @@ const App = () => {
       });
       if (response.ok) {
         // Refresh friend requests
-        const requestsRes = await authenticatedFetch("http://127.0.0.1:8000/api/friend-requests/pending/");
+        const requestsRes = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friend-requests/pending/`);
         if (requestsRes.ok) {
           setFriendRequests(await requestsRes.json());
         }
         // Also refresh friends list
-        const friendsRes = await authenticatedFetch("http://127.0.0.1:8000/api/friends/");
+        const friendsRes = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friends/`);
         if (friendsRes.ok) {
           setFriendsList(await friendsRes.json());
         }

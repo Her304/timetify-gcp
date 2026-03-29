@@ -23,7 +23,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => 
             setLoadingCourses(true);
             try {
                 const token = localStorage.getItem("access_token");
-                const res = await fetch("http://127.0.0.1:8000/api/courses/", {
+                const res = await fetch(`${import.meta.env.VITE_API_URL}/api/courses/`, {
                     headers: token ? { "Authorization": `Bearer ${token}` } : {}
                 });
                 if (res.ok) {
@@ -65,7 +65,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => 
         setError(null);
         try {
             const token = localStorage.getItem("access_token");
-            const res = await fetch("http://127.0.0.1:8000/api/user/", {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user/`, {
                 method: "PATCH",
                 headers: {
                     "Content-Type": "application/json",

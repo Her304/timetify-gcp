@@ -17,7 +17,7 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser, authenticatedFetch }) 
     const frontendLogs = getLogs();
 
     try {
-      const response = await authenticatedFetch('http://127.0.0.1:8000/api/report-error/', {
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/report-error/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

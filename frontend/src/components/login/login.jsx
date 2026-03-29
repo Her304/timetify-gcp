@@ -76,7 +76,7 @@ export default function Login({ loginUser, errors = {} }) {
                             {renderError("password")}
                             <div className="flex justify-end mt-1">
                                 <a 
-                                    href="http://localhost:8000/password_reset/" 
+                                    href={`${import.meta.env.VITE_API_URL}/password_reset/`} 
                                     className="text-xs font-semibold text-[#607196] hover:text-[#607196]/80 transition-colors"
                                 >
                                     Forgot password?

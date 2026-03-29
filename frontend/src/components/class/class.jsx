@@ -20,7 +20,7 @@ export const ClassDetails = ({ Class_details = [] }) => {
             setLoading(true);
             try {
                 const token = localStorage.getItem("access_token");
-                const res = await fetch("http://127.0.0.1:8000/api/courses/", {
+                const res = await fetch(`${import.meta.env.VITE_API_URL}/api/courses/`, {
                     headers: token ? { "Authorization": `Bearer ${token}` } : {}
                 });
                 if (res.ok) {
