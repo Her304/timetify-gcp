@@ -86,6 +86,8 @@ def home(request):
             end_date__gte=today
         ).order_by("start_time")
         
+        # Collect which course keys are shared between this friend and the user
+        friend_shared_keys = set()
         for f_cls in friend_classes:
             is_shared_with_me = models.Course.objects.filter(
                 course_id=f_cls.course_id,
@@ -93,19 +95,21 @@ def home(request):
                 start_time=f_cls.start_time,
                 user=user
             ).exists()
-            
-            display_name = friend_name
             if is_shared_with_me:
-                display_name = f"{friend_name} & Me"
                 days_list = f_cls.rep_date.split(',')
                 for raw_day in days_list:
                     normalized_day = raw_day.strip().upper()[:3]
-                    shared_classes.add((normalized_day, f_cls.course_id, f_cls.classroom, f_cls.start_time.strftime("%H:%M")))
-            
+                    key = (normalized_day, f_cls.course_id, f_cls.classroom, f_cls.start_time.strftime("%H:%M"))
+                    friend_shared_keys.add(key)
+                    shared_classes.add(key)
+
+        for f_cls in friend_classes:
             days_list = f_cls.rep_date.split(',')
             for raw_day in days_list:
                 normalized_day = raw_day.strip().upper()[:3]
                 if normalized_day in friend_schedule:
+                    class_key = (normalized_day, f_cls.course_id, f_cls.classroom, f_cls.start_time.strftime("%H:%M"))
+                    entry_owner = f"{friend_name} & Me" if class_key in friend_shared_keys else friend_name
                     friend_schedule[normalized_day].append({
                         "course_id": f_cls.course_id,
                         "course_name": f_cls.course_name,
@@ -113,31 +117,43 @@ def home(request):
                         "start_time": f_cls.start_time.strftime("%H:%M"),
                         "end_time": f_cls.end_time.strftime("%H:%M"),
                         "is_lab": f_cls.is_lab,
-                        "parent_course_id": f_cls.parent_course.course_id if f_cls.parent_course else None
+                        "parent_course_id": f_cls.parent_course.course_id if f_cls.parent_course else None,
+                        "_owner": entry_owner
                     })
-        
+
         if friend_classes.exists():
-            all_schedules[display_name] = friend_schedule
+            all_schedules[friend_name] = friend_schedule
     
     combined_schedule = {day: [] for day in ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]}
     
+    # Add the user's own classes
     for day, classes in all_schedules["Me"].items():
         for cls in classes:
-            class_key = (day, cls["course_id"], cls["classroom"], cls["start_time"])
-            if class_key not in shared_classes:
-                combined_schedule[day].append({
-                    "owner": "Me",
-                    **cls
-                })
+            combined_schedule[day].append({
+                "owner": "Me",
+                **cls
+            })
     
+    # Add friend classes; shared ones use the per-entry _owner label (e.g. "Mary & Me");
+    # non-shared ones use friend_name. Shared courses are NOT skipped — they appear
+    # with the correct label. Remove the internal _owner key before appending.
     for owner, schedule in all_schedules.items():
         if owner != "Me":
             for day, classes in schedule.items():
                 for cls in classes:
-                    combined_schedule[day].append({
-                        "owner": owner,
-                        **cls
-                    })
+                    class_key = (day, cls["course_id"], cls["classroom"], cls["start_time"])
+                    entry_owner = cls.pop("_owner", owner)
+                    if class_key in shared_classes:
+                        # Shared: show under friend's label (e.g. "Mary & Me"), skip from user's "Me" dupe
+                        combined_schedule[day].append({
+                            "owner": entry_owner,
+                            **cls
+                        })
+                    else:
+                        combined_schedule[day].append({
+                            "owner": owner,
+                            **cls
+                        })
     
     for day in combined_schedule:
         combined_schedule[day].sort(key=lambda x: x["start_time"])

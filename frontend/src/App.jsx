@@ -58,6 +58,7 @@ const App = () => {
   const [personalSchedule, setPersonalSchedule] = useState([]);
   const [friendsSchedule, setFriendsSchedule] = useState([]);
   const [totalClasses, setTotalClasses] = useState([]);
+  const [allClasses, setAllClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [registrationErrors, setRegistrationErrors] = useState({});
@@ -192,16 +193,24 @@ const App = () => {
               friend: cls.owner
             }));
 
-          // Flatten all classes for the weekly schedule
+          // Flatten only the user's own classes for the weekly schedule
           const allSchedule = Object.keys(data)
             .filter(day => ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].includes(day))
             .flatMap(day =>
-              data[day].map(cls => mapClass(cls, day))
+              data[day]
+                .filter(cls => cls.owner === "Me")
+                .map(cls => mapClass(cls, day))
             );
+
+          // All classes including friends' for the friend schedule view
+          const combinedSchedule = Object.keys(data)
+            .filter(day => ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].includes(day))
+            .flatMap(day => data[day].map(cls => mapClass(cls, day)));
 
           setPersonalSchedule(myClasses);
           setFriendsSchedule(otherClasses);
           setTotalClasses(allSchedule);
+          setAllClasses(combinedSchedule);
           setLoading(false);
         } catch (err) {
           setError(err.message);
@@ -554,7 +563,7 @@ const App = () => {
                     friendsList={friendsList}
                     friendRequests={friendRequests}
                     respondToFriendRequest={respondToFriendRequest}
-                    Class_details={totalClasses}
+                    Class_details={allClasses}
                     currentUser={currentUser}
                   />
                 </ProtectedRoute>

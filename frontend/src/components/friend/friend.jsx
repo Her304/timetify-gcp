@@ -112,7 +112,7 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
     const [query, setQuery] = useState("");
     const [results, setResults] = useState([]);
     const [popup, setPopup] = useState(false);
-    
+
     // Get unique owners from Class_details
     const uniqueOwners = useMemo(() => {
         const owners = new Set();
@@ -137,15 +137,15 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
     }, [uniqueOwners]);
 
     const toggleOwner = (owner) => {
-        setSelectedOwners(prev => 
-            prev.includes(owner) 
+        setSelectedOwners(prev =>
+            prev.includes(owner)
                 ? prev.filter(o => o !== owner)
                 : [...prev, owner]
         );
     };
 
     const filteredClasses = useMemo(() => {
-        return Class_details.filter(course => 
+        return Class_details.filter(course =>
             selectedOwners.includes(course.owner)
         );
     }, [Class_details, selectedOwners]);
@@ -188,9 +188,9 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
                         value={query}
                         onChange={(value) => setQuery(value)}
                     />
-                    <Button 
-                        color="secondary" 
-                        size='md' 
+                    <Button
+                        color="secondary"
+                        size='md'
                         onClick={handleSearch}
                         className="px-8 h-11"
                     >
@@ -254,11 +254,10 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
                         <button
                             key={owner}
                             onClick={() => toggleOwner(owner)}
-                            className={`px-4 py-2 rounded-full text-xs font-bold transition-all border ${
-                                selectedOwners.includes(owner)
+                            className={`px-4 py-2 rounded-full text-xs font-bold transition-all border ${selectedOwners.includes(owner)
                                     ? "bg-[#607196] text-white border-[#607196]"
                                     : "bg-white text-gray-400 border-gray-200 hover:border-gray-300"
-                            }`}
+                                }`}
                         >
                             {owner}
                         </button>
@@ -268,12 +267,39 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
                 <div className="p-6 bg-white rounded-2xl shadow-xs border border-secondary w-full overflow-hidden">
                     <div className="flex flex-row overflow-x-auto gap-1 pb-4 min-h-[450px] scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
                         {days.map((day) => {
-                            const dayClasses = filteredClasses.filter(course =>
+                            const rawDayClasses = filteredClasses.filter(course =>
                                 course.day && (
                                     course.day.toLowerCase() === day.toLowerCase() ||
                                     course.day.toLowerCase() === day.slice(0, 3).toLowerCase()
                                 )
                             );
+
+                            const groupedClasses = [];
+                            rawDayClasses.forEach(course => {
+                                const existing = groupedClasses.find(c => 
+                                    c.course === course.course && 
+                                    c.time === course.time && 
+                                    c.location === course.location
+                                );
+
+                                if (existing) {
+                                    const currentOwners = new Set(existing.owner.split(/&|,/).map(s => s.trim()));
+                                    const newOwners = course.owner.split(/&|,/).map(s => s.trim());
+                                    newOwners.forEach(o => currentOwners.add(o));
+                                    
+                                    const ownerArr = Array.from(currentOwners).filter(Boolean);
+                                    ownerArr.sort((a, b) => {
+                                        if (a === "Me") return -1;
+                                        if (b === "Me") return 1;
+                                        return a.localeCompare(b);
+                                    });
+                                    existing.owner = ownerArr.join(", ");
+                                } else {
+                                    groupedClasses.push({ ...course });
+                                }
+                            });
+
+                            const dayClasses = groupedClasses;
 
                             return (
                                 <div key={day} className="flex-1 min-w-[160px] flex flex-col gap-4 border-r border-gray-100 last:border-r-0 px-3 first:pl-0 last:pr-0">
@@ -288,16 +314,14 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
                                             dayClasses.map((course, index) => (
                                                 <div
                                                     key={index}
-                                                    className={`flex flex-col p-4 rounded-xl border transition-all hover:shadow-sm group ${
-                                                        course.owner === "Me" 
-                                                        ? "bg-blue-50/50 border-blue-100 hover:border-blue-200" 
-                                                        : "bg-gray-50 border-gray-200 hover:border-gray-300"
-                                                    }`}
+                                                    className={`flex flex-col p-4 rounded-xl border transition-all hover:shadow-sm group ${course.owner === "Me"
+                                                            ? "bg-blue-50/50 border-blue-100 hover:border-blue-200"
+                                                            : "bg-gray-50 border-gray-200 hover:border-gray-300"
+                                                        }`}
                                                 >
                                                     <div className="flex items-center justify-between mb-2">
-                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                                            course.owner === "Me" ? "bg-blue-100 text-blue-700" : "bg-gray-200 text-gray-700"
-                                                        }`}>
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${course.owner === "Me" ? "bg-blue-100 text-blue-700" : "bg-gray-200 text-gray-700"
+                                                            }`}>
                                                             {course.owner === "Me" ? "Me" : course.owner}
                                                         </span>
                                                     </div>
@@ -335,8 +359,8 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
                     {filteredClasses.length === 0 && (
                         <div className="p-12 text-center bg-gray-50 rounded-xl border border-dashed border-secondary">
                             <p className="text-gray-500">
-                                {selectedOwners.length === 0 
-                                    ? "Select at least one person to see their schedule." 
+                                {selectedOwners.length === 0
+                                    ? "Select at least one person to see their schedule."
                                     : "No classes found for the selection."}
                             </p>
                         </div>
