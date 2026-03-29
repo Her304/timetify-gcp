@@ -1,0 +1,11 @@
+# .gitignore
+*.sqlite3
+__pycache__/
+*.pyc
+frontend/.vite/
+frontend/node_modules/
+.env
+
+backend/.venv/
+node_modules/
+.DS_Store
