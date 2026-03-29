@@ -24,7 +24,12 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => 
             try {
                 const token = localStorage.getItem("access_token");
                 const res = await fetch(`${import.meta.env.VITE_API_URL}/api/courses/`, {
-                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                    headers: token ? { 
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json"
+                    } : {
+                        "Content-Type": "application/json"
+                    }
                 });
                 if (res.ok) {
                     const data = await res.json();
