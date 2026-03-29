@@ -42,7 +42,6 @@ class ExtractedCoursesResponse(BaseModel):
 def _load_env():
     env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env')
     
-    print(f"Looking for .env at: {env_path}")  # Debug
     if os.path.exists(env_path):
         with open(env_path, 'r') as f:
             for line in f:
@@ -53,12 +52,9 @@ def _load_env():
                     v = v.strip()
                     if v.startswith('"') and v.endswith('"'): v = v[1:-1]
                     elif v.startswith("'") and v.endswith("'"): v = v[1:-1]
-                    if k not in os.environ:
-                        os.environ[k] = v
-_load_env()
+                    os.environ[k] = v
 
 _load_env()
-print("OPENAI_API_KEY loaded:", bool(os.environ.get('OPENAI_API_KEY')))  # Add this
 
 
 def extract_text(file_path: str) -> str:
@@ -94,6 +90,8 @@ def process_course_outline(file_path: str) -> dict:
     if not text.strip():
         raise ValueError("Could not extract any text from the file.")
     
+    # Reload env just in case it was changed while the server was running
+    _load_env()
     client = OpenAI()
     
     prompt = f"""
@@ -116,7 +114,7 @@ def process_course_outline(file_path: str) -> dict:
     - exams: Extract ALL exams (Midterm, Final, etc.)
     - assignments: Extract ALL assignments (CIIP, Consulting Case, etc.)
 
-    ### 2. SECONDARY LECTURE COURSE (schedule only):
+    ### 2. SECONDARY LECTURE COURSE (schedule only)(IF THEY ARE IN THE SAME TIME SLOT, THEN IGNORE SECONDARY LECTURE COURSE):
     Create a separate course for the OTHER lecture day:
     - course_id: Original course ID + "-TH" (e.g., "BU111-TH")
     - course_name: Original course name + " (Thursday)"
@@ -132,14 +130,14 @@ def process_course_outline(file_path: str) -> dict:
     - exams: [] (empty array)
     - assignments: [] (empty array)
 
-    ### 3. LAB COURSE (schedule only):
+    ### 3. LAB COURSE (schedule only) (IF INCLUDED IN SYLLABUS, ELSE DO NOT INCLUDE LAB COURSE): 
     - course_id: Original course ID + "L"
     - course_name: Original course name + " Lab"
     - classroom: Lab classroom
     - start_time: Lab start time
     - end_time: Lab end time
     - start_date: Same start date
-    - end_date: Same end date
+    - end_date: Same end_date
     - rep_date: Lab day
     - is_main: false
     - is_lab: true
@@ -203,8 +201,9 @@ def process_course_outline(file_path: str) -> dict:
     """
     
     response = client.beta.chat.completions.parse(
-        model="gpt-5.4-mini",
+        model="gpt-4o-mini",
         messages=[
+            {"role": "system", "content": "You are a course extraction expert."},
             {"role": "user", "content": prompt}
         ],
         response_format=ExtractedCoursesResponse

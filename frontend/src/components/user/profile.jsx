@@ -2,9 +2,20 @@ import { useState, useEffect } from "react";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-export const Profile = ({ currentUser, Class_details = [] }) => {
+export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => {
     const [allCourses, setAllCourses] = useState([]);
     const [loadingCourses, setLoadingCourses] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [formData, setFormData] = useState({
+        username: currentUser?.username || "",
+        email: currentUser?.email || "",
+        university: currentUser?.university || "",
+        major: currentUser?.major || "",
+        grad_year: currentUser?.grad_year || "",
+    });
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+
     const displayClasses = Class_details;
 
     useEffect(() => {
@@ -27,6 +38,58 @@ export const Profile = ({ currentUser, Class_details = [] }) => {
         };
         fetchAllCourses();
     }, []);
+
+    const handleEdit = () => {
+        setFormData({
+            username: currentUser.username,
+            email: currentUser.email,
+            university: currentUser.university || "",
+            major: currentUser.major || "",
+            grad_year: currentUser.grad_year || "",
+        });
+        setIsEditing(true);
+        setError(null);
+    };
+
+    const handleCancel = () => {
+        setIsEditing(false);
+        setError(null);
+    };
+
+    const handleChange = (e) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    const handleSave = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+            const token = localStorage.getItem("access_token");
+            const res = await fetch("http://127.0.0.1:8000/api/user/", {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify(formData)
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setCurrentUser(data.user);
+                localStorage.setItem("user", JSON.stringify(data.user));
+                setIsEditing(false);
+            } else {
+                const errorData = await res.json();
+                setError(errorData);
+            }
+        } catch (err) {
+            console.error("Failed to update profile", err);
+            setError({ non_field_errors: ["An unexpected error occurred."] });
+        } finally {
+            setSaving(false);
+        }
+    };
 
     if (!currentUser) {
         return (
@@ -51,30 +114,128 @@ export const Profile = ({ currentUser, Class_details = [] }) => {
         return `${month}-${day}-${year}`;
     };
 
+    const inputClasses = "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm";
+
     return (
         <div className="space-y-8 pb-12">
             <div className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">
-                <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight mb-6">
-                    Hi, {currentUser.username}
-                </h2>
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">
+                        {isEditing ? "Edit Profile" : `Hi, ${currentUser.username}`}
+                    </h2>
+                    {!isEditing && (
+                        <button
+                            onClick={handleEdit}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-sm text-sm"
+                        >
+                            Edit Profile
+                        </button>
+                    )}
+                </div>
+
+                {error && error.non_field_errors && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                        {error.non_field_errors[0]}
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-1">
-                        <p className="text-sm font-medium text-gray-500">University</p>
-                        <p className="text-lg font-bold text-gray-900">{currentUser.university || "Not set"}</p>
+                        <p className="text-sm font-medium text-gray-500">Username</p>
+                        {isEditing ? (
+                            <input
+                                name="username"
+                                value={formData.username}
+                                onChange={handleChange}
+                                className={inputClasses}
+                            />
+                        ) : (
+                            <p className="text-lg font-bold text-gray-900">{currentUser.username}</p>
+                        )}
+                        {error?.username && <p className="text-xs text-red-500">{error.username[0]}</p>}
                     </div>
-                    <div className="space-y-1">
-                        <p className="text-sm font-medium text-gray-500">Major</p>
-                        <p className="text-lg font-bold text-gray-900">{currentUser.major || "Not set"}</p>
-                    </div>
-                    <div className="space-y-1">
-                        <p className="text-sm font-medium text-gray-500">Graduation Year</p>
-                        <p className="text-lg font-bold text-gray-900">{currentUser.year || "Not set"}</p>
-                    </div>
+
                     <div className="space-y-1">
                         <p className="text-sm font-medium text-gray-500">Email Address</p>
-                        <p className="text-lg font-bold text-gray-900">{currentUser.email || "Not set"}</p>
+                        {isEditing ? (
+                            <input
+                                name="email"
+                                type="email"
+                                value={formData.email}
+                                onChange={handleChange}
+                                className={inputClasses}
+                            />
+                        ) : (
+                            <p className="text-lg font-bold text-gray-900">{currentUser.email || "Not set"}</p>
+                        )}
+                        {error?.email && <p className="text-xs text-red-500">{error.email[0]}</p>}
+                    </div>
+
+                    <div className="space-y-1">
+                        <p className="text-sm font-medium text-gray-500">University</p>
+                        {isEditing ? (
+                            <input
+                                name="university"
+                                value={formData.university}
+                                onChange={handleChange}
+                                className={inputClasses}
+                            />
+                        ) : (
+                            <p className="text-lg font-bold text-gray-900">{currentUser.university || "Not set"}</p>
+                        )}
+                        {error?.university && <p className="text-xs text-red-500">{error.university[0]}</p>}
+                    </div>
+
+                    <div className="space-y-1">
+                        <p className="text-sm font-medium text-gray-500">Major</p>
+                        {isEditing ? (
+                            <input
+                                name="major"
+                                value={formData.major}
+                                onChange={handleChange}
+                                className={inputClasses}
+                            />
+                        ) : (
+                            <p className="text-lg font-bold text-gray-900">{currentUser.major || "Not set"}</p>
+                        )}
+                        {error?.major && <p className="text-xs text-red-500">{error.major[0]}</p>}
+                    </div>
+
+                    <div className="space-y-1">
+                        <p className="text-sm font-medium text-gray-500">Graduation Year</p>
+                        {isEditing ? (
+                            <input
+                                name="grad_year"
+                                value={formData.grad_year}
+                                onChange={handleChange}
+                                className={inputClasses}
+                                placeholder="e.g. 2026"
+                            />
+                        ) : (
+                            <p className="text-lg font-bold text-gray-900">{currentUser.grad_year || "Not set"}</p>
+                        )}
+                        {error?.grad_year && <p className="text-xs text-red-500">{error.grad_year[0]}</p>}
                     </div>
                 </div>
+
+                {isEditing && (
+                    <div className="mt-8 flex gap-3">
+                        <button
+                            onClick={handleSave}
+                            disabled={saving}
+                            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold shadow-md disabled:bg-blue-300"
+                        >
+                            {saving ? "Saving..." : "Save Changes"}
+                        </button>
+                        <button
+                            onClick={handleCancel}
+                            disabled={saving}
+                            className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-bold"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
             </div>
 
             <div className="p-6 bg-white rounded-xl shadow-sm border border-gray-100">

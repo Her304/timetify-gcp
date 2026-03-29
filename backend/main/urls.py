@@ -23,4 +23,6 @@ urlpatterns = [
     path('api/forgot-password/', views.ForgotPasswordView.as_view(), name='forgot-password'),
     path('api/reset-password/', views.ResetPasswordView.as_view(), name='reset-password'),
     path('api/report-error/', views.ErrorReportView.as_view(), name='report-error'),
+    path('api/courses/analyze/', views.CourseAnalyzeView.as_view(), name='course-analyze'),
+    path('api/courses/finalize/', views.CourseFinalizeView.as_view(), name='course-finalize'),
 ]

@@ -48,7 +48,12 @@ def home(request):
         return Response({"error": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
     
     user = request.user
-    my_classes = models.Course.objects.filter(user=user)
+    today = timezone.now().date()
+    my_classes = models.Course.objects.filter(
+        user=user,
+        start_date__lte=today,
+        end_date__gte=today
+    )
     
     all_schedules = {"Me": {day: [] for day in ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]}}
     
@@ -75,7 +80,11 @@ def home(request):
         friend = fship.friend if fship.user == user else fship.user
         friend_name = friend.username
         friend_schedule = {day: [] for day in ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]}
-        friend_classes = models.Course.objects.filter(user=friend).order_by("start_time")
+        friend_classes = models.Course.objects.filter(
+            user=friend,
+            start_date__lte=today,
+            end_date__gte=today
+        ).order_by("start_time")
         
         for f_cls in friend_classes:
             is_shared_with_me = models.Course.objects.filter(
@@ -136,23 +145,21 @@ def home(request):
     return Response(combined_schedule)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 def get_user(request):
-    if request.user.is_authenticated:
-        return Response({
-            'user': {
-                'id': request.user.id,
-                'username': request.user.username,
-                'email': request.user.email,
-                'university': request.user.university,
-                'major': request.user.major,
-                'grad_year': request.user.grad_year
-            }
-        })
-    else:
-        return Response({
-            'user': None
-        })
+    if not request.user.is_authenticated:
+        return Response({'user': None})
+    
+    if request.method == 'GET':
+        serializer = UserSerializer(request.user, context={'request': request})
+        return Response({'user': serializer.data})
+    
+    elif request.method == 'PATCH':
+        serializer = UserSerializer(request.user, data=request.data, partial=True, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'user': serializer.data})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RegisterView(APIView):
     def post(self, request):
@@ -174,6 +181,12 @@ class RegisterView(APIView):
     
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
+        # Username should not be case sensitive
+        username = attrs.get("username")
+        if username:
+            user = User.objects.filter(username__iexact=username).first()
+            if user:
+                attrs["username"] = user.username
         data = super().validate(attrs)
         data['user'] = {
             'id': self.user.id,
@@ -323,6 +336,130 @@ class CourseListCreateView(generics.ListCreateAPIView):
                         print(f"Deleted course outline file for {course.course_id}")
                     except Exception as delete_error:
                         print(f"Error deleting file: {delete_error}")
+
+
+class CourseAnalyzeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if 'course_outline' not in request.FILES:
+            return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        file_obj = request.FILES['course_outline']
+        # Create a temporary file to process
+        temp_path = os.path.join(settings.MEDIA_ROOT, 'temp_' + file_obj.name)
+        with open(temp_path, 'wb+') as destination:
+            for chunk in file_obj.chunks():
+                destination.write(chunk)
+        
+        try:
+            result = process_course_outline(temp_path)
+            return Response(result)
+        except Exception as e:
+            print(f"Error analyzing course: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+class CourseFinalizeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        courses_data = request.data.get('courses', [])
+        if not courses_data:
+            return Response({"error": "No course data provided"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        main_course = None
+        created_courses = []
+
+        try:
+            # We process main course first to get the parent_course for others
+            main_course_data = next((c for c in courses_data if c.get('is_main')), None)
+            if not main_course_data and courses_data:
+                main_course_data = courses_data[0] # Fallback
+            
+            if main_course_data:
+                # Create main course
+                main_course = Course.objects.create(
+                    user=request.user,
+                    course_id=main_course_data.get('course_id'),
+                    course_name=main_course_data.get('course_name'),
+                    classroom=main_course_data.get('classroom', 'TBD'),
+                    start_time=main_course_data.get('start_time', '09:00'),
+                    end_time=main_course_data.get('end_time', '17:00'),
+                    start_date=convert_date(main_course_data.get('start_date')),
+                    end_date=convert_date(main_course_data.get('end_date')),
+                    rep_date=main_course_data.get('rep_date', 'Monday'),
+                    is_lab=main_course_data.get('is_lab', False),
+                    has_ai_content=True
+                )
+                created_courses.append(main_course)
+
+                # Create other courses
+                start_date_str = convert_date(main_course_data.get('start_date'))
+                for course_data in courses_data:
+                    if course_data == main_course_data:
+                        current_course = main_course
+                    else:
+                        current_course = Course.objects.create(
+                            user=request.user,
+                            course_id=course_data.get('course_id'),
+                            course_name=course_data.get('course_name'),
+                            classroom=course_data.get('classroom', 'TBD'),
+                            start_time=course_data.get('start_time', '09:00'),
+                            end_time=course_data.get('end_time', '17:00'),
+                            start_date=convert_date(course_data.get('start_date')),
+                            end_date=convert_date(course_data.get('end_date')),
+                            rep_date=course_data.get('rep_date', 'Monday'),
+                            has_ai_content=True,
+                            parent_course=main_course,
+                            is_lab=course_data.get('is_lab', False)
+                        )
+                    
+                    # Create details for THIS course (whether main or secondary)
+                    course_start_date = convert_date(course_data.get('start_date')) or start_date_str
+                    if course_start_date:
+                        start_datetime = datetime.strptime(course_start_date, '%Y-%m-%d')
+                        for w in course_data.get("weeks", []):
+                            week_num = w.get("week_number", 1)
+                            week_date = start_datetime + timedelta(days=(week_num - 1) * 7)
+                            Week.objects.create(
+                                user=request.user,
+                                course=current_course,
+                                week_number=week_num,
+                                week_date=week_date.strftime('%Y-%m-%d'),
+                                week_topic=w.get("week_topic", "")
+                            )
+
+                    # Create exams for THIS course
+                    for e_item in course_data.get("exams", []):
+                        exam_date = convert_date(e_item.get('exam_date')) or course_start_date
+                        if exam_date:
+                            Exam.objects.create(
+                                user=request.user,
+                                course=current_course,
+                                exam_date=f"{exam_date}T00:00:00Z",
+                                exam_topic=e_item.get("exam_topic", ""),
+                                exam_details=e_item.get("exam_details", "")
+                            )
+
+                    # Create assignments for THIS course
+                    for a_item in course_data.get("assignments", []):
+                        due_date = convert_date(a_item.get('assignment_due')) or course_start_date
+                        if due_date:
+                            Assignment.objects.create(
+                                user=request.user,
+                                course=current_course,
+                                assignment_due=f"{due_date}T00:00:00Z",
+                                assignment_topic=a_item.get("assignment_topic", ""),
+                                assignment_detail=a_item.get("assignment_detail", "")
+                            )
+
+            return Response({"success": True}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            print(f"Error finalizing course: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CourseSerializer

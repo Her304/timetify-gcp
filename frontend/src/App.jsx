@@ -40,6 +40,10 @@ import NotFound from "@/components/shared/NotFound";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
 import { Footer } from "@/components/application/footer/footer";
 import About from "@/components/about/about";
+import Help from "@/components/help/help";
+import Privacy from "@/components/privacy/privacy";
+import Terms from "@/components/terms/terms";
+
 
 const simpleItems = [
 ];
@@ -316,6 +320,52 @@ const App = () => {
     }
   };
 
+  const analyzeCourse = async (formData) => {
+    try {
+      setCourseErrors({});
+      const response = await authenticatedFetch("http://127.0.0.1:8000/api/courses/analyze/", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        return { success: true, data };
+      } else {
+        setCourseErrors(data);
+        return { success: false };
+      }
+    } catch (err) {
+      console.error("Analyze course error:", err);
+      setCourseErrors({ non_field_errors: ["An unexpected error occurred during analysis."] });
+      return { success: false };
+    }
+  };
+
+  const finalizeCourse = async (coursesData) => {
+    try {
+      setCourseErrors({});
+      const response = await authenticatedFetch("http://127.0.0.1:8000/api/courses/finalize/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courses: coursesData }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        window.location.reload();
+        return { success: true };
+      } else {
+        setCourseErrors(data);
+        return { success: false };
+      }
+    } catch (err) {
+      console.error("Finalize course error:", err);
+      setCourseErrors({ non_field_errors: ["An unexpected error occurred during finalization."] });
+      return { success: false };
+    }
+  };
+
   const searchFriends = async (query) => {
     try {
       const response = await authenticatedFetch(`http://127.0.0.1:8000/api/friends/search/?q=${query}`);
@@ -381,7 +431,7 @@ const App = () => {
       items: [
         { label: "Today", href: "/#today" },
         { label: "My Schedule", href: "/#schedule" },
-        { label: "My Friends Schedule", href: "/#friends-schedule" },
+
       ],
     },
     {
@@ -398,10 +448,9 @@ const App = () => {
       href: "/friend",
       icon: Rows01,
       items: [
-        { label: "Search", href: "/friend#search" },
         { label: "My Friends", href: "/friend#my-friends" },
+        { label: "Search", href: "/friend#search" },
         { label: "Schedule", href: "/friend#schedule" },
-        { label: "Request", href: "/friend#request" },
       ],
     },
   ] : [];
@@ -454,7 +503,7 @@ const App = () => {
                       <>
                         <section>
                           <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                            <span className="w-2 h-6 bg-blue-500 rounded-full"></span>
+                            <span className="w-2 h-6 bg-[#ffc759] rounded-full"></span>
                             Today's Class
                           </h2>
                           {personalSchedule.length === 0 ? (
@@ -468,7 +517,7 @@ const App = () => {
 
                         <section>
                           <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                            <span className="w-2 h-6 bg-purple-500 rounded-full"></span>
+                            <span className="w-2 h-6 bg-[#ffc759] rounded-full"></span>
                             Friends' Class Today
                           </h2>
                           {friendsSchedule.length === 0 ? (
@@ -481,7 +530,7 @@ const App = () => {
                         </section>
                         <section id="schedule">
                           <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                            <span className="w-2 h-6 bg-green-500 rounded-full"></span>
+                            <span className="w-2 h-6 bg-[#ffc759] rounded-full"></span>
                             My Class Schedule
                           </h2>
                           <TotalClassSchedule Class_details={totalClasses} />
@@ -545,7 +594,12 @@ const App = () => {
               path="/Add"
               element={
                 <ProtectedRoute currentUser={currentUser}>
-                  <Add addCourse={addCourse} errors={courseErrors} />
+                  <Add
+                    addCourse={addCourse}
+                    analyzeCourse={analyzeCourse}
+                    finalizeCourse={finalizeCourse}
+                    errors={courseErrors}
+                  />
                 </ProtectedRoute>
               }
             />
@@ -553,15 +607,21 @@ const App = () => {
               path="/profile"
               element={
                 <ProtectedRoute currentUser={currentUser}>
-                  <Profile currentUser={currentUser} Class_details={totalClasses} />
+                  <Profile currentUser={currentUser} setCurrentUser={setCurrentUser} Class_details={totalClasses} />
                 </ProtectedRoute>
               }
             />
+
             <Route path="/about" element={<About />} />
+            <Route path="/help" element={<Help />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
-        <Footer />
+        <Footer currentUser={currentUser} />
 
       </main>
 

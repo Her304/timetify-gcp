@@ -1,10 +1,10 @@
 import React from 'react';
-import { 
-  Users01, 
-  CheckDone01, 
-  Zap, 
-  LineChartUp03, 
-  MessageChatCircle 
+import {
+  Users01,
+  CheckDone01,
+  Zap,
+  LineChartUp03,
+  MessageChatCircle
 } from "@untitledui/icons";
 
 const About = () => {
@@ -21,9 +21,9 @@ const About = () => {
       </section>
 
       {/* Mission Section */}
-      <section className="grid md:grid-cols-2 gap-12 items-center bg-white p-10 rounded-3xl shadow-sm border border-gray-100">
+      <section className="grid md:grid-cols-1 gap-12 items-center bg-white p-10 rounded-3xl shadow-sm border border-gray-100">
         <div className="space-y-6">
-          <div className="inline-flex items-center justify-center p-3 bg-[#ffc759]/10 rounded-2xl text-[#ffc759]">
+          <div className="inline-flex items-center justify-center p-3 bg-[#607196]/10 rounded-2xl text-[#607196]">
             <Users01 className="w-8 h-8" />
           </div>
           <h2 className="text-3xl font-bold text-gray-900">Our Mission</h2>
@@ -31,16 +31,7 @@ const About = () => {
             At Timetify, we believe that staying connected shouldn't be a chore. Our mission is to bridge the gap between individual productivity and social connection by providing a seamless way to share schedules, discover mutual free time, and plan together.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-6 bg-gray-50 rounded-2xl space-y-2">
-            <h3 className="text-4xl font-black text-[#ffc759]">10k+</h3>
-            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Active Users</p>
-          </div>
-          <div className="p-6 bg-gray-50 rounded-2xl space-y-2">
-            <h3 className="text-4xl font-black text-[#ffc759]">50k+</h3>
-            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Schedules Synced</p>
-          </div>
-        </div>
+
       </section>
 
       {/* Features Section */}
@@ -51,7 +42,7 @@ const About = () => {
             Powerful tools designed to simplify your life and enhance your social connections.
           </p>
         </div>
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-2 gap-8">
           {[
             {
               icon: Zap,
@@ -63,11 +54,7 @@ const About = () => {
               title: "Real-time Sync",
               description: "Instantly see when your friends are free or busy throughout the day."
             },
-            {
-              icon: LineChartUp03,
-              title: "Smart Insights",
-              description: "Get analytics on your week and identify peak productivity windows."
-            }
+
           ].map((feature, i) => (
             <div key={i} className="p-8 bg-white rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 group">
               <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400 group-hover:bg-[#ffc759]/10 group-hover:text-[#ffc759] transition-colors">
@@ -81,11 +68,11 @@ const About = () => {
       </section>
 
       {/* Contact/CTA Section */}
-      <section className="relative overflow-hidden bg-gray-900 rounded-3xl p-12 text-center space-y-8">
+      <section className="relative overflow-hidden bg-[#607196] rounded-3xl p-12 text-center space-y-8">
         <div className="absolute top-0 right-0 w-64 h-64 bg-[#ffc759] opacity-10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/2"></div>
         <div className="relative z-10 space-y-4 text-white">
           <h2 className="text-3xl font-bold">Have Questions?</h2>
-          <p className="text-gray-400 max-w-lg mx-auto">
+          <p className="text-white max-w-lg mx-auto">
             Our support team is always here to help you get the most out of Timetify.
           </p>
           <div className="flex justify-center gap-4 pt-4">

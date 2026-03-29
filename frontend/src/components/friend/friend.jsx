@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Input } from "@/components/base/input/input";
 import { Button } from "@/components/base/buttons/button";
 import { SearchLg as Search } from "@untitledui/icons";
@@ -112,6 +112,43 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
     const [query, setQuery] = useState("");
     const [results, setResults] = useState([]);
     const [popup, setPopup] = useState(false);
+    
+    // Get unique owners from Class_details
+    const uniqueOwners = useMemo(() => {
+        const owners = new Set();
+        Class_details.forEach(course => {
+            if (course.owner) owners.add(course.owner);
+        });
+        // Sort with "Me" always first, then others alphabetically
+        return Array.from(owners).sort((a, b) => {
+            if (a === "Me") return -1;
+            if (b === "Me") return 1;
+            return a.localeCompare(b);
+        });
+    }, [Class_details]);
+
+    const [selectedOwners, setSelectedOwners] = useState([]);
+
+    // Initialize selectedOwners when uniqueOwners change for the first time
+    useEffect(() => {
+        if (uniqueOwners.length > 0 && selectedOwners.length === 0) {
+            setSelectedOwners(uniqueOwners);
+        }
+    }, [uniqueOwners]);
+
+    const toggleOwner = (owner) => {
+        setSelectedOwners(prev => 
+            prev.includes(owner) 
+                ? prev.filter(o => o !== owner)
+                : [...prev, owner]
+        );
+    };
+
+    const filteredClasses = useMemo(() => {
+        return Class_details.filter(course => 
+            selectedOwners.includes(course.owner)
+        );
+    }, [Class_details, selectedOwners]);
 
     const handleSearch = async () => {
         const data = await searchfriends(query);
@@ -212,10 +249,26 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
 
             <div className="mt-12">
                 <h2 id="schedule" className="text-2xl font-bold text-black mb-6">Friend's and My Schedule</h2>
+                <div className="mb-6 flex flex-wrap gap-2">
+                    {uniqueOwners.map(owner => (
+                        <button
+                            key={owner}
+                            onClick={() => toggleOwner(owner)}
+                            className={`px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+                                selectedOwners.includes(owner)
+                                    ? "bg-[#607196] text-white border-[#607196]"
+                                    : "bg-white text-gray-400 border-gray-200 hover:border-gray-300"
+                            }`}
+                        >
+                            {owner}
+                        </button>
+                    ))}
+                </div>
+
                 <div className="p-6 bg-white rounded-2xl shadow-xs border border-secondary w-full overflow-hidden">
                     <div className="flex flex-row overflow-x-auto gap-1 pb-4 min-h-[450px] scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
                         {days.map((day) => {
-                            const dayClasses = Class_details.filter(course =>
+                            const dayClasses = filteredClasses.filter(course =>
                                 course.day && (
                                     course.day.toLowerCase() === day.toLowerCase() ||
                                     course.day.toLowerCase() === day.slice(0, 3).toLowerCase()
@@ -279,9 +332,13 @@ const SearchFriend = ({ searchfriends, sendFriendRequest, friendsList, friendReq
                         })}
                     </div>
 
-                    {Class_details.length === 0 && (
+                    {filteredClasses.length === 0 && (
                         <div className="p-12 text-center bg-gray-50 rounded-xl border border-dashed border-secondary">
-                            <p className="text-gray-500">No classes found in the weekly schedule.</p>
+                            <p className="text-gray-500">
+                                {selectedOwners.length === 0 
+                                    ? "Select at least one person to see their schedule." 
+                                    : "No classes found for the selection."}
+                            </p>
                         </div>
                     )}
                 </div>

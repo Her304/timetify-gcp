@@ -25,9 +25,15 @@ export const ClassDetails = ({ Class_details = [] }) => {
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    // Match course tracking ID (base_course/course_id)
-                    const match = data.find(c => c.course_id === courseName || c.parent_course_id === courseName);
-                    if (match) setFetchedCourse(match);
+
+                    // Filter courses matching the name
+                    const matches = data.filter(c => c.course_id === courseName || c.parent_course_id === courseName);
+
+                    if (matches.length > 0) {
+                        // Prioritize the main course (no parent) OR the one with most content
+                        const bestMatch = matches.find(c => !c.parent_course) || matches[0];
+                        setFetchedCourse(bestMatch);
+                    }
                 }
             } catch (err) {
                 console.error("Failed to fetch detailed course info", err);
