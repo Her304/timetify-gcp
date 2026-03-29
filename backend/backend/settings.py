@@ -188,6 +188,15 @@ CORS_ALLOWED_ORIGINS = [
     "https://main.d30jqul10dgn8l.amplifyapp.com",
 ]
 
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "authorization", # <--- This is the important one!
+    "content-type",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 APPEND_SLASH = False
 
