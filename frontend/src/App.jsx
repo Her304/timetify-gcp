@@ -43,6 +43,7 @@ import About from "@/components/about/about";
 import Help from "@/components/help/help";
 import Privacy from "@/components/privacy/privacy";
 import Terms from "@/components/terms/terms";
+import Landing from "@/components/landing/Landing";
 
 
 const simpleItems = [
@@ -484,7 +485,7 @@ const App = () => {
         <HeaderNavigationSimpleDemo />
       )}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto p-8">
+        <div className={`${currentUser ? "max-w-4xl mx-auto p-8" : ""}`}>
           <Routes>
             <Route
               path="/"
@@ -539,20 +540,7 @@ const App = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-full space-y-6 text-center py-20">
-                    <h1 className="text-5xl font-extrabold text-gray-900 tracking-tight">Welcome to Timetify</h1>
-                    <p className="text-xl text-gray-600 max-w-2xl">
-                      Your personal and social schedule manager. Keep track of your classes and sync up with friends effortlessly.
-                    </p>
-                    <div className="flex gap-4 mt-8">
-                      <a href="/login" className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
-                        Log In
-                      </a>
-                      <a href="/register" className="px-6 py-3 bg-white text-blue-600 border border-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-sm">
-                        Register
-                      </a>
-                    </div>
-                  </div>
+                  <Landing />
                 )
               }
             />
