@@ -91,11 +91,20 @@ const App = () => {
   };
 
   const authenticatedFetch = async (url, options = {}) => {
-    let currentToken = localStorage.getItem("access_token");
+    const currentToken = localStorage.getItem("access_token");
     const headers = {
+      "Content-Type": "application/json",
       ...options.headers,
-      "Authorization": `Bearer ${currentToken}`,
     };
+
+    if (currentToken) {
+      headers["Authorization"] = `Bearer ${currentToken}`;
+    }
+
+    // Don't set Content-Type if we're sending FormData (let the browser do it with the boundary)
+    if (options.body instanceof FormData) {
+      delete headers["Content-Type"];
+    }
 
     try {
       let response = await fetch(url, { ...options, headers });
@@ -117,7 +126,7 @@ const App = () => {
 
               // Retry original request with new token
               const retryHeaders = {
-                ...options.headers,
+                ...headers,
                 "Authorization": `Bearer ${data.access}`,
               };
               response = await fetch(url, { ...options, headers: retryHeaders });
