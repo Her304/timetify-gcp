@@ -1,26 +1,23 @@
-# Use Python 3.12 as base image
+# 1. Use the slim python image
 FROM python:3.12-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Set work directory
+# 2. Set the working directory to /app
 WORKDIR /app
 
-# Install system dependencies
+# 3. Install system dependencies for PostgreSQL
 RUN apt-get update && apt-get install -y \
-    build-essential \
     libpq-dev \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt /app/
+# 4. Copy and install requirements
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project
-COPY . /app/
+# 5. COPY EVERYTHING from your root into /app
+# This ensures the 'backend' folder is copied into /app/backend
+COPY . .
 
-# Use the PORT variable provided by Cloud Run, defaulting to 8080
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 backend.wsgi:application
-
+# 6. Start Gunicorn
+# We use 'backend.wsgi' because wsgi.py is inside the backend folder
+CMD ["gunicorn", "--bind", ":8080", "--workers", "1", "--threads", "8", "backend.wsgi:application"]
