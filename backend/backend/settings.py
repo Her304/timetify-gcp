@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-fallback-for-dev-only")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
 ALLOWED_HOSTS = [
     "localhost",
@@ -185,6 +185,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://main.d30jqul10dgn8l.amplifyapp.com",
     "https://d30jqul10dgn8l.amplifyapp.com",
 ]
+
+CORS_ALLOW_ALL_ORIGINS = True  # Added for troubleshooting
 
 CORS_ALLOW_HEADERS = [
     "accept",
