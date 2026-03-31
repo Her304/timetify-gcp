@@ -21,8 +21,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project
 COPY . /app/
 
-# Expose port (default for App Runner is 8080)
-EXPOSE 8080
+# Use the PORT variable provided by Cloud Run, defaulting to 8080
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 backend.wsgi:application
 
-# Command to run the application using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "backend.wsgi:application"]
