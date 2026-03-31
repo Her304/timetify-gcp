@@ -64,7 +64,7 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-                Describe what happened
+              Describe what happened
             </label>
             <textarea
               className="w-full h-32 p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
@@ -80,9 +80,9 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
               <AlertCircle className="w-5 h-5 text-blue-600" />
             </div>
             <div className="text-sm text-blue-800 leading-relaxed">
-              To help us fix the issue, this report will automatically include your 
-              <strong> user ID ({currentUser?.id})</strong>, 
-              <strong> username ({currentUser?.username})</strong>, 
+              To help us fix the issue, this report will automatically include your
+              <strong> user ID ({currentUser?.id})</strong>,
+              <strong> username ({currentUser?.username})</strong>,
               and <strong>application logs</strong> (recent console and server activity).
             </div>
           </div>
