@@ -1,23 +1,26 @@
-# 1. Use the slim python image
 FROM python:3.12-slim
 
-# 2. Set the working directory to /app
+# 1. Environment variables to keep Python happy
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+# This ensures Python can see the 'backend' package from the root
+ENV PYTHONPATH=/app
+
 WORKDIR /app
 
-# 3. Install system dependencies for PostgreSQL
+# 2. Install dependencies
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Copy and install requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. COPY EVERYTHING from your root into /app
-# This ensures the 'backend' folder is copied into /app/backend
+# 3. Copy the entire project
+# This copies your 'backend' folder into '/app/backend'
 COPY . .
 
-# 6. Start Gunicorn
-# We use 'backend.wsgi' because wsgi.py is inside the backend folder
+# 4. Start Gunicorn
+# Note the path: folder_name.file_name:variable_name
 CMD ["gunicorn", "--bind", ":8080", "--workers", "1", "--threads", "8", "backend.wsgi:application"]
