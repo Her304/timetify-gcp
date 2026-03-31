@@ -104,7 +104,7 @@ const App = () => {
 
     window.addEventListener('token-refreshed', handleTokenRefresh);
     window.addEventListener('server-error', handleServerError);
-    
+
     return () => {
       window.removeEventListener('token-refreshed', handleTokenRefresh);
       window.removeEventListener('server-error', handleServerError);
