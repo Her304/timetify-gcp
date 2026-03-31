@@ -184,8 +184,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://main.d30jqul10dgn8l.amplifyapp.com",
     "https://d30jqul10dgn8l.amplifyapp.com",
-    "https://d1u7vr834uwj27.cloudfront.net",
-    "https://main.d30jqul10dgn8l.amplifyapp.com",
 ]
 
 CORS_ALLOW_HEADERS = [
