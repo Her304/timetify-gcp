@@ -130,25 +130,25 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# Check if we are running on Cloud Run
-if os.environ.get("CLOUD_RUN_SERVICE"):
+if os.environ.get("DB_HOST", "").startswith("/cloudsql/"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
             "NAME": os.environ.get("DB_NAME"),
             "USER": os.environ.get("DB_USER"),
-            "PASSWORD": os.environ.get("DB_PASSWORD"), # Pulled from Secret Manager
-            "HOST": f"/cloudsql/{os.environ.get('CLOUD_SQL_INSTANCE')}",
+            "PASSWORD": os.environ.get("DB_PASS"),
+            "HOST": os.environ.get("DB_HOST"),
         }
     }
 else:
-    # Local/Dev setting
+    # Fallback for local dev
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
         }
     }
+
 
 
 
