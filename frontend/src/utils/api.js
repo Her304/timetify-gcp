@@ -21,46 +21,53 @@ export const authenticatedFetch = async (url, options = {}) => {
   try {
     let response = await fetch(url, { ...options, headers });
 
-    // Handle 401 Unauthorized (Token expired)
-    if (response.status === 401) {
-      const refreshToken = localStorage.getItem("refresh_token");
-      if (refreshToken) {
-        try {
-          const refreshRes = await fetch(`${import.meta.env.VITE_API_URL}/api/token/refresh/`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refresh: refreshToken }),
-          });
+      // Handle 401 Unauthorized (Token expired)
+      if (response.status === 401) {
+        const refreshToken = localStorage.getItem("refresh_token");
+        if (refreshToken) {
+          try {
+            const refreshRes = await fetch(`${import.meta.env.VITE_API_URL}/api/token/refresh/`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ refresh: refreshToken }),
+            });
 
-          if (refreshRes.ok) {
-            const data = await refreshRes.json();
-            localStorage.setItem("access_token", data.access);
-            
-            // Dispatch custom event to notify listeners (like App.jsx) that token has changed
-            window.dispatchEvent(new CustomEvent('token-refreshed', { detail: data.access }));
+            if (refreshRes.ok) {
+              const data = await refreshRes.json();
+              localStorage.setItem("access_token", data.access);
+              
+              // Dispatch custom event to notify listeners (like App.jsx) that token has changed
+              window.dispatchEvent(new CustomEvent('token-refreshed', { detail: data.access }));
 
-            // Retry original request with new token
-            const retryHeaders = {
-              ...headers,
-              "Authorization": `Bearer ${data.access}`,
-            };
-            response = await fetch(url, { ...options, headers: retryHeaders });
-          } else {
+              // Retry original request with new token
+              const retryHeaders = {
+                ...headers,
+                "Authorization": `Bearer ${data.access}`,
+              };
+              response = await fetch(url, { ...options, headers: retryHeaders });
+            } else {
+              handleLogout();
+            }
+          } catch (err) {
+            console.error("Token refresh failed:", err);
             handleLogout();
           }
-        } catch (err) {
-          console.error("Token refresh failed:", err);
+        } else {
           handleLogout();
         }
-      } else {
-        handleLogout();
       }
-    }
 
-    return response;
-  } catch (err) {
-    throw err;
-  }
+      // Automatically notify listeners of server errors (5xx)
+      if (response.status >= 500) {
+        window.dispatchEvent(new CustomEvent('server-error', { detail: { status: response.status, url } }));
+      }
+
+      return response;
+    } catch (err) {
+      // Notify listeners of network errors or other fetch failures
+      window.dispatchEvent(new CustomEvent('server-error', { detail: { error: err.message, url } }));
+      throw err;
+    }
 };
 
 const handleLogout = () => {
