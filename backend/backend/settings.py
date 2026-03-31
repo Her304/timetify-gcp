@@ -130,22 +130,19 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# 1. Pull the Connection Name from your Cloud Run config
-# This matches the 'timetify-prod:us-central1:timetify-gcp' you saw in describe
-DB_CONNECTION_NAME = os.environ.get("CLOUD_SQL_INSTANCE") 
-
-if DB_CONNECTION_NAME:
+# Check if we are running on Cloud Run
+if os.environ.get("CLOUD_RUN_SERVICE"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get("DB_NAME", "timetify_db"),
-            "USER": os.environ.get("DB_USER", "postgres"),
-            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
-            "HOST": f"/cloudsql/{DB_CONNECTION_NAME}",
+            "NAME": os.environ.get("DB_NAME"),
+            "USER": os.environ.get("DB_USER"),
+            "PASSWORD": os.environ.get("DB_PASSWORD"), # Pulled from Secret Manager
+            "HOST": f"/cloudsql/{os.environ.get('CLOUD_SQL_INSTANCE')}",
         }
     }
 else:
-    # Local development fallback
+    # Local/Dev setting
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
