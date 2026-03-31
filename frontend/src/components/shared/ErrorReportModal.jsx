@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { getLogs } from '../../utils/logger';
 import { X, Send01, AlertCircle } from '@untitledui/icons';
+import { authenticatedFetch } from '../../utils/api';
 
-const ErrorReportModal = ({ isOpen, onClose, currentUser, authenticatedFetch }) => {
+const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState(null); // 'success' | 'error'

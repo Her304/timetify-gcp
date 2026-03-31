@@ -35,6 +35,7 @@ import SearchFriend from "@/components/friend/friend";
 import Add from "@/components/add/add";
 import Profile from "@/components/user/profile";
 import { initLogger } from "@/utils/logger";
+import { authenticatedFetch } from "@/utils/api";
 import ErrorReportModal from "@/components/shared/ErrorReportModal";
 import NotFound from "@/components/shared/NotFound";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
@@ -90,72 +91,25 @@ const App = () => {
     window.location.href = "/login";
   };
 
-  const authenticatedFetch = async (url, options = {}) => {
-    const currentToken = localStorage.getItem("access_token");
-    const headers = {
-      "Content-Type": "application/json",
-      ...options.headers,
+  // ---------- Sync Auth State ----------
+  useEffect(() => {
+    const handleTokenRefresh = (e) => {
+      setToken(e.detail);
     };
 
-    if (currentToken) {
-      headers["Authorization"] = `Bearer ${currentToken}`;
-    }
-
-    // Don't set Content-Type if we're sending FormData (let the browser do it with the boundary)
-    if (options.body instanceof FormData) {
-      delete headers["Content-Type"];
-    }
-
-    try {
-      let response = await fetch(url, { ...options, headers });
-
-      if (response.status === 401) {
-        const refreshToken = localStorage.getItem("refresh_token");
-        if (refreshToken) {
-          try {
-            const refreshRes = await fetch(`${import.meta.env.VITE_API_URL}/api/token/refresh/`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ refresh: refreshToken }),
-            });
-
-            if (refreshRes.ok) {
-              const data = await refreshRes.json();
-              localStorage.setItem("access_token", data.access);
-              setToken(data.access);
-
-              // Retry original request with new token
-              const retryHeaders = {
-                ...headers,
-                "Authorization": `Bearer ${data.access}`,
-              };
-              response = await fetch(url, { ...options, headers: retryHeaders });
-            } else {
-              logoutUser();
-            }
-          } catch (err) {
-            console.error("Token refresh failed:", err);
-            logoutUser();
-          }
-        } else {
-          logoutUser();
-        }
-      }
-
-      // Automatically trigger Error Report Modal for server errors (5xx)
-      if (response.status >= 500) {
-        console.error(`Server error: ${response.status} at ${url}`);
-        setIsErrorReportModalOpen(true);
-      }
-
-      return response;
-    } catch (err) {
-      // Trigger modal for network errors or other fetch failures
-      console.error("Network or fetch error:", err);
+    const handleServerError = (e) => {
+      console.error("API Error caught in App:", e.detail);
       setIsErrorReportModalOpen(true);
-      throw err;
-    }
-  };
+    };
+
+    window.addEventListener('token-refreshed', handleTokenRefresh);
+    window.addEventListener('server-error', handleServerError);
+    
+    return () => {
+      window.removeEventListener('token-refreshed', handleTokenRefresh);
+      window.removeEventListener('server-error', handleServerError);
+    };
+  }, []);
 
   useEffect(() => {
     if (token) {
@@ -635,7 +589,6 @@ const App = () => {
         isOpen={isErrorReportModalOpen}
         onClose={() => setIsErrorReportModalOpen(false)}
         currentUser={currentUser}
-        authenticatedFetch={authenticatedFetch}
       />
     </div>
   );

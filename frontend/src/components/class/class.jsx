@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
+import { authenticatedFetch } from "../../utils/api";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -19,10 +20,7 @@ export const ClassDetails = ({ Class_details = [] }) => {
         const fetchCourseDetails = async () => {
             setLoading(true);
             try {
-                const token = localStorage.getItem("access_token");
-                const res = await fetch(`${import.meta.env.VITE_API_URL}/api/courses/`, {
-                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
-                });
+                const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/`);
                 if (res.ok) {
                     const data = await res.json();
 

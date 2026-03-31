@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authenticatedFetch } from "../../utils/api";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -22,15 +23,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => 
         const fetchAllCourses = async () => {
             setLoadingCourses(true);
             try {
-                const token = localStorage.getItem("access_token");
-                const res = await fetch(`${import.meta.env.VITE_API_URL}/api/courses/`, {
-                    headers: token ? { 
-                        "Authorization": `Bearer ${token}`,
-                        "Content-Type": "application/json"
-                    } : {
-                        "Content-Type": "application/json"
-                    }
-                });
+                const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/`);
                 if (res.ok) {
                     const data = await res.json();
                     setAllCourses(data);
@@ -69,13 +62,8 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => 
         setSaving(true);
         setError(null);
         try {
-            const token = localStorage.getItem("access_token");
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user/`, {
+            const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/user/`, {
                 method: "PATCH",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
                 body: JSON.stringify(formData)
             });
 
