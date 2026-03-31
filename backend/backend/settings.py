@@ -10,8 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
-from pathlib import Path
 import os
+import io
+import google.auth
+from google.cloud import secretmanager
+from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
 
@@ -127,25 +130,27 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# Use the environment variable for the connection name for Cloud SQL
-# Format: project-id:region:instance-name
-INSTANCE_CONNECTION_NAME = os.environ.get("INSTANCE_CONNECTION_NAME")
+# 1. Pull the Connection Name from your Cloud Run config
+# This matches the 'timetify-prod:us-central1:timetify-gcp' you saw in describe
+DB_CONNECTION_NAME = os.environ.get("CLOUD_SQL_INSTANCE") 
 
-if INSTANCE_CONNECTION_NAME:
+if DB_CONNECTION_NAME:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get("DB_NAME"),
-            "USER": os.environ.get("DB_USER"),
-            "PASSWORD": os.environ.get("DB_PASS"),
-            "HOST": f"/cloudsql/{INSTANCE_CONNECTION_NAME}",
+            "NAME": os.environ.get("DB_NAME", "timetify_db"),
+            "USER": os.environ.get("DB_USER", "postgres"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": f"/cloudsql/{DB_CONNECTION_NAME}",
         }
     }
 else:
+    # Local development fallback
     DATABASES = {
-        "default": dj_database_url.config(
-            default=os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
-        )
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
 
 

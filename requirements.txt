@@ -1,7 +1,9 @@
 django
-psycopg2-binary
+psycopg2-binary==2.9.9
 gunicorn
 python-dotenv
 openai
 resend
 django-anymail[resend]
+google-auth
+google-cloud-secret-manager
