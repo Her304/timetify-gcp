@@ -140,7 +140,17 @@ if os.environ.get("DB_HOST", "").startswith("/cloudsql/"):
             "HOST": os.environ.get("DB_HOST"),
         }
     }
-
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DB_NAME", "timetify_db"),
+            "USER": os.environ.get("DB_USER", "postgres"),
+            "PASSWORD": os.environ.get("DB_PASS"), 
+            "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -223,3 +233,7 @@ ANYMAIL = {
 DEFAULT_FROM_EMAIL = "onboarding@resend.dev" 
 PASSWORD_RESET_TIMEOUT = 86400
 
+# Add this near your ALLOWED_HOSTS
+CSRF_TRUSTED_ORIGINS = [
+    "https://timetify-web-931972332433.us-central1.run.app",
+]
