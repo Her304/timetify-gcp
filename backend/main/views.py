@@ -362,21 +362,34 @@ class CourseAnalyzeView(APIView):
             return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
         
         file_obj = request.FILES['course_outline']
-        # Create a temporary file to process
-        temp_path = os.path.join(settings.MEDIA_ROOT, 'temp_' + file_obj.name)
-        with open(temp_path, 'wb+') as destination:
-            for chunk in file_obj.chunks():
-                destination.write(chunk)
+        
+        # Use /tmp for Cloud Run compatibility (guaranteed writable)
+        temp_dir = os.path.join('/tmp', 'course_analysis')
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir, exist_ok=True)
+            
+        temp_path = os.path.join(temp_dir, 'temp_' + file_obj.name)
         
         try:
+            with open(temp_path, 'wb+') as destination:
+                for chunk in file_obj.chunks():
+                    destination.write(chunk)
+            
             result = process_course_outline(temp_path)
             return Response(result)
         except Exception as e:
             print(f"Error analyzing course: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # Ensure we return a JSON response even on 500
+            return Response(
+                {"error": "Failed to analyze document. Please check your OpenAI API key in the Cloud Run settings.", "details": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         finally:
             if os.path.exists(temp_path):
-                os.remove(temp_path)
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
 
 class CourseFinalizeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
