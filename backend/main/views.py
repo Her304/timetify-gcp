@@ -1,5 +1,5 @@
 from django.conf import settings
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status, generics, permissions, serializers
 from . import models
@@ -162,9 +162,12 @@ def home(request):
 
 
 @api_view(['GET', 'PATCH'])
+@permission_classes([permissions.AllowAny])
 def get_user(request):
     if not request.user.is_authenticated:
-        return Response({'user': None})
+        if request.method == 'GET':
+            return Response({'user': None})
+        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
     
     if request.method == 'GET':
         serializer = UserSerializer(request.user, context={'request': request})
@@ -178,6 +181,7 @@ def get_user(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RegisterView(APIView):
+    permission_classes = [permissions.AllowAny]
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -216,9 +220,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 class LoginView(TokenObtainPairView):
+    permission_classes = [permissions.AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
 
 class ForgotPasswordView(APIView):
+    permission_classes = [permissions.AllowAny]
     def post(self, request):
         email = request.data.get('email')
         user = User.objects.filter(email=email).first()

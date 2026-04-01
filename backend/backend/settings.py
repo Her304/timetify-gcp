@@ -198,9 +198,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://main.d30jqul10dgn8l.amplifyapp.com",
     "https://d30jqul10dgn8l.amplifyapp.com",
+    "https://timetify.net",
+    "https://timetify-web-931972332433.us-central1.run.app",
+    "https://timetify-gcp-frontend-931972332433.us-central1.run.app",
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True  # Added for troubleshooting
+CORS_ALLOW_ALL_ORIGINS = False
 
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -220,6 +223,9 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
 }
 
 
@@ -236,4 +242,5 @@ PASSWORD_RESET_TIMEOUT = 86400
 # Add this near your ALLOWED_HOSTS
 CSRF_TRUSTED_ORIGINS = [
     "https://timetify-web-931972332433.us-central1.run.app",
+    "https://timetify-gcp-frontend-931972332433.us-central1.run.app",
 ]
