@@ -140,16 +140,6 @@ if os.environ.get("DB_HOST", "").startswith("/cloudsql/"):
             "HOST": os.environ.get("DB_HOST"),
         }
     }
-else:
-    # Fallback for local dev
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
-
-
 
 
 # Password validation
