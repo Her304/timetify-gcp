@@ -32,8 +32,9 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200 w-72 p-0 overflow-hidden font-sans">
       <div className="p-6 pb-2">
-        <div className="w-20 h-9 rounded-lg flex items-center justify-center">
+        <div className="flex items-center gap-2">
           <h2 className="text-xl text-[#607196] font-semibold">Timetify</h2>
+          <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
         </div>
       </div>
 

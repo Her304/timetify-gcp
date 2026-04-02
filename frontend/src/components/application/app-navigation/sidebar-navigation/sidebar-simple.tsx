@@ -46,7 +46,10 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }: Sideb
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-sm">
             <p className="text-white font-semibold">T</p>
           </div>
-          <span className="font-semibold text-gray-900 text-lg">Timetify</span>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-gray-900 text-lg">Timetify</span>
+            <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
+          </div>
         </div>
 
       </div>

@@ -16,9 +16,26 @@ import google.auth
 from google.cloud import secretmanager
 from pathlib import Path
 import dj_database_url
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env'))
+
+sentry_sdk.init(
+    dsn=os.environ.get("BACK_SENTRY_DSN", "https://217fefa78aae5014c25593fae678a2b1@o4511148277235712.ingest.us.sentry.io/4511148311445504"),
+    integrations=[DjangoIntegration()],
+    # Add data like request headers and IP for users
+    send_default_pii=True,
+    # Enable sending logs to Sentry
+    enable_logs=True,
+    # Set traces_sample_rate to 1.0 to capture 100%
+    # of transactions for performance monitoring.
+    traces_sample_rate=1.0,
+    # Set profiles_sample_rate to 1.0 to profile 100%
+    # of sampled transactions.
+    profiles_sample_rate=1.0,
+)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -130,17 +147,19 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-if os.environ.get("DB_HOST", "").startswith("/cloudsql/"):
+if os.environ.get("INSTANCE_CONNECTION_NAME"):
+    host = f"/cloudsql/{os.environ.get('INSTANCE_CONNECTION_NAME')}"
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
             "NAME": os.environ.get("DB_NAME"),
             "USER": os.environ.get("DB_USER"),
             "PASSWORD": os.environ.get("DB_PASS"),
-            "HOST": os.environ.get("DB_HOST"),
+            "HOST": host,
         }
     }
 else:
+    # Local Development / Cloud SQL Proxy
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -189,6 +208,8 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_MANIFEST_STRICT = False
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

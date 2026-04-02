@@ -5,6 +5,8 @@ __pycache__/
 frontend/.vite/
 frontend/node_modules/
 .env
+.env.*
+.env.local
 venv/
 .DS_Store
 db.sqlite3

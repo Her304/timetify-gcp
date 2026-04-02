@@ -118,14 +118,47 @@ export const HeaderNavigationBase = ({
                             href="/"
                             className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                         >
-                            <div className="w-20 h-9 rounded-lg flex items-center justify-center">
+                            <div className="flex items-center gap-2">
                                 <h2 className="text-xl text-[#607196] font-semibold">Timetify</h2>
+                                <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
                             </div>
                         </a>
 
                     </div>
 
                     <NavList items={items} />
+
+                    <div className="px-6 py-4">
+                        <p
+                            className="fade-up d-6 !text-[#ffc759]"
+                            style={{
+                                fontSize: 'clamp(1rem, 4vw, 1.5rem)',
+                                color: 'var(--muted)',
+                                fontStyle: 'italic',
+                                fontFamily: "'Instrument Serif', serif",
+                                marginBottom: 16,
+                                textAlign: 'left',
+                            }}
+                        >
+                            Asking about schedules?
+                        </p>
+
+                        <h1
+                            className="fade-up d-7"
+                            style={{
+                                fontFamily: "'Instrument Serif', serif",
+                                fontSize: 'clamp(4rem, 14vw, 8rem)',
+                                fontWeight: 400,
+                                color: 'var(--brand)',
+                                lineHeight: 1,
+                                marginBottom: 48,
+                                letterSpacing: '-0.02em',
+                                textAlign: 'left',
+                            }}
+                        >
+                            Timetify
+                        </h1>
+                    </div>
 
                     <div className="mt-auto flex flex-col gap-3 pl-16">
                         <div className="flex flex-col space-y-3">
@@ -148,8 +181,9 @@ export const HeaderNavigationBase = ({
                                 href="/"
                                 className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                             >
-                                <div className="w-30 h-12 rounded-lg flex items-center justify-center">
+                                <div className="flex items-center gap-3">
                                     <h2 className="text-3xl text-[#607196] font-semibold">Timetify</h2>
+                                    <span className="px-2 py-1 text-xs leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
                                 </div>
                             </a>
                         </div>

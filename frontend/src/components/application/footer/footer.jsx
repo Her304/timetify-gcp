@@ -9,7 +9,7 @@ export const Footer = ({ currentUser }) => {
           {/* Left Side: Logo and Links */}
           <div className="space-y-6">
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold tracking-tight">timetify</span>
+              <span className="text-2xl font-bold tracking-tight">Timetify</span>
             </div>
             <nav className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-medium text-white">
               {!currentUser && (

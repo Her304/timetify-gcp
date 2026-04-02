@@ -31,7 +31,15 @@ from main.forms import CustomPasswordResetForm
 
 from main.debug_views import DebugPasswordResetConfirmView
 
+def trigger_error(request):
+    division_by_zero = 1 / 0
+
+admin.site.site_header = "Timetify Admin"
+admin.site.site_title = "Timetify Admin Portal"
+admin.site.index_title = "Welcome to Timetify Admin"
+
 urlpatterns = [
+    path('sentry-debug/', trigger_error),
     path("admin/", admin.site.urls),
     path("", include("main.urls")),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
