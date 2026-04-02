@@ -13,14 +13,15 @@ import { cx } from "@/utils/cx";
 export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
     return (
         <AriaDialogTrigger>
-            <header className="flex h-14 items-center justify-between border-b border-secondary bg-primary p-3 pl-4 lg:hidden">
+            <header className="flex h-14 items-center justify-between border-b border-secondary bg-primary/70 backdrop-blur-md p-3 pl-4 lg:hidden sticky top-0 z-40">
                 <a
                     aria-label="Go to homepage"
                     href="/"
                     className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
-                    <div className="w-20 h-9 rounded-lg flex items-center justify-center">
+                    <div className="flex items-center gap-2">
                         <h2 className="text-xl text-[#607196] font-semibold">Timetify</h2>
+                        <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
                     </div>
                 </a>
 
@@ -37,7 +38,7 @@ export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
                 isDismissable
                 className={({ isEntering, isExiting }) =>
                     cx(
-                        "fixed inset-0 z-50 cursor-pointer bg-overlay/70 pr-16 backdrop-blur-md lg:hidden",
+                        "fixed inset-0 z-50 cursor-pointer bg-white/60 pr-16 backdrop-blur-md lg:hidden",
                         isEntering && "duration-300 ease-in-out animate-in fade-in",
                         isExiting && "duration-200 ease-in-out animate-out fade-out",
                     )
