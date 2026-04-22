@@ -1,6 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@source "../node_modules/flowbite";
 
 :root {
   --text-primary: #101828;
@@ -8,7 +9,7 @@
   --bg-primary: #ffffff;
   --border-primary: #eaecf0;
   --accent-primary: #7f56d9;
-  
+
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -47,4 +48,3 @@ h1 {
   font-size: 3.2em;
   line-height: 1.1;
 }
-
