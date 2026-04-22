@@ -47,6 +47,7 @@ import Terms from "@/components/terms/terms";
 import Landing from "@/components/landing/Landing";
 
 
+
 const simpleItems = [
 ];
 
