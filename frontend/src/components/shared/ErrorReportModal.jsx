@@ -47,7 +47,7 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+      <div className="bg-white  shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <AlertCircle className="w-5 h-5 text-blue-600" />
@@ -55,7 +55,7 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
           </h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-gray-200 transition-colors text-gray-500"
+            className="p-1  hover:bg-gray-200 transition-colors text-gray-500"
           >
             <X className="w-6 h-6" />
           </button>
@@ -67,7 +67,7 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
               Describe what happened
             </label>
             <textarea
-              className="w-full h-32 p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
+              className="w-full h-32 p-3 bg-gray-50 border border-gray-200  focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
               placeholder="E.g. I tried to add a course but the page froze..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -75,8 +75,8 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
             />
           </div>
 
-          <div className="p-4 bg-blue-50 rounded-xl border border-blue-100 flex gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg shrink-0 h-fit">
+          <div className="p-4 bg-blue-50  border border-blue-100 flex gap-3">
+            <div className="p-2 bg-blue-100  shrink-0 h-fit">
               <AlertCircle className="w-5 h-5 text-blue-600" />
             </div>
             <div className="text-sm text-blue-800 leading-relaxed">
@@ -88,14 +88,14 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
           </div>
 
           {status === 'success' && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm font-medium flex items-center gap-2">
+            <div className="p-4 bg-green-50 border border-green-200  text-green-700 text-sm font-medium flex items-center gap-2">
               <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
               Report submitted successfully! Thank you.
             </div>
           )}
 
           {status === 'error' && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm font-medium">
+            <div className="p-4 bg-red-50 border border-red-200  text-red-700 text-sm font-medium">
               Failed to submit report. Please try again or contact support.
             </div>
           )}
@@ -104,14 +104,14 @@ const ErrorReportModal = ({ isOpen, onClose, currentUser }) => {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-white border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors"
+              className="flex-1 px-4 py-2 bg-white border border-gray-200 text-gray-700 font-semibold  hover:bg-gray-50 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || status === 'success'}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold  hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
                 <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
