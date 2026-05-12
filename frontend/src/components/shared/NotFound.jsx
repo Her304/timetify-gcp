@@ -6,7 +6,7 @@ const NotFound = () => {
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="relative mb-6">
         <div className="absolute inset-0 bg-blue-100 rounded-full blur-2xl opacity-50 scale-150"></div>
-        <div className="relative p-4 bg-white rounded-2xl shadow-xl border border-gray-100">
+        <div className="relative p-4 bg-white  shadow-xl border border-gray-100">
           <AlertCircle className="w-16 h-16 text-[#607196]" />
         </div>
       </div>
@@ -26,7 +26,7 @@ const NotFound = () => {
 
       <Link
         to="/"
-        className="flex items-center gap-2 px-6 py-3 bg-[#607196] text-white font-semibold rounded-xl hover:bg-[#607196]/80 transition-all shadow-md hover:shadow-lg active:scale-95 group"
+        className="flex items-center gap-2 px-6 py-3 bg-[#607196] text-white font-semibold  hover:bg-[#607196]/80 transition-all shadow-md hover:shadow-lg active:scale-95 group"
       >
         <HomeLine className="w-5 h-5 group-hover:-translate-y-0.5 transition-transform" />
         Back to Home

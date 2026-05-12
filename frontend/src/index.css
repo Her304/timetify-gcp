@@ -8,7 +8,11 @@
   --text-secondary: #475467;
   --bg-primary: #ffffff;
   --border-primary: #eaecf0;
-  --accent-primary: #7f56d9;
+  --accent-primary: #607196;
+  --brand: #607196;
+  --brand-dark: #4a5a7a;
+  --brand-secondary: #e8e9ed;
+  --brand-accent: #ffc759;
 
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;

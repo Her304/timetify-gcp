@@ -126,10 +126,10 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     };
 
     const inputClasses = (fieldName) => `
-        w-full px-4 py-3 rounded-xl border transition-all duration-200 outline-none
+        w-full px-4 py-3  border transition-all duration-200 outline-none
         ${errors[fieldName]
-            ? "border-red-300 bg-red-50 focus:border-red-500 focus:ring-4 focus:ring-red-100"
-            : "border-gray-200 bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100"}
+            ? "border-red-300 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-100"
+            : "border-white bg-white focus:border-[#607196] focus:ring-2 focus:ring-[#607196]/20"}
         placeholder:text-gray-400 text-gray-900 text-sm
     `;
 
@@ -150,7 +150,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     if (isSuccess) {
         return (
             <div className="min-h-full flex items-center justify-center py-12 px-4">
-                <div className="w-full max-w-2xl bg-white p-10 rounded-3xl shadow-xl border border-gray-100 text-center space-y-4">
+                <div className="w-full max-w-2xl bg-white p-10  shadow-xl border border-gray-100 text-center space-y-4">
                     <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
                         <svg className="w-10 h-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -167,7 +167,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     if (viewState === "analyzing") {
         return (
             <div className="min-h-full flex items-center justify-center py-12 px-4">
-                <div className="w-full max-w-2xl bg-white p-10 rounded-3xl shadow-xl border border-gray-100 text-center space-y-8">
+                <div className="w-full max-w-2xl bg-white p-10  shadow-xl border border-gray-100 text-center space-y-8">
                     <div className="relative w-24 h-24 mx-auto">
                         <div className="absolute inset-0 border-4 border-gray-100 rounded-full"></div>
                         <div className="absolute inset-0 border-4 border-[#ffc759] rounded-full border-t-transparent animate-spin"></div>
@@ -190,19 +190,19 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         const isEdit = viewState === "editing";
         return (
             <div className="min-h-full py-12 px-4 sm:px-6 lg:px-8">
-                <div className="w-full max-w-4xl mx-auto space-y-8 bg-white p-10 rounded-3xl shadow-xl border border-gray-100">
+                <div className="w-full max-w-4xl mx-auto space-y-8 bg-white p-10  shadow-xl border border-gray-100">
                     <div className="text-center">
                         <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">
                             {isEdit ? "Edit Analysis Results" : "Confirm Analysis Results"}
                         </h2>
-                        <p className="mt-2 text-sm text-amber-600 bg-amber-50 py-2 px-4 rounded-lg inline-block font-medium">
+                        <p className="mt-2 text-sm text-amber-600 bg-amber-50 py-2 px-4  inline-block font-medium">
                             ⚠️ AI analysis may not be accurate. Please review all items carefully.
                         </p>
                     </div>
 
                     <div className="space-y-8">
                         {analysisResult.courses.map((course, cIdx) => (
-                            <div key={cIdx} className="p-6 bg-gray-50 rounded-2xl border border-gray-200 space-y-6">
+                            <div key={cIdx} className="p-6 bg-gray-50  border border-gray-200 space-y-6">
                                 <div className="flex justify-between items-start">
                                     <h3 className="text-xl font-bold text-gray-900">
                                         {course.course_id}: {course.course_name} {course.is_lab ? "(Lab)" : ""}
@@ -229,7 +229,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         <label className="text-xs font-bold text-gray-500 uppercase">Classroom</label>
                                         {isEdit ? (
                                             <input 
-                                                className="w-full p-2 border rounded-lg" 
+                                                className="w-full p-2 border " 
                                                 value={course.classroom} 
                                                 onChange={(e) => handleUpdateCourse(cIdx, 'classroom', e.target.value)}
                                             />
@@ -311,7 +311,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
                                             {course.exams.map((exam, eIdx) => (
-                                                <div key={eIdx} className="bg-white p-3 rounded-xl border border-gray-200 group">
+                                                <div key={eIdx} className="bg-white p-3  border border-gray-200 group">
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
                                                             <input className="font-bold text-sm border-b focus:outline-none" value={exam.exam_topic} onChange={(e) => handleUpdateItem(cIdx, 'exams', eIdx, 'exam_topic', e.target.value)} />
@@ -360,7 +360,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
                                             {course.assignments.map((assignment, aIdx) => (
-                                                <div key={aIdx} className="bg-white p-3 rounded-xl border border-gray-200 group">
+                                                <div key={aIdx} className="bg-white p-3  border border-gray-200 group">
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
                                                             <input className="font-bold text-sm border-b focus:outline-none w-full" value={assignment.assignment_topic} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_topic', e.target.value)} />
@@ -375,7 +375,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                     </div>
                                                     {isEdit ? (
                                                         <textarea 
-                                                            className="w-full text-xs text-gray-600 p-2 border rounded-lg mb-2" 
+                                                            className="w-full text-xs text-gray-600 p-2 border  mb-2" 
                                                             value={assignment.assignment_detail} 
                                                             onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_detail', e.target.value)}
                                                             placeholder="Assignment details..."
@@ -407,13 +407,13 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                     <div className="flex gap-4 pt-6 border-t font-bold">
                         <button 
                             onClick={() => setViewState("initial")}
-                            className="flex-1 py-4 px-4 rounded-xl border-2 border-gray-100 text-gray-400 hover:bg-gray-50 transition-all text-sm"
+                            className="flex-1 py-4 px-4  border-2 border-gray-100 text-gray-400 hover:bg-gray-50 transition-all text-sm"
                         >
                             Cancel
                         </button>
                         <button 
                             onClick={handleFinalize}
-                            className="flex-[2] py-4 px-4 rounded-xl shadow-lg text-white bg-[#ffc759] hover:bg-transparent hover:text-[#ffc759] border-2 border-[#ffc759] transition-all text-sm"
+                            className="flex-[2] py-4 px-4  shadow-lg text-white bg-[#ffc759] hover:bg-transparent hover:text-[#ffc759] border-2 border-[#ffc759] transition-all text-sm"
                         >
                             Confirm and Save
                         </button>
@@ -424,27 +424,36 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     }
 
     return (
-        <div className="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-            <div className="w-full max-w-2xl space-y-8 bg-white/80 backdrop-blur-xl p-10 rounded-3xl shadow-xl border border-white/20">
-                <div className="text-center">
-                    <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Add Your Course</h2>
-                    <p className="mt-2 text-sm text-gray-500">You can type it manually or upload your course outline</p>
-                </div>
+        <div className="space-y-8 pb-12">
+            {/* Page header */}
+            <h1 className="text-3xl font-extrabold text-gray-900">Add</h1>
 
-                <div className="flex justify-center space-x-4">
-                    <button
-                        onClick={() => setStatus("manual")}
-                        className={`px-4 py-2 rounded-xl transition-all duration-200 ${status === "manual" ? "underline underline-offset-8 decoration-2 decoration-[#ffc759] text-[#ffc759] font-bold" : "bg-white text-[#607196]"}`}
-                    >
-                        Manual
-                    </button>
-                    <button
-                        onClick={() => setStatus("upload")}
-                        className={`px-4 py-2 rounded-xl transition-all duration-200 ${status === "upload" ? "underline underline-offset-8 decoration-2 decoration-[#ffc759] text-[#ffc759] font-bold" : "bg-white text-[#607196]"}`}
-                    >
-                        Upload
-                    </button>
-                </div>
+            {/* Tabs */}
+            <div className="flex items-center gap-6">
+                <button
+                    onClick={() => setStatus("manual")}
+                    className={`text-sm font-bold pb-2 transition-all duration-200 border-b-2 ${
+                        status === "manual"
+                            ? "border-[#607196] text-[#607196]"
+                            : "border-transparent text-gray-400 hover:text-gray-600"
+                    }`}
+                >
+                    Type Manually
+                </button>
+                <span className="text-gray-300 font-semibold text-sm">OR</span>
+                <button
+                    onClick={() => setStatus("upload")}
+                    className={`text-sm font-bold pb-2 transition-all duration-200 border-b-2 ${
+                        status === "upload"
+                            ? "border-[#607196] text-[#607196]"
+                            : "border-transparent text-gray-400 hover:text-gray-600"
+                    }`}
+                >
+                    Upload your Course Outline
+                </button>
+            </div>
+
+            <div className="bg-[#e8e9ed]  p-6">
 
                 {status === "manual" ? (
                     <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
@@ -571,7 +580,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
 
                             {/* Non-field / detail errors (e.g. wrong credentials) */}
                             {(errors.non_field_errors || errors.detail) && (
-                                <div className="p-3 rounded-xl bg-red-50 border border-red-100 flex items-center gap-2">
+                                <div className="p-3  bg-red-50 border border-red-100 flex items-center gap-2">
                                     <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                                     </svg>
@@ -584,7 +593,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                             <div>
                                 <button
                                     type="submit"
-                                    className="w-full flex justify-center py-4 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-[#ffc759] hover:bg-transparent hover:text-[#ffc759] hover:border-[#ffc759] focus:outline-none focus:ring-4 focus:ring-[#ffc759]/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0"
+                                    className="w-full flex justify-center py-4 px-4 border border-transparent  shadow-lg text-sm font-bold text-white bg-[#ffc759] hover:bg-transparent hover:text-[#ffc759] hover:border-[#ffc759] focus:outline-none focus:ring-4 focus:ring-[#ffc759]/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0"
                                 >
                                     Add Course
                                 </button>
@@ -602,7 +611,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                             isLoading={viewState === "analyzing"}
                         />
                         {selectedFile && (
-                            <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-3">
+                            <div className="mt-4 p-4 bg-blue-50 border border-blue-100  flex items-center gap-3">
                                 <svg className="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
@@ -617,7 +626,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                             <button
                                 type="submit"
                                 disabled={!selectedFile || viewState === "analyzing"}
-                                className="w-full flex justify-center py-4 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-[#ffc759] hover:bg-transparent hover:text-[#ffc759] hover:border-[#ffc759] focus:outline-none focus:ring-4 focus:ring-[#ffc759]/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                                className="w-full flex justify-center py-4 px-4 border border-transparent  shadow-lg text-sm font-bold text-white bg-[#ffc759] hover:bg-transparent hover:text-[#ffc759] hover:border-[#ffc759] focus:outline-none focus:ring-4 focus:ring-[#ffc759]/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                             >
                                 {viewState === "analyzing" ? "Analyzing..." : "Upload Outline"}
                             </button>
@@ -628,3 +637,4 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         </div>
     );
 }
+

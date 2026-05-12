@@ -5,7 +5,17 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}", // This covers all your React components
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        brand: {
+          DEFAULT: '#607196',
+          dark: '#4a5a7a',
+          light: '#7d8fad',
+        },
+        'brand-secondary': '#e8e9ed',
+        'brand-accent': '#ffc759',
+      },
+    },
   },
   plugins: [],
 }
