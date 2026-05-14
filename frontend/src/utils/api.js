@@ -2,6 +2,14 @@
  * A wrapper around fetch that automatically adds the Authorization header
  * and handles token refresh logic.
  */
+// Catch misconfigured builds where VITE_API_URL got inlined as "undefined".
+if (!import.meta.env.VITE_API_URL || import.meta.env.VITE_API_URL === "undefined") {
+  console.error(
+    "VITE_API_URL is not set at build time — API requests will resolve against the current origin and fail. " +
+    "Check that frontend/.env.production is present during `npm run build`."
+  );
+}
+
 // Helper to clean up URLs and avoid double slashes
 const normalizeUrl = (url) => url.replace(/([^:]\/)\/+/g, "$1");
 
