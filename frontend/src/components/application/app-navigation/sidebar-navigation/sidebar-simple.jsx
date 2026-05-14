@@ -26,7 +26,7 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
   };
 
   return (
-    <div className="hidden md:flex flex-col h-full bg-white border-r border-[#e8e9ed] w-72 overflow-hidden flex-shrink-0">
+    <div className="hidden md:flex flex-col h-screen sticky top-0 bg-white border-r border-[#e8e9ed] w-72 overflow-hidden flex-shrink-0">
       {/* Logo */}
       <div className="px-6 pt-6 pb-4">
         <h2 className="text-3xl font-normal text-[#607196] tracking-tight" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</h2>
