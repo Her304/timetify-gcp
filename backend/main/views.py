@@ -76,28 +76,23 @@ def home(request):
                 })
     
     shared_classes = set()
-    friendships = models.Friend.objects.filter(status=1).filter(Q(user=user) | Q(friend=user))
-    
+    friendships = models.Friend.objects.filter(status=1).filter(Q(user=user) | Q(friend=user)).select_related('user', 'friend')
+
+    my_class_tuples = set(my_classes.values_list('course_id', 'classroom', 'start_time'))
+
     for fship in friendships:
         friend = fship.friend if fship.user == user else fship.user
         friend_name = friend.username
         friend_schedule = {day: [] for day in ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]}
-        friend_classes = models.Course.objects.filter(
+        friend_classes = list(models.Course.objects.filter(
             user=friend,
             start_date__lte=today,
             end_date__gte=today
-        ).order_by("start_time")
-        
-        # Collect which course keys are shared between this friend and the user
+        ).select_related('parent_course').order_by("start_time"))
+
         friend_shared_keys = set()
         for f_cls in friend_classes:
-            is_shared_with_me = models.Course.objects.filter(
-                course_id=f_cls.course_id,
-                classroom=f_cls.classroom,
-                start_time=f_cls.start_time,
-                user=user
-            ).exists()
-            if is_shared_with_me:
+            if (f_cls.course_id, f_cls.classroom, f_cls.start_time) in my_class_tuples:
                 days_list = f_cls.rep_date.split(',')
                 for raw_day in days_list:
                     normalized_day = raw_day.strip().upper()[:3]
@@ -123,7 +118,7 @@ def home(request):
                         "_owner": entry_owner
                     })
 
-        if friend_classes.exists():
+        if friend_classes:
             all_schedules[friend_name] = friend_schedule
     
     combined_schedule = {day: [] for day in ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]}
