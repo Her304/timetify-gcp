@@ -6,6 +6,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Figtree"', 'sans-serif'],
+        serif: ['"DM Serif Text"', 'serif'],
+      },
       colors: {
         brand: {
           DEFAULT: '#607196',

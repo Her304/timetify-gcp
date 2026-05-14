@@ -35,7 +35,7 @@ const simpleItems = [];
 const HeaderNavigationSimpleDemo = () => <HeaderNavigationBase activeUrl="/" items={simpleItems} />;
 
 // ---------- Mobile Top Navigation ----------
-const MobileNav = ({ totalClasses }) => {
+const MobileNav = ({ totalClasses, currentUser, logoutUser }) => {
   const location = useLocation();
   const path = location.pathname;
   const hash = location.hash;
@@ -51,61 +51,88 @@ const MobileNav = ({ totalClasses }) => {
     [totalClasses]
   );
 
-  // Current page label
-  const pageLabel = isClass ? "Class" : isFriend ? "Friend" : isAdd ? "Add" : isProfile ? "Profile" : "Home";
+  const pageLabel = isClass ? "My Class" : isFriend ? "Friend" : isAdd ? "Add" : isProfile ? "Profile" : "Home";
 
-  // Current sub-page label
-  let subLabel = "";
+  let subtabs = [];
   if (isHome) {
-    if (hash === "#schedule") subLabel = "My Schedule";
-    else if (hash === "#friend-schedule") subLabel = "Friends Schedule";
-    else subLabel = "Today";
+    subtabs = [
+      { label: "Today", href: "/#today" },
+      { label: "My Schedule", href: "/#schedule" },
+      { label: "Friends Schedule", href: "/#friend-schedule" },
+    ];
   } else if (isClass) {
-    const courseName = path.replace("/class/", "").replace("/class", "");
-    subLabel = courseName || "Overview";
+    subtabs = courseNames.map((name) => ({ label: name, href: `/class/${name}` }));
   } else if (isFriend) {
-    if (hash === "#my-friends") subLabel = "My Friends";
-    else if (hash === "#schedule") subLabel = "Schedule";
-    else if (hash === "#request") subLabel = "Request";
-    else subLabel = "Search";
+    subtabs = [
+      { label: "Search", href: "/friend#search" },
+      { label: "My Friends", href: "/friend#my-friends" },
+      { label: "Schedule", href: "/friend#schedule" },
+      { label: "Request", href: "/friend#request" },
+    ];
   }
 
-  // Other pages (not current)
-  const otherPages = [
+  const headTabs = [
     !isHome && { label: "Home", href: "/" },
-    !isClass && { label: "Class", href: "/class" },
+    !isClass && { label: "My Class", href: "/class" },
     !isFriend && { label: "Friend", href: "/friend" },
     !isAdd && { label: "Add", href: "/Add" },
-    !isProfile && { label: "Profile", href: "/profile" },
   ].filter(Boolean);
 
+  const currentFull = path + hash;
+  const isSubActive = (href) => currentFull === href;
+
+  const avatarLetter = (currentUser?.username?.[0] || currentUser?.email?.[0] || "U").toUpperCase();
+
   return (
-    <div className="md:hidden flex items-center bg-white border-b border-[#e8e9ed] px-4 h-12 gap-0 flex-shrink-0 overflow-x-auto whitespace-nowrap">
-      {/* Brand */}
-      <span className="font-extrabold text-gray-900 text-sm flex-shrink-0 pr-3">Timetify</span>
+    <div className="md:hidden flex items-center bg-white border-b border-[#e8e9ed] h-12 flex-shrink-0">
+      {/* Scrollable section */}
+      <div className="flex items-center flex-1 overflow-x-auto whitespace-nowrap px-3 gap-0 min-w-0">
+        {/* Brand + avatar */}
+        <div className="flex items-center gap-2 flex-shrink-0 pr-3">
+          <span className="text-lg text-[#607196] font-normal flex-shrink-0" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</span>
+          <a href="/profile" className="w-6 h-6 rounded-full bg-[#607196] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            {avatarLetter}
+          </a>
+        </div>
 
-      <div className="w-px h-5 bg-gray-300 flex-shrink-0" />
+        <div className="w-px h-5 bg-gray-300 flex-shrink-0" />
 
-      {/* Current page · subtab */}
-      <div className="flex items-center gap-1.5 px-3 flex-shrink-0">
-        <span className="text-sm font-bold text-gray-900">{pageLabel}</span>
-        {subLabel && (
-          <>
-            <span className="text-gray-300 text-sm">·</span>
-            <span className="text-sm font-semibold text-[#607196]">{subLabel}</span>
-          </>
-        )}
+        {/* Current page + all subtabs */}
+        <div className="flex items-center gap-1.5 px-3 flex-shrink-0">
+          <span className="text-sm font-bold text-gray-900">{pageLabel}</span>
+          {subtabs.map((tab) => (
+            <span key={tab.href} className="flex items-center gap-1.5">
+              <span className="text-gray-300 text-sm">•</span>
+              <a
+                href={tab.href}
+                className={`text-sm whitespace-nowrap ${isSubActive(tab.href) ? "font-semibold text-[#607196]" : "text-gray-400 hover:text-gray-700"}`}
+              >
+                {tab.label}
+              </a>
+            </span>
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-gray-300 flex-shrink-0" />
+
+        {/* All head tabs (no Profile) */}
+        <div className="flex items-center gap-3 px-3 flex-shrink-0">
+          {headTabs.map((tab) => (
+            <a key={tab.href} href={tab.href} className="text-sm text-gray-400 font-medium hover:text-gray-700 whitespace-nowrap">
+              {tab.label}
+            </a>
+          ))}
+        </div>
       </div>
 
-      <div className="w-px h-5 bg-gray-300 flex-shrink-0" />
-
-      {/* Other pages */}
-      <div className="flex items-center gap-4 px-3">
-        {otherPages.map((p) => (
-          <a key={p.href} href={p.href} className="text-sm text-gray-400 font-medium hover:text-gray-700 whitespace-nowrap">
-            {p.label}
-          </a>
-        ))}
+      {/* Log Out — always visible, pinned to the right */}
+      <div className="flex-shrink-0 h-full flex items-center px-2">
+        <button
+          onClick={logoutUser}
+          className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors whitespace-nowrap"
+        >
+          Log Out
+        </button>
       </div>
     </div>
   );
@@ -400,7 +427,7 @@ const App = () => {
 
       {/* Mobile top nav (only when logged in) */}
       {currentUser && (
-        <MobileNavWrapper totalClasses={totalClasses} />
+        <MobileNavWrapper totalClasses={totalClasses} currentUser={currentUser} logoutUser={logoutUser} />
       )}
 
       <main className="flex-1 overflow-y-auto flex flex-col">
@@ -522,8 +549,8 @@ const App = () => {
 };
 
 // Wrapper so MobileNav can use useLocation (must be inside Router)
-const MobileNavWrapper = ({ totalClasses }) => {
-  return <MobileNav totalClasses={totalClasses} />;
+const MobileNavWrapper = ({ totalClasses, currentUser, logoutUser }) => {
+  return <MobileNav totalClasses={totalClasses} currentUser={currentUser} logoutUser={logoutUser} />;
 };
 
 // ---------- Me & My friends schedule section (on home page) ----------
