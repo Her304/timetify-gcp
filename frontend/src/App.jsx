@@ -19,6 +19,7 @@ import { HeaderNavigationBase } from "@/components/application/app-navigation/he
 import SearchFriend from "@/components/friend/friend";
 import Add from "@/components/add/add";
 import Profile from "@/components/user/profile";
+import * as Sentry from "@sentry/react";
 import { initLogger } from "@/utils/logger";
 import { authenticatedFetch } from "@/utils/api";
 import ErrorReportModal from "@/components/shared/ErrorReportModal";
@@ -236,6 +237,7 @@ const App = () => {
         setAllClasses(combinedSchedule);
         setLoading(false);
       } catch (err) {
+        Sentry.captureException(err);
         setError(err.message);
         setLoading(false);
         setIsErrorReportModalOpen(true);
@@ -249,6 +251,7 @@ const App = () => {
         const requestsRes = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friend-requests/pending/`);
         if (requestsRes.ok) setFriendRequests(await requestsRes.json());
       } catch (err) {
+        Sentry.captureException(err);
         console.error("Error fetching friends data:", err);
       }
     };

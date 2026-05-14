@@ -7,8 +7,12 @@ import {
   matchRoutes,
 } from "react-router-dom";
 
+if (!import.meta.env.VITE_SENTRY_DSN) {
+  console.warn("VITE_SENTRY_DSN is not set — Sentry will not be initialised.");
+}
+
 Sentry.init({
-  dsn: import.meta.env.VITE_SENTRY_DSN || "https://217fefa78aae5014c25593fae678a2b1@o4511148277235712.ingest.us.sentry.io/4511148311445504",
+  dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.MODE,
   release: import.meta.env.VITE_APP_VERSION,
 
