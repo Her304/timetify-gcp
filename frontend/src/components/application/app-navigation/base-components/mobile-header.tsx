@@ -20,14 +20,14 @@ export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
                     className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                     <div className="flex items-center gap-2">
-                        <h2 className="text-xl text-[#607196] font-semibold">Timetify</h2>
+                        <h2 className="text-xl text-[#607196] font-normal" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</h2>
                         <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
                     </div>
                 </a>
 
                 <AriaButton
                     aria-label="Expand navigation menu"
-                    className="group flex items-center justify-center rounded-lg bg-primary p-2 text-fg-secondary outline-focus-ring hover:bg-primary_hover hover:text-fg-secondary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
+                    className="group flex items-center justify-center rounded-none bg-primary p-2 text-fg-secondary outline-focus-ring hover:bg-primary_hover hover:text-fg-secondary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                     <Menu02 className="size-6 transition duration-200 ease-in-out group-aria-expanded:opacity-0" />
                     <CloseIcon className="absolute size-6 opacity-0 transition duration-200 ease-in-out group-aria-expanded:opacity-100" />
@@ -49,7 +49,7 @@ export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
                         <AriaButton
                             aria-label="Close navigation menu"
                             onPress={() => state.close()}
-                            className="fixed top-2.5 right-3 flex cursor-pointer items-center justify-center rounded-lg p-2 text-fg-white/70 outline-focus-ring hover:bg-white/10 hover:text-fg-white focus-visible:outline-2 focus-visible:outline-offset-2"
+                            className="fixed top-2.5 right-3 flex cursor-pointer items-center justify-center rounded-none p-2 text-fg-white/70 outline-focus-ring hover:bg-white/10 hover:text-fg-white focus-visible:outline-2 focus-visible:outline-offset-2"
                         >
                             <CloseIcon className="size-6" />
                         </AriaButton>

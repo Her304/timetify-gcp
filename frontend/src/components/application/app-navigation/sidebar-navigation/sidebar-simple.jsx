@@ -4,7 +4,7 @@ import { ChevronRight } from "@untitledui/icons";
 
 export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
   const location = useLocation();
-  const [openItems, setOpenItems] = useState({ Home: true });
+  const [openItems, setOpenItems] = useState({});
 
   const isItemActive = (item) => {
     const currentPath = location.pathname;
@@ -22,14 +22,14 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
 
   const toggleItem = (item) => {
     if (isItemActive(item)) return;
-    setOpenItems((prev) => ({ ...prev, [item.label]: !prev[item.label] }));
+    setOpenItems((prev) => ({ [item.label]: !prev[item.label] }));
   };
 
   return (
     <div className="hidden md:flex flex-col h-full bg-white border-r border-[#e8e9ed] w-72 overflow-hidden flex-shrink-0">
       {/* Logo */}
       <div className="px-6 pt-6 pb-4">
-        <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Timetify</h2>
+        <h2 className="text-3xl font-normal text-[#607196] tracking-tight" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</h2>
       </div>
 
       {/* Primary nav */}
