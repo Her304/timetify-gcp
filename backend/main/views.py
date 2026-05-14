@@ -1,5 +1,8 @@
+import logging
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
+
+logger = logging.getLogger(__name__)
 from rest_framework.response import Response
 from rest_framework import status, generics, permissions, serializers
 from . import models
@@ -18,7 +21,6 @@ from .models import Course, Week, Exam, Assignment, Friend
 from datetime import datetime, timedelta
 from django.contrib.auth import get_user_model
 from main.utils import send_email
-import secrets, string
 
 User = get_user_model()
 
@@ -223,35 +225,6 @@ class LoginView(TokenObtainPairView):
     permission_classes = [permissions.AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
 
-class ForgotPasswordView(APIView):
-    permission_classes = [permissions.AllowAny]
-    def post(self, request):
-        email = request.data.get('email')
-        user = User.objects.filter(email=email).first()
-        if user:
-            alphabet = string.ascii_letters + string.digits
-            temp_pass = ''.join(secrets.choice(alphabet) for _ in range(10))
-            user.set_password(temp_pass)
-            user.is_temp_password = True
-            user.save()
-            from main.utils import send_email
-            send_email(user.email, "Temporary Password", f"Your temporary password is: {temp_pass}\n\nPlease login and reset your password.")
-            return Response({'message': 'Temporary password sent'})
-        return Response({'error': 'Email not found'}, status=404)
-
-class ResetPasswordView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def post(self, request):
-        new_password = request.data.get('new_password')
-        user = request.user
-        if user.is_temp_password:
-            user.set_password(new_password)
-            user.is_temp_password = False
-            user.save()
-            return Response({'message': 'Password reset successful'})
-        return Response({'error': 'Not authorized'}, status=400)
-
 class CourseListCreateView(generics.ListCreateAPIView):
     serializer_class = CourseSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -266,14 +239,14 @@ class CourseListCreateView(generics.ListCreateAPIView):
         if course.course_outline:
             try:
                 result = process_course_outline(course.course_outline.path)
-                print("AI Response:", result)
-                
+                logger.debug("AI Response received")
+
                 for course_data in result.get('courses', []):
                     start_date = convert_date(course_data.get('start_date'))
                     end_date = convert_date(course_data.get('end_date'))
-                    
+
                     if not start_date or not end_date:
-                        print(f"Skipping course {course_data.get('course_id')} - invalid dates")
+                        logger.debug("Skipping course with invalid dates")
                         continue
                     
                     classroom = course_data.get('classroom', 'TBD')
@@ -296,7 +269,7 @@ class CourseListCreateView(generics.ListCreateAPIView):
                         course.has_ai_content = True
                         course.save()
                         main_course = course
-                        print(f"Updated main course: {course.course_id}")
+                        logger.debug("Updated main course")
                         
                         start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
                         for w in course_data.get("weeks", []):
@@ -344,10 +317,10 @@ class CourseListCreateView(generics.ListCreateAPIView):
                             parent_course=main_course,
                             is_lab=is_lab
                         )
-                        print(f"Created secondary course: {course_data['course_id']}")
-                                
-            except Exception as e:
-                print(f"Error parsing PDF: {e}")
+                        logger.debug("Created secondary course")
+
+            except Exception:
+                logger.exception("Error parsing PDF")
             finally:
                 # Delete the uploaded file after processing
                 if course.course_outline:
@@ -355,9 +328,20 @@ class CourseListCreateView(generics.ListCreateAPIView):
                         course.course_outline.delete(save=False)
                         course.course_outline = None
                         course.save()
-                        print(f"Deleted course outline file for {course.course_id}")
-                    except Exception as delete_error:
-                        print(f"Error deleting file: {delete_error}")
+                    except Exception:
+                        logger.exception("Error deleting course outline file")
+
+
+import uuid
+
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
+ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx"}
+ALLOWED_UPLOAD_CONTENT_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+PDF_MAGIC = b"%PDF"
+DOCX_MAGIC = b"PK\x03\x04"
 
 
 class CourseAnalyzeView(APIView):
@@ -366,35 +350,58 @@ class CourseAnalyzeView(APIView):
     def post(self, request):
         if 'course_outline' not in request.FILES:
             return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         file_obj = request.FILES['course_outline']
-        
-        # Use /tmp for Cloud Run compatibility (guaranteed writable)
+
+        if file_obj.size > MAX_UPLOAD_SIZE:
+            return Response(
+                {"error": "File too large. Maximum size is 5 MB."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        ext = os.path.splitext(file_obj.name)[1].lower()
+        if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+            return Response(
+                {"error": "Unsupported file type. Upload a PDF or DOCX."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if file_obj.content_type and file_obj.content_type not in ALLOWED_UPLOAD_CONTENT_TYPES:
+            return Response(
+                {"error": "Unsupported file type. Upload a PDF or DOCX."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        head = file_obj.read(4)
+        file_obj.seek(0)
+        if ext == ".pdf" and not head.startswith(PDF_MAGIC):
+            return Response({"error": "File is not a valid PDF."}, status=status.HTTP_400_BAD_REQUEST)
+        if ext == ".docx" and not head.startswith(DOCX_MAGIC):
+            return Response({"error": "File is not a valid DOCX."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use /tmp for Cloud Run compatibility (guaranteed writable).
         temp_dir = os.path.join('/tmp', 'course_analysis')
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir, exist_ok=True)
-            
-        temp_path = os.path.join(temp_dir, 'temp_' + file_obj.name)
-        
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Server-generated filename — never trust the client-supplied name.
+        temp_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}{ext}")
+
         try:
             with open(temp_path, 'wb+') as destination:
                 for chunk in file_obj.chunks():
                     destination.write(chunk)
-            
+
             result = process_course_outline(temp_path)
             return Response(result)
         except Exception as e:
-            print(f"Error analyzing course: {e}")
-            # Ensure we return a JSON response even on 500
             return Response(
-                {"error": "Failed to analyze document. Please check your OpenAI API key in the Cloud Run settings.", "details": str(e)}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Failed to analyze document.", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         finally:
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
-                except:
+                except OSError:
                     pass
 
 class CourseFinalizeView(APIView):
@@ -492,9 +499,9 @@ class CourseFinalizeView(APIView):
                             )
 
             return Response({"success": True}, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            print(f"Error finalizing course: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            logger.exception("Error finalizing course")
+            return Response({"error": "Failed to finalize course"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CourseSerializer
@@ -642,8 +649,10 @@ class SearchFriend(generics.ListAPIView):
                 friend_ids.add(u)
                 friend_ids.add(f)
             
+            # Search by username only — searching by email substring leaks
+            # every user's email address to any authenticated attacker.
             return User.objects.filter(
-                Q(username__icontains=query) | Q(email__icontains=query)
+                username__icontains=query
             ).exclude(id__in=friend_ids).exclude(id=self.request.user.id)
         return User.objects.none()
 

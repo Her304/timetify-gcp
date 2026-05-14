@@ -29,22 +29,16 @@ from django.contrib.auth import views as auth_views
 
 from main.forms import CustomPasswordResetForm
 
-from main.debug_views import DebugPasswordResetConfirmView
-
-def trigger_error(request):
-    division_by_zero = 1 / 0
-
 admin.site.site_header = "Timetify Admin"
 admin.site.site_title = "Timetify Admin Portal"
 admin.site.index_title = "Welcome to Timetify Admin"
 
 urlpatterns = [
-    path('sentry-debug/', trigger_error),
     path("admin/", admin.site.urls),
     path("", include("main.urls")),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    
+
     # Password Reset URLs
     path('password_reset/', auth_views.PasswordResetView.as_view(
         form_class=CustomPasswordResetForm,
@@ -55,7 +49,7 @@ urlpatterns = [
     path('password_reset/done/', auth_views.PasswordResetDoneView.as_view(
         extra_context={'frontend_url': settings.FRONTEND_URL},
     ), name='password_reset_done'),
-    path('reset/<uidb64>/<token>/', DebugPasswordResetConfirmView.as_view(
+    path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(
         extra_context={'frontend_url': settings.FRONTEND_URL},
     ), name='password_reset_confirm'),
     path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
