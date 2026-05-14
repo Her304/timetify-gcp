@@ -44,15 +44,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-fallback-for-dev-only")
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,timetify.net").split(",")
-if "*" not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append("0.0.0.0") # Common for container probes
+# SECURITY WARNING: keep the secret key used in production secret!
+# Require SECRET_KEY in production; only allow a dev fallback when DEBUG is on.
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-fallback-for-dev-only"
+    else:
+        raise RuntimeError("SECRET_KEY environment variable is required when DEBUG=False")
+if not DEBUG and SECRET_KEY.startswith("django-insecure-"):
+    raise RuntimeError("Refusing to start with an insecure SECRET_KEY when DEBUG=False")
+
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get(
+    "ALLOWED_HOSTS",
+    "localhost,127.0.0.1,timetify.net,timetify-web-931972332433.us-central1.run.app,timetify-gcp-frontend-931972332433.us-central1.run.app",
+).split(",") if h.strip()]
 
 
 # Application definition
@@ -215,14 +224,15 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://main.d30jqul10dgn8l.amplifyapp.com",
-    "https://d30jqul10dgn8l.amplifyapp.com",
     "https://timetify.net",
     "https://timetify-web-931972332433.us-central1.run.app",
     "https://timetify-gcp-frontend-931972332433.us-central1.run.app",
 ]
+if DEBUG:
+    CORS_ALLOWED_ORIGINS += [
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
 
 CORS_ALLOW_ALL_ORIGINS = False
 
@@ -262,8 +272,25 @@ ANYMAIL = {
 DEFAULT_FROM_EMAIL = "onboarding@resend.dev" 
 PASSWORD_RESET_TIMEOUT = 86400
 
-# Add this near your ALLOWED_HOSTS
 CSRF_TRUSTED_ORIGINS = [
+    "https://timetify.net",
     "https://timetify-web-931972332433.us-central1.run.app",
     "https://timetify-gcp-frontend-931972332433.us-central1.run.app",
 ]
+
+# Hard cap on request body size — prevents memory-bomb uploads.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024   # 5 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024   # 5 MB
+
+# Production-only HTTPS / cookie hardening. Cloud Run terminates TLS, so we need
+# SECURE_PROXY_SSL_HEADER for Django to recognise the request as secure.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"

@@ -61,28 +61,18 @@ def extract_text(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
     text = ""
     if ext == '.pdf':
-        try:
-            with open(file_path, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
-                for page in reader.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
-        except Exception as e:
-            print(f"Error reading PDF: {e}")
+        with open(file_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
     elif ext == '.docx':
-        try:
-            doc = Document(file_path)
-            for paragraph in doc.paragraphs:
-                text += paragraph.text + "\n"
-        except Exception as e:
-            print(f"Error reading DOCX: {e}")
+        doc = Document(file_path)
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
     else:
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                text = f.read()
-        except:
-            pass
+        raise ValueError(f"Unsupported file extension: {ext}")
     return text
 
 def process_course_outline(file_path: str) -> dict:

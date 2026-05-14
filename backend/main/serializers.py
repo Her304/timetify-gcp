@@ -13,6 +13,9 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'university', 'major', 'grad_year', 'status']
+        # username and email cannot be PATCHed via this serializer — they are identity
+        # fields and require a dedicated flow (e.g. email verification) to change.
+        read_only_fields = ['id', 'username', 'email', 'status']
 
     def get_status(self, obj):
         request = self.context.get('request')
