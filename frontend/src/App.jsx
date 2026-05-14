@@ -138,6 +138,25 @@ const MobileNav = ({ totalClasses, currentUser, logoutUser }) => {
   );
 };
 
+// ---------- Google AdSense unit ----------
+const GoogleAd = () => {
+  useEffect(() => {
+    try {
+      (window.adsbygoogle = window.adsbygoogle || []).push({});
+    } catch (e) {}
+  }, []);
+  return (
+    <ins
+      className="adsbygoogle"
+      style={{ display: "block" }}
+      data-ad-client="ca-pub-9825491172037028"
+      data-ad-slot="5349227302"
+      data-ad-format="auto"
+      data-full-width-responsive="true"
+    />
+  );
+};
+
 // ---------- App ----------
 const App = () => {
   const [personalSchedule, setPersonalSchedule] = useState([]);
@@ -471,6 +490,9 @@ const App = () => {
                         <section id="friend-schedule">
                           <FriendScheduleSection allClasses={allClasses} />
                         </section>
+
+                        {/* AdSense ad unit */}
+                        <GoogleAd />
                       </>
                     )}
                   </div>

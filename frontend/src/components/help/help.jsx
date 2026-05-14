@@ -39,7 +39,7 @@ const Help = () => {
               <div>
                 <p className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Email Us</p>
                 <a href="mailto:timtify.ca@gmail.com" className="text-lg font-bold text-gray-900 hover:text-[#607196] transition-colors">
-                  timtify.ca@gmail.com
+                  help@timetify.net
                 </a>
               </div>
             </div>

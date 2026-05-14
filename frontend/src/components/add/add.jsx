@@ -1,7 +1,25 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { InputFile } from "@/components/base/input/input-file";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
+
+const AnalyzingAd = () => {
+    useEffect(() => {
+        try {
+            (window.adsbygoogle = window.adsbygoogle || []).push({});
+        } catch (e) {}
+    }, []);
+    return (
+        <ins
+            className="adsbygoogle"
+            style={{ display: "block" }}
+            data-ad-client="ca-pub-9825491172037028"
+            data-ad-slot="5349227302"
+            data-ad-format="auto"
+            data-full-width-responsive="true"
+        />
+    );
+};
 
 export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors = {} }) {
     const [formData, setFormData] = useState({
@@ -182,6 +200,8 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                         <p className="text-gray-500">This might take a few moments...</p>
                     </div>
                 </div>
+
+                <AnalyzingAd />
             </div>
         );
     }
@@ -208,11 +228,21 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         {course.course_id}: {course.course_name} {course.is_lab ? "(Lab)" : ""}
                                     </h3>
                                     <div className="flex gap-4 items-center">
-                                        <button 
+                                        <button
                                             onClick={() => setViewState(isEdit ? "confirming" : "editing")}
-                                            className="text-sm font-semibold text-blue-600 hover:text-blue-700 underline underline-offset-4"
+                                            className="text-sm font-semibold text-blue-600 hover:text-blue-700 underline underline-offset-4 flex items-center gap-1"
                                         >
-                                            {isEdit ? "Done Editing" : "Edit This Course"}
+                                            {isEdit ? (
+                                                <>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M702-480 560-622l57-56 85 85 170-170 56 57-226 226Zm-455-47q-47-47-47-113t47-113q47-47 113-47t113 47q47 47 47 113t-47 113q-47 47-113 47t-113-47ZM40-160v-112q0-34 17.5-62.5T104-378q62-31 126-46.5T360-440q66 0 130 15.5T616-378q29 15 46.5 43.5T680-272v112H40Zm80-80h480v-32q0-11-5.5-20T580-306q-54-27-109-40.5T360-360q-56 0-111 13.5T140-306q-9 5-14.5 14t-5.5 20v32Zm296.5-343.5Q440-607 440-640t-23.5-56.5Q393-720 360-720t-56.5 23.5Q280-673 280-640t23.5 56.5Q327-560 360-560t56.5-23.5ZM360-300Zm0-340Z"/></svg>
+                                                    Confirm Changes
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M560-80v-123l221-220q9-9 20-13t22-4q12 0 23 4.5t20 13.5l37 37q8 9 12.5 20t4.5 22q0 11-4 22.5T903-300L683-80H560Zm300-263-37-37 37 37ZM620-140h38l121-122-18-19-19-18-122 121v38ZM240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320l240 240v120h-80v-80H520v-200H240v640h240v80H240Zm280-400Zm241 199-19-18 37 37-18-19Z"/></svg>
+                                                    Edit
+                                                </>
+                                            )}
                                         </button>
                                         <button 
                                             onClick={() => handleRemoveCourse(cIdx)}
