@@ -238,6 +238,8 @@ CORS_ALLOW_HEADERS = [
 CORS_ALLOW_CREDENTIALS = True
 APPEND_SLASH = False
 
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+
 AUTH_USER_MODEL = 'main.CustomUser'
 
 REST_FRAMEWORK = {

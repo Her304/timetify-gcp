@@ -5,18 +5,17 @@ import logging
 
 class DatabaseLogHandler(logging.Handler):
     def emit(self, record):
-        from .models import BackendLog
-        from django.contrib.auth import get_user_model
-        
-        # Try to get the user from the record if available
-        user = getattr(record, 'user', None)
-        
-        message = self.format(record)
-        BackendLog.objects.create(
-            user=user if user and user.is_authenticated else None,
-            level=record.levelname,
-            message=message
-        )
+        try:
+            from .models import BackendLog
+            user = getattr(record, 'user', None)
+            message = self.format(record)
+            BackendLog.objects.create(
+                user=user if user and user.is_authenticated else None,
+                level=record.levelname,
+                message=message
+            )
+        except Exception:
+            self.handleError(record)
 
 def send_email(to_email, subject, message):
     """Send email using configured backend"""

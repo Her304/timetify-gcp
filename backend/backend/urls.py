@@ -49,9 +49,16 @@ urlpatterns = [
     path('password_reset/', auth_views.PasswordResetView.as_view(
         form_class=CustomPasswordResetForm,
         html_email_template_name='registration/password_reset_email.html',
-        email_template_name='registration/password_reset_email.txt'
+        email_template_name='registration/password_reset_email.txt',
+        extra_context={'frontend_url': settings.FRONTEND_URL},
     ), name='password_reset'),
-    path('password_reset/done/', auth_views.PasswordResetDoneView.as_view(), name='password_reset_done'),
-    path('reset/<uidb64>/<token>/', DebugPasswordResetConfirmView.as_view(), name='password_reset_confirm'),
-    path('reset/done/', auth_views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
+    path('password_reset/done/', auth_views.PasswordResetDoneView.as_view(
+        extra_context={'frontend_url': settings.FRONTEND_URL},
+    ), name='password_reset_done'),
+    path('reset/<uidb64>/<token>/', DebugPasswordResetConfirmView.as_view(
+        extra_context={'frontend_url': settings.FRONTEND_URL},
+    ), name='password_reset_confirm'),
+    path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
+        extra_context={'frontend_url': settings.FRONTEND_URL},
+    ), name='password_reset_complete'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
