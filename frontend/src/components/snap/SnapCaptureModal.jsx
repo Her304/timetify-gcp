@@ -28,6 +28,22 @@ const pickRecorderMime = () => {
   return "";
 };
 
+const toMinutes = (hhmm) => {
+  if (!hhmm || typeof hhmm !== "string") return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+};
+
+const isLiveNow = (course) => {
+  const s = toMinutes(course?.start_time);
+  const e = toMinutes(course?.end_time);
+  if (s == null || e == null) return false;
+  const d = new Date();
+  const n = d.getHours() * 60 + d.getMinutes();
+  return n >= s && n <= e;
+};
+
 const extFromMime = (mime) => {
   if (!mime) return ".webm";
   if (mime.startsWith("video/mp4")) return ".mp4";
@@ -237,9 +253,8 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
       >
         {/* header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#e8e9ed]">
-          <div>
-            <div className="text-xs text-gray-500 uppercase tracking-wider">Snap</div>
-            <div className="text-sm font-bold text-gray-900">{course.course}</div>
+          <div className="text-sm font-bold text-gray-900">
+            {isLiveNow(course) ? `snap ${course.course}` : "snap now"}
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-900 text-xl leading-none">×</button>
         </div>
