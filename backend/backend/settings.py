@@ -223,6 +223,27 @@ WHITENOISE_MANIFEST_STRICT = False
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Storage: GCS for user media when GS_BUCKET_NAME is set, otherwise local FS.
+# Cloud Run filesystem is ephemeral, so prod must have GS_BUCKET_NAME configured.
+# Bucket has allUsers:objectViewer at IAM level, so we disable per-object ACLs and
+# emit public unsigned URLs.
+GS_BUCKET_NAME = os.environ.get("GS_BUCKET_NAME", "").strip()
+if GS_BUCKET_NAME:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+            "OPTIONS": {
+                "bucket_name": GS_BUCKET_NAME,
+                "default_acl": None,
+                "querystring_auth": False,
+                "file_overwrite": False,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+
 CORS_ALLOWED_ORIGINS = [
     "https://timetify.net",
     "https://timetify-web-931972332433.us-central1.run.app",

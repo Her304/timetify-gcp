@@ -110,3 +110,60 @@ class ErrorReport(models.Model):
 
     def __str__(self):
         return f"Report by {self.user.username} at {self.created_at}"
+
+
+def snap_upload_path(instance, filename):
+    import uuid, os
+    ext = os.path.splitext(filename)[1].lower()
+    return f"snaps/{instance.uploader_id}/{uuid.uuid4().hex}{ext}"
+
+
+class Snap(models.Model):
+    MEDIA_PHOTO = 'photo'
+    MEDIA_VIDEO = 'video'
+    MEDIA_CHOICES = [(MEDIA_PHOTO, 'Photo'), (MEDIA_VIDEO, 'Video')]
+
+    VIS_ALL_FRIENDS = 'all_friends'
+    VIS_SELECTED = 'selected'
+    VIS_CHOICES = [(VIS_ALL_FRIENDS, 'All friends'), (VIS_SELECTED, 'Selected friends')]
+
+    uploader = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='snaps')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='snaps')
+    media_file = models.FileField(upload_to=snap_upload_path)
+    media_type = models.CharField(max_length=10, choices=MEDIA_CHOICES)
+    caption = models.TextField(blank=True)
+    visibility = models.CharField(max_length=16, choices=VIS_CHOICES, default=VIS_ALL_FRIENDS)
+    is_removed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['course', 'expires_at', 'is_removed']),
+            models.Index(fields=['uploader', 'created_at']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Snap #{self.pk} by {self.uploader.username} on {self.course.course_id}"
+
+
+class SnapAudience(models.Model):
+    """
+    Dual purpose:
+      - For Snap.visibility == 'selected': pre-created rows act as the allowlist.
+      - For Snap.visibility == 'all_friends': rows are created lazily on first view to
+        track `has_viewed` per viewer; absence of a row simply means the viewer hasn't
+        opened the snap yet.
+    """
+    snap = models.ForeignKey(Snap, on_delete=models.CASCADE, related_name='audience')
+    viewer = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='snap_views')
+    has_viewed = models.BooleanField(default=False)
+    viewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('snap', 'viewer')
+        indexes = [models.Index(fields=['viewer', 'has_viewed'])]
+
+    def __str__(self):
+        return f"{self.viewer.username} → snap #{self.snap_id} viewed={self.has_viewed}"

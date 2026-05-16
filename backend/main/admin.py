@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import CustomUser, Course, Week, Exam, Assignment, Friend, BackendLog, ErrorReport
+from .models import (
+    CustomUser, Course, Week, Exam, Assignment, Friend, BackendLog, ErrorReport,
+    Snap, SnapAudience,
+)
 
 # Register your models here.
 
@@ -45,3 +48,16 @@ class ErrorReportAdmin(admin.ModelAdmin):
     list_display = ('user', 'created_at')
     list_filter = ('user',)
     ordering = ('-created_at',)
+
+@admin.register(Snap)
+class SnapAdmin(admin.ModelAdmin):
+    list_display = ('id', 'uploader', 'course', 'media_type', 'visibility', 'is_removed', 'created_at', 'expires_at')
+    list_filter = ('media_type', 'visibility', 'is_removed')
+    search_fields = ('uploader__username', 'course__course_id')
+    readonly_fields = ('created_at',)
+
+@admin.register(SnapAudience)
+class SnapAudienceAdmin(admin.ModelAdmin):
+    list_display = ('snap', 'viewer', 'has_viewed', 'viewed_at')
+    list_filter = ('has_viewed',)
+    search_fields = ('viewer__username',)

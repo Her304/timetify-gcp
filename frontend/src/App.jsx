@@ -9,8 +9,7 @@ import {
   UsersPlus,
 } from "@untitledui/icons";
 import { SidebarNavigationSimple } from "@/components/application/app-navigation/sidebar-navigation/sidebar-simple.jsx";
-import { Today } from "@/components/home/today";
-import { Today_friend } from "@/components/home/today_friend";
+import { Snap } from "@/components/home/snap";
 import { TotalClassSchedule } from "@/components/home/total_class";
 import { ClassDetails } from "@/components/class/class";
 import Register from "@/components/register/register";
@@ -22,7 +21,7 @@ import Profile from "@/components/user/profile";
 import * as Sentry from "@sentry/react";
 import { initLogger } from "@/utils/logger";
 import { authenticatedFetch } from "@/utils/api";
-import ErrorReportModal from "@/components/shared/ErrorReportModal";
+import ErrorToast from "@/components/shared/ErrorToast";
 import NotFound from "@/components/shared/NotFound";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
 import { Footer } from "@/components/application/footer/footer";
@@ -57,7 +56,7 @@ const MobileNav = ({ totalClasses, currentUser, logoutUser }) => {
   let subtabs = [];
   if (isHome) {
     subtabs = [
-      { label: "Today", href: "/#today" },
+      { label: "Snap", href: "/#snap" },
       { label: "My Schedule", href: "/#schedule" },
       { label: "Friends Schedule", href: "/#friend-schedule" },
     ];
@@ -171,6 +170,7 @@ const App = () => {
   const [courseErrors, setCourseErrors] = useState({});
   const [friendsList, setFriendsList] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
+  const [snapsByCourse, setSnapsByCourse] = useState({});
   const [isErrorReportModalOpen, setIsErrorReportModalOpen] = useState(false);
 
   useEffect(() => { initLogger(); }, []);
@@ -258,7 +258,20 @@ const App = () => {
 
     fetchData();
     fetchFriendsData();
+    fetchSnapFeed();
   }, [token]);
+
+  const fetchSnapFeed = async () => {
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snaps/feed/`);
+      if (res.ok) {
+        const data = await res.json();
+        setSnapsByCourse(data.snaps_by_course || {});
+      }
+    } catch (err) {
+      Sentry.captureException(err);
+    }
+  };
 
   const loginUser = async (formData) => {
     try {
@@ -398,7 +411,7 @@ const App = () => {
           href: "/",
           icon: HomeLine,
           items: [
-            { label: "Today", href: "/#today" },
+            { label: "Snap", href: "/#snap" },
             { label: "My Schedule", href: "/#schedule" },
             { label: "Me & My Friend Schedule", href: "/#friend-schedule" },
           ],
@@ -459,7 +472,7 @@ const App = () => {
               path="/"
               element={
                 currentUser ? (
-                  <div id="today" className="space-y-10">
+                  <div id="snap" className="space-y-10">
                     {/* Date header */}
                     <h1 className="text-4xl font-extrabold text-gray-900">{todayStr}</h1>
 
@@ -475,11 +488,15 @@ const App = () => {
                       </div>
                     ) : (
                       <>
-                        {/* Today: 2-column cards */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <Today Class_details={personalSchedule} />
-                          <Today_friend Class_details={friendsSchedule} />
-                        </div>
+                        {/* Snap: unified class block */}
+                        <Snap
+                          personalClasses={personalSchedule}
+                          friendClasses={friendsSchedule}
+                          snapsByCourse={snapsByCourse}
+                          friendsList={friendsList}
+                          currentUser={currentUser}
+                          onSnapsChanged={fetchSnapFeed}
+                        />
 
                         {/* My weekly schedule */}
                         <section id="schedule">
@@ -564,10 +581,9 @@ const App = () => {
         <Footer currentUser={currentUser} />
       </main>
 
-      <ErrorReportModal
+      <ErrorToast
         isOpen={isErrorReportModalOpen}
         onClose={() => setIsErrorReportModalOpen(false)}
-        currentUser={currentUser}
       />
     </div>
   );
