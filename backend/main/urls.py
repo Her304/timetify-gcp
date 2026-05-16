@@ -23,4 +23,8 @@ urlpatterns = [
     path('api/report-error/', views.ErrorReportView.as_view(), name='report-error'),
     path('api/courses/analyze/', views.CourseAnalyzeView.as_view(), name='course-analyze'),
     path('api/courses/finalize/', views.CourseFinalizeView.as_view(), name='course-finalize'),
+    path('api/snaps/', views.SnapUploadView.as_view(), name='snap-upload'),
+    path('api/snaps/feed/', views.SnapFeedView.as_view(), name='snap-feed'),
+    path('api/snaps/<int:pk>/view/', views.SnapViewView.as_view(), name='snap-view'),
+    path('api/snaps/<int:pk>/', views.SnapDeleteView.as_view(), name='snap-delete'),
 ]

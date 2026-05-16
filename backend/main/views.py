@@ -10,14 +10,14 @@ from datetime import date
 from django.utils import timezone
 from django.db.models import Q
 from .serializers import (
-    RegisterSerializer, CourseSerializer, WeekSerializer, 
-    ExamSerializer, AssignmentSerializer, FriendSerializer, 
-    FriendRequestSerializer, UserSerializer
+    RegisterSerializer, CourseSerializer, WeekSerializer,
+    ExamSerializer, AssignmentSerializer, FriendSerializer,
+    FriendRequestSerializer, UserSerializer, SnapSerializer
 )
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience
 from datetime import datetime, timedelta
 from django.contrib.auth import get_user_model
 from main.utils import send_email
@@ -65,6 +65,7 @@ def home(request):
             normalized_day = raw_day.strip().upper()[:3]
             if normalized_day in all_schedules["Me"]:
                 all_schedules["Me"][normalized_day].append({
+                    "id": cls.id,
                     "course_id": cls.course_id,
                     "course_name": cls.course_name,
                     "classroom": cls.classroom,
@@ -108,6 +109,7 @@ def home(request):
                     class_key = (normalized_day, f_cls.course_id, f_cls.classroom, f_cls.start_time.strftime("%H:%M"))
                     entry_owner = f"{friend_name} & Me" if class_key in friend_shared_keys else friend_name
                     friend_schedule[normalized_day].append({
+                        "id": f_cls.id,
                         "course_id": f_cls.course_id,
                         "course_name": f_cls.course_name,
                         "classroom": f_cls.classroom,
@@ -715,3 +717,234 @@ Problem Description:
             return Response({'message': 'Error report submitted successfully', 'report_id': report.id}, status=status.HTTP_201_CREATED)
         else:
             return Response({'message': 'Report saved but email failed', 'report_id': report.id}, status=status.HTTP_201_CREATED)
+
+# ---------------------------------------------------------------------------
+# Snap feature
+# ---------------------------------------------------------------------------
+from django.db import transaction
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from .models import Snap, SnapAudience
+
+SNAP_MAX_SIZE = 20 * 1024 * 1024  # 20 MB
+SNAP_ALLOWED_EXT_PHOTO = {".jpg", ".jpeg", ".png"}
+SNAP_ALLOWED_EXT_VIDEO = {".mp4", ".mov", ".webm"}
+SNAP_ALLOWED_CT_PHOTO = {"image/jpeg", "image/png"}
+SNAP_ALLOWED_CT_VIDEO = {"video/mp4", "video/quicktime", "video/webm"}
+
+SIG_JPEG = b"\xff\xd8\xff"
+SIG_PNG = b"\x89PNG\r\n\x1a\n"
+SIG_WEBM = b"\x1a\x45\xdf\xa3"
+
+
+def _friend_user_ids(user):
+    """Return the set of user_ids of `user`'s accepted friends (either direction)."""
+    rows = Friend.objects.filter(status=Friend.ACCEPTED).filter(
+        Q(user=user) | Q(friend=user)
+    ).values_list("user_id", "friend_id")
+    ids = set()
+    for u_id, f_id in rows:
+        if u_id != user.id:
+            ids.add(u_id)
+        if f_id != user.id:
+            ids.add(f_id)
+    return ids
+
+
+def _check_magic(head_bytes, ext, media_type):
+    if media_type == Snap.MEDIA_PHOTO:
+        if ext in (".jpg", ".jpeg"):
+            return head_bytes.startswith(SIG_JPEG)
+        if ext == ".png":
+            return head_bytes.startswith(SIG_PNG)
+        return False
+    if media_type == Snap.MEDIA_VIDEO:
+        if ext in (".mp4", ".mov"):
+            # ISO BMFF: bytes 4..8 == 'ftyp'
+            return len(head_bytes) >= 8 and head_bytes[4:8] == b"ftyp"
+        if ext == ".webm":
+            return head_bytes.startswith(SIG_WEBM)
+        return False
+    return False
+
+
+def _compute_expires_at(tz_name):
+    """Midnight of the *next* day in the user's IANA TZ, converted to UTC."""
+    try:
+        tz = ZoneInfo(tz_name) if tz_name else ZoneInfo("UTC")
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+    now_local = timezone.now().astimezone(tz)
+    tomorrow_local = (now_local + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return tomorrow_local.astimezone(ZoneInfo("UTC"))
+
+
+class SnapUploadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = []  # default DRF parsers handle multipart
+
+    def post(self, request):
+        file_obj = request.FILES.get("media")
+        if not file_obj:
+            return Response({"error": "No file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        media_type = (request.data.get("media_type") or "").strip().lower()
+        if media_type not in (Snap.MEDIA_PHOTO, Snap.MEDIA_VIDEO):
+            return Response({"error": "media_type must be 'photo' or 'video'."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        course_pk = request.data.get("course_pk")
+        if not course_pk:
+            return Response({"error": "course_pk is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            course = Course.objects.get(pk=course_pk, user=request.user)
+        except Course.DoesNotExist:
+            return Response({"error": "Course not found or not yours."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        if file_obj.size > SNAP_MAX_SIZE:
+            return Response({"error": "File too large. Maximum size is 20 MB."},
+                            status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+        ext = os.path.splitext(file_obj.name)[1].lower()
+        allowed_ext = SNAP_ALLOWED_EXT_PHOTO if media_type == Snap.MEDIA_PHOTO else SNAP_ALLOWED_EXT_VIDEO
+        allowed_ct = SNAP_ALLOWED_CT_PHOTO if media_type == Snap.MEDIA_PHOTO else SNAP_ALLOWED_CT_VIDEO
+        if ext not in allowed_ext:
+            return Response({"error": f"Unsupported file extension for {media_type}."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if file_obj.content_type and file_obj.content_type.split(";")[0].strip() not in allowed_ct:
+            return Response({"error": f"Unsupported content type for {media_type}."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        head = file_obj.read(16)
+        file_obj.seek(0)
+        if not _check_magic(head, ext, media_type):
+            return Response({"error": "File contents do not match the declared type."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        visibility = (request.data.get("visibility") or Snap.VIS_ALL_FRIENDS).strip().lower()
+        if visibility not in (Snap.VIS_ALL_FRIENDS, Snap.VIS_SELECTED):
+            return Response({"error": "Invalid visibility."}, status=status.HTTP_400_BAD_REQUEST)
+
+        audience_ids = []
+        if visibility == Snap.VIS_SELECTED:
+            raw = request.data.getlist("audience_user_ids") if hasattr(request.data, "getlist") else request.data.get("audience_user_ids", [])
+            try:
+                audience_ids = [int(x) for x in (raw or []) if str(x).strip()]
+            except (TypeError, ValueError):
+                return Response({"error": "audience_user_ids must be integers."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if not audience_ids:
+                return Response({"error": "Select at least one friend."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            my_friends = _friend_user_ids(request.user)
+            if not set(audience_ids).issubset(my_friends):
+                return Response({"error": "Audience must contain only your friends."},
+                                status=status.HTTP_403_FORBIDDEN)
+
+        caption = (request.data.get("caption") or "").strip()[:500]
+        tz_name = (request.data.get("timezone") or "").strip()
+        expires_at = _compute_expires_at(tz_name)
+
+        try:
+            with transaction.atomic():
+                snap = Snap.objects.create(
+                    uploader=request.user,
+                    course=course,
+                    media_file=file_obj,
+                    media_type=media_type,
+                    caption=caption,
+                    visibility=visibility,
+                    expires_at=expires_at,
+                )
+                if visibility == Snap.VIS_SELECTED:
+                    SnapAudience.objects.bulk_create([
+                        SnapAudience(snap=snap, viewer_id=uid, has_viewed=False)
+                        for uid in audience_ids
+                    ])
+        except Exception:
+            logger.exception("Snap upload failed")
+            return Response({"error": "Failed to save snap."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(
+            SnapSerializer(snap, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SnapFeedView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        me = request.user
+        now = timezone.now()
+        friend_ids = _friend_user_ids(me)
+        selected_snap_ids = list(
+            SnapAudience.objects.filter(viewer=me).values_list("snap_id", flat=True)
+        )
+
+        qs = Snap.objects.filter(is_removed=False, expires_at__gt=now).filter(
+            Q(uploader=me)
+            | (Q(visibility=Snap.VIS_ALL_FRIENDS) & Q(uploader_id__in=friend_ids))
+            | (Q(visibility=Snap.VIS_SELECTED) & Q(id__in=selected_snap_ids))
+        ).select_related("uploader", "course").order_by("course_id", "-created_at")
+
+        snaps = list(qs)
+        viewed_ids = set(
+            SnapAudience.objects.filter(
+                viewer=me, has_viewed=True, snap_id__in=[s.id for s in snaps]
+            ).values_list("snap_id", flat=True)
+        )
+
+        ctx = {"request": request, "viewed_snap_ids": viewed_ids}
+        grouped = {}
+        for snap in snaps:
+            key = str(snap.course_id)
+            grouped.setdefault(key, []).append(SnapSerializer(snap, context=ctx).data)
+
+        return Response({"snaps_by_course": grouped})
+
+
+class SnapViewView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        me = request.user
+        try:
+            snap = Snap.objects.select_related("uploader").get(
+                pk=pk, is_removed=False, expires_at__gt=timezone.now()
+            )
+        except Snap.DoesNotExist:
+            return Response({"error": "Snap not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Authorization: uploader, allowlisted (selected), or a current friend (all_friends).
+        if snap.uploader_id != me.id:
+            allowed = False
+            if snap.visibility == Snap.VIS_ALL_FRIENDS:
+                allowed = snap.uploader_id in _friend_user_ids(me)
+            else:
+                allowed = SnapAudience.objects.filter(snap=snap, viewer=me).exists()
+            if not allowed:
+                return Response({"error": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
+
+            SnapAudience.objects.update_or_create(
+                snap=snap, viewer=me,
+                defaults={"has_viewed": True, "viewed_at": timezone.now()},
+            )
+        # uploader viewing their own snap: no-op (don't create a self audience row).
+        return Response({"ok": True})
+
+
+class SnapDeleteView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            snap = Snap.objects.get(pk=pk, uploader=request.user, is_removed=False)
+        except Snap.DoesNotExist:
+            return Response({"error": "Snap not found."}, status=status.HTTP_404_NOT_FOUND)
+        snap.is_removed = True
+        snap.save(update_fields=["is_removed"])
+        return Response(status=status.HTTP_204_NO_CONTENT)

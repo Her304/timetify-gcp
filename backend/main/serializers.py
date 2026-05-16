@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from .models import Course, Week, Exam, Assignment, Friend
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience
 
 User = get_user_model()
 
@@ -112,8 +112,43 @@ class FriendRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = Friend
         fields = ['friend']
-    
+
     def validate_friend(self, value):
         if value == self.context['request'].user:
             raise serializers.ValidationError("Cannot send request to yourself")
         return value
+
+
+class SnapSerializer(serializers.ModelSerializer):
+    uploader_username = serializers.CharField(source='uploader.username', read_only=True)
+    course_pk = serializers.IntegerField(source='course.id', read_only=True)
+    course_code = serializers.CharField(source='course.course_id', read_only=True)
+    course_name = serializers.CharField(source='course.course_name', read_only=True)
+    media_url = serializers.SerializerMethodField()
+    has_viewed = serializers.SerializerMethodField()
+    is_mine = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Snap
+        fields = [
+            'id', 'uploader', 'uploader_username',
+            'course_pk', 'course_code', 'course_name',
+            'media_url', 'media_type', 'caption',
+            'visibility', 'has_viewed', 'is_mine',
+            'created_at', 'expires_at',
+        ]
+        read_only_fields = fields
+
+    def get_media_url(self, obj):
+        try:
+            return obj.media_file.url
+        except Exception:
+            return None
+
+    def get_has_viewed(self, obj):
+        viewed = self.context.get('viewed_snap_ids') or set()
+        return obj.id in viewed
+
+    def get_is_mine(self, obj):
+        request = self.context.get('request')
+        return bool(request and request.user.is_authenticated and obj.uploader_id == request.user.id)
