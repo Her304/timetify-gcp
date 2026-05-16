@@ -65,8 +65,13 @@ export const Snap = ({
   }, [snapsByCourse]);
 
   const [captureCourse, setCaptureCourse] = useState(null);
-  const [viewerState, setViewerState] = useState(null);
+  const [viewerTileIdx, setViewerTileIdx] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  const activeTile = viewerTileIdx != null ? tiles[viewerTileIdx] : null;
+  const prevTile = viewerTileIdx != null && viewerTileIdx > 0 ? tiles[viewerTileIdx - 1] : null;
+  const nextTile =
+    viewerTileIdx != null && viewerTileIdx < tiles.length - 1 ? tiles[viewerTileIdx + 1] : null;
 
   const handleAddClick = () => {
     if (myCourses.length === 0) return;
@@ -79,21 +84,12 @@ export const Snap = ({
 
   return (
     <>
-      <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-        <h2 className="text-2xl font-extrabold text-gray-900">Snap</h2>
-        <span
-          className="text-sm text-gray-600 font-semibold"
-          style={{ fontFamily: "'DM Serif Text', serif" }}
-        >
-          {todayLabel()}
-        </span>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* Today block */}
         <div className="bg-[#e8e9ed] p-4 flex flex-col gap-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-            Today
+            Today Class
           </h3>
           {allToday.length === 0 ? (
             <p className="text-gray-400 text-sm italic">No classes today.</p>
@@ -106,14 +102,11 @@ export const Snap = ({
                     key={`${c.owner}-${c.id || idx}`}
                     className="bg-white p-3 flex items-center gap-3 shadow-sm border border-[#d4d6dd]"
                   >
-                    <div
-                      className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${
-                        c.owner === "Me"
-                          ? "bg-[#607196] text-white"
-                          : "bg-[#ffc759] text-gray-800"
-                      }`}
-                    >
-                      {c.owner === "Me" ? "Me" : c.owner.charAt(0).toUpperCase()}
+                    <div className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold bg-[#607196] text-white">
+                      {(c.owner === "Me"
+                        ? currentUser?.username || ""
+                        : c.owner || ""
+                      ).charAt(0).toUpperCase() || "?"}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -162,33 +155,20 @@ export const Snap = ({
                   +
                 </span>
               </div>
-              <span className="text-xs font-semibold text-gray-700 leading-none">add</span>
+              <span className="text-xs font-semibold text-gray-700 leading-none">snap now!</span>
             </button>
 
             {/* Uploader tiles */}
-            {tiles.map((t) => (
+            {tiles.map((t, i) => (
               <button
                 key={t.username}
                 type="button"
-                onClick={() =>
-                  setViewerState({ snaps: t.snaps, label: `@${t.username}` })
-                }
+                onClick={() => setViewerTileIdx(i)}
                 title={`${t.snaps.length} snap${t.snaps.length === 1 ? "" : "s"}`}
                 className="flex flex-col items-center gap-1 flex-shrink-0 hover:opacity-70 transition-opacity"
               >
-                <div
-                  className={`relative w-16 h-16 rounded-full flex items-center justify-center text-lg font-bold ${
-                    t.isMine
-                      ? "bg-[#607196] text-white ring-2 ring-[#ffc759]"
-                      : "bg-[#ffc759] text-gray-800"
-                  }`}
-                >
+                <div className="relative w-16 h-16 rounded-full flex items-center justify-center text-lg font-bold bg-[#607196] text-white ring-2 ring-[#ffc759] ring-offset-2 ring-offset-[#e8e9ed]">
                   {t.username[0].toUpperCase()}
-                  {t.snaps.length > 1 && (
-                    <span className="absolute -bottom-0.5 -right-0.5 min-w-[20px] h-5 px-1 rounded-full bg-gray-900 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white leading-none">
-                      {t.snaps.length}
-                    </span>
-                  )}
                 </div>
                 <span className="text-xs font-semibold text-gray-700 leading-none truncate max-w-[68px]">
                   {t.isMine ? "you" : t.username}
@@ -257,21 +237,33 @@ export const Snap = ({
           course={captureCourse}
           friendsList={friendsList}
           currentUser={currentUser}
-          onClose={() => setCaptureCourse(null)}
+          onClose={() => {
+            setCaptureCourse(null);
+            window.location.reload();
+          }}
           onUploaded={() => onSnapsChanged && onSnapsChanged()}
         />
       )}
 
-      {viewerState && (
+      {activeTile && (
         <SnapViewerModal
-          courseLabel={viewerState.label}
-          course={viewerState.course}
-          snaps={viewerState.snaps}
+          courseLabel={`@${activeTile.username}`}
+          snaps={activeTile.snaps}
           currentUser={currentUser}
-          onClose={() => setViewerState(null)}
+          prevTile={prevTile}
+          nextTile={nextTile}
+          onSelectPrev={() => setViewerTileIdx((i) => Math.max(0, (i ?? 0) - 1))}
+          onSelectNext={() =>
+            setViewerTileIdx((i) => Math.min(tiles.length - 1, (i ?? 0) + 1))
+          }
+          onAdd={() => {
+            setViewerTileIdx(null);
+            handleAddClick();
+          }}
+          onClose={() => setViewerTileIdx(null)}
           onChanged={() => {
             onSnapsChanged && onSnapsChanged();
-            setViewerState(null);
+            setViewerTileIdx(null);
           }}
         />
       )}

@@ -34,7 +34,24 @@ const wasDuringClass = (createdAtIso, startTime, endTime) => {
   return n >= s && n <= e;
 };
 
-export default function SnapViewerModal({ courseLabel, course, snaps, onClose, onChanged }) {
+const ArOnYouIcon = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" className={className} fill="currentColor">
+    <path d="M707-707q93 93 93 227t-93 227q-93 93-227 93t-227-93q-93-93-93-227t93-227q93-93 227-93t227 93Zm-57 397q70-70 70-170t-70-170q-70-70-170-70t-170 70q-70 70-70 170t70 170q70 70 170 70t170-70Zm-84-57.5q38-27.5 54-72.5H340q16 45 54 72.5t86 27.5q48 0 86-27.5Zm-214.5-164Q363-520 380-520t28.5-11.5Q420-543 420-560t-11.5-28.5Q397-600 380-600t-28.5 11.5Q340-577 340-560t11.5 28.5Zm200 0Q563-520 580-520t28.5-11.5Q620-543 620-560t-11.5-28.5Q597-600 580-600t-28.5 11.5Q540-577 540-560t11.5 28.5ZM40-720v-120q0-33 23.5-56.5T120-920h120v80H120v120H40ZM240-40H120q-33 0-56.5-23.5T40-120v-120h80v120h120v80Zm480 0v-80h120v-120h80v120q0 33-23.5 56.5T840-40H720Zm120-680v-120H720v-80h120q33 0 56.5 23.5T920-840v120h-80ZM480-480Z" />
+  </svg>
+);
+
+export default function SnapViewerModal({
+  courseLabel,
+  course,
+  snaps,
+  onClose,
+  onChanged,
+  prevTile,
+  nextTile,
+  onSelectPrev,
+  onSelectNext,
+  onAdd,
+}) {
   const ordered = useMemo(
     () => [...(snaps || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
     [snaps]
@@ -42,6 +59,10 @@ export default function SnapViewerModal({ courseLabel, course, snaps, onClose, o
   const [idx, setIdx] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const touchStartX = useRef(null);
+
+  useEffect(() => {
+    setIdx(0);
+  }, [snaps]);
 
   const current = ordered[idx];
   const currentId = current ? current.id : null;
@@ -110,6 +131,38 @@ export default function SnapViewerModal({ courseLabel, course, snaps, onClose, o
       tabIndex={-1}
       ref={(el) => el && el.focus()}
     >
+      {prevTile ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSelectPrev && onSelectPrev(); }}
+          title={`@${prevTile.username}`}
+          className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#607196] text-white flex items-center justify-center text-base sm:text-lg font-bold ring-2 ring-[#ffc759] ring-offset-2 ring-offset-black/80 hover:opacity-80 transition-opacity"
+        >
+          {prevTile.username[0].toUpperCase()}
+        </button>
+      ) : onAdd ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onAdd(); }}
+          title="Add a snap"
+          className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#607196] text-white flex items-center justify-center hover:opacity-80 transition-opacity"
+        >
+          <ArOnYouIcon className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
+          <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-[#ffc759] text-gray-900 flex items-center justify-center text-xs font-bold border-2 border-black/80 leading-none">+</span>
+        </button>
+      ) : null}
+
+      {nextTile && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSelectNext && onSelectNext(); }}
+          title={`@${nextTile.username}`}
+          className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#607196] text-white flex items-center justify-center text-base sm:text-lg font-bold ring-2 ring-[#ffc759] ring-offset-2 ring-offset-black/80 hover:opacity-80 transition-opacity"
+        >
+          {nextTile.username[0].toUpperCase()}
+        </button>
+      )}
+
       <div
         className="bg-white w-full flex flex-col overflow-hidden"
         style={{
