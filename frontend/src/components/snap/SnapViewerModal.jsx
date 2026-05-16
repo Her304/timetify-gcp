@@ -89,7 +89,11 @@ export default function SnapViewerModal({ courseLabel, snaps, onClose, onChanged
       ref={(el) => el && el.focus()}
     >
       <div
-        className="bg-white w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden"
+        className="bg-white w-full flex flex-col overflow-hidden"
+        style={{
+          maxWidth: "min(95vw, calc((100vh - 14rem) * 4 / 5))",
+          maxHeight: "95vh",
+        }}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
@@ -111,7 +115,7 @@ export default function SnapViewerModal({ courseLabel, snaps, onClose, onChanged
         </div>
 
         {/* media */}
-        <div className="bg-black aspect-[3/4] relative flex items-center justify-center overflow-hidden">
+        <div className="bg-black aspect-[4/5] relative flex items-center justify-center overflow-hidden">
           {current.media_type === "photo" ? (
             <img src={mediaUrl} alt="snap" className="w-full h-full object-contain" />
           ) : (

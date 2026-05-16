@@ -780,9 +780,12 @@ def _compute_expires_at(tz_name):
     return tomorrow_local.astimezone(ZoneInfo("UTC"))
 
 
+from rest_framework.parsers import MultiPartParser, FormParser
+
+
 class SnapUploadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = []  # default DRF parsers handle multipart
+    parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
         file_obj = request.FILES.get("media")
@@ -843,7 +846,11 @@ class SnapUploadView(APIView):
                 return Response({"error": "Audience must contain only your friends."},
                                 status=status.HTTP_403_FORBIDDEN)
 
-        caption = (request.data.get("caption") or "").strip()[:500]
+        raw_caption = (request.data.get("caption") or "").strip()
+        caption_words = raw_caption.split()
+        if len(caption_words) > 50:
+            caption_words = caption_words[:50]
+        caption = " ".join(caption_words)[:1000]
         tz_name = (request.data.get("timezone") or "").strip()
         expires_at = _compute_expires_at(tz_name)
 
