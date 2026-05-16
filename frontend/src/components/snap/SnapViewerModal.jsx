@@ -18,7 +18,23 @@ const timeAgo = (iso) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-export default function SnapViewerModal({ courseLabel, snaps, onClose, onChanged }) {
+const toMinutes = (hhmm) => {
+  if (!hhmm || typeof hhmm !== "string") return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+};
+
+const wasDuringClass = (createdAtIso, startTime, endTime) => {
+  const s = toMinutes(startTime);
+  const e = toMinutes(endTime);
+  if (s == null || e == null || !createdAtIso) return false;
+  const d = new Date(createdAtIso);
+  const n = d.getHours() * 60 + d.getMinutes();
+  return n >= s && n <= e;
+};
+
+export default function SnapViewerModal({ courseLabel, course, snaps, onClose, onChanged }) {
   const ordered = useMemo(
     () => [...(snaps || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
     [snaps]
@@ -80,6 +96,12 @@ export default function SnapViewerModal({ courseLabel, snaps, onClose, onChanged
 
   const avatarLetter = (current.uploader_username || "?")[0].toUpperCase();
   const mediaUrl = resolveMediaUrl(current.media_url);
+  const duringClass = course
+    ? wasDuringClass(current.created_at, course.start_time, course.end_time)
+    : false;
+  const duringClassLabel = duringClass
+    ? `snap from ${course.base_course || course.course || courseLabel}`
+    : null;
 
   return (
     <div
@@ -109,6 +131,9 @@ export default function SnapViewerModal({ courseLabel, snaps, onClose, onChanged
             </div>
             <div className="text-xs text-gray-500 truncate">
               {courseLabel} · {timeAgo(current.created_at)}
+              {duringClassLabel && (
+                <span className="ml-1 text-[#607196] font-semibold">· {duringClassLabel}</span>
+              )}
             </div>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-900 text-xl leading-none">×</button>
