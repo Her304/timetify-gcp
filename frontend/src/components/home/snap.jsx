@@ -94,7 +94,10 @@ export const Snap = ({
             {visible.map((course, idx) => {
               const courseSnaps = snapsFor(course);
               const hasSnaps = courseSnaps.length > 0;
-              const canUpload = course.owner === "Me" && isLiveNow(course);
+              const isOwn = course.owner === "Me";
+              const liveNow = isLiveNow(course);
+              const canSnapNow = isOwn; // unrestricted; intended for ad-hoc captures
+              const canScheduledSnap = isOwn && liveNow;
 
               return (
                 <div key={`${course.owner}-${course.id || idx}`} className="bg-white p-3 flex items-center gap-3 shadow-sm">
@@ -122,43 +125,49 @@ export const Snap = ({
 
                   {/* Actions */}
                   <div className="flex flex-col gap-2 flex-shrink-0 items-start">
-                    <button
-                      onClick={() => canUpload && setCaptureCourse(course)}
-                      disabled={!canUpload}
-                      title={
-                        course.owner !== "Me"
-                          ? "Only you can snap your own classes"
-                          : !canUpload
-                          ? "Class isn't running right now"
-                          : "Add a snap"
-                      }
-                      className={`flex items-center gap-1 text-[10px] font-semibold whitespace-nowrap transition-opacity ${
-                        canUpload
-                          ? "text-[#607196] hover:opacity-70 cursor-pointer"
-                          : "text-gray-300 cursor-not-allowed"
-                      }`}
-                    >
-                      <CenterFocusIcon className="w-4 h-4" />
-                      add snap to {course.base_course || course.course}
-                    </button>
-                    <button
-                      onClick={() => hasSnaps && setViewerState({ snaps: courseSnaps, label: course.course })}
-                      disabled={!hasSnaps}
-                      title={hasSnaps ? "View snaps" : "No snaps yet"}
-                      className={`flex items-center gap-1 text-[10px] font-semibold whitespace-nowrap transition-opacity ${
-                        hasSnaps
-                          ? "text-gray-700 hover:opacity-70 cursor-pointer"
-                          : "text-gray-300 cursor-not-allowed"
-                      }`}
-                    >
-                      <ArOnYouIcon className="w-4 h-4" />
-                      view snap
-                      {hasSnaps && (
+                    {isOwn && (
+                      <button
+                        onClick={() => setCaptureCourse(course)}
+                        disabled={!canSnapNow}
+                        title="Snap anytime"
+                        className={`flex items-center gap-1 text-[10px] font-semibold whitespace-nowrap transition-opacity ${
+                          canSnapNow
+                            ? "text-[#ffc759] hover:opacity-70 cursor-pointer"
+                            : "text-gray-300 cursor-not-allowed"
+                        }`}
+                      >
+                        <CenterFocusIcon className="w-4 h-4" />
+                        snap now!
+                      </button>
+                    )}
+                    {isOwn && (
+                      <button
+                        onClick={() => canScheduledSnap && setCaptureCourse(course)}
+                        disabled={!canScheduledSnap}
+                        title={canScheduledSnap ? "Add a snap to this class" : "Class isn't running right now"}
+                        className={`flex items-center gap-1 text-[10px] font-semibold whitespace-nowrap transition-opacity ${
+                          canScheduledSnap
+                            ? "text-[#607196] hover:opacity-70 cursor-pointer"
+                            : "text-gray-300 cursor-not-allowed"
+                        }`}
+                      >
+                        <CenterFocusIcon className="w-4 h-4" />
+                        add snap to {course.base_course || course.course}
+                      </button>
+                    )}
+                    {hasSnaps && (
+                      <button
+                        onClick={() => setViewerState({ snaps: courseSnaps, label: course.course })}
+                        title="View snaps"
+                        className="flex items-center gap-1 text-[10px] font-semibold whitespace-nowrap text-gray-700 hover:opacity-70 cursor-pointer transition-opacity"
+                      >
+                        <ArOnYouIcon className="w-4 h-4" />
+                        view snap
                         <span className="ml-0.5 inline-flex items-center justify-center min-w-[14px] h-3.5 px-1 text-[9px] font-bold bg-[#ffc759] text-gray-900 rounded-full">
                           {courseSnaps.length}
                         </span>
-                      )}
-                    </button>
+                      </button>
+                    )}
                   </div>
                 </div>
               );

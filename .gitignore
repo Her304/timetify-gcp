@@ -16,4 +16,5 @@ backend/.venv/
 node_modules/
 .DS_Store
 start_local.md
-CLAUDE.md
+backend/media/
+new_plan.md

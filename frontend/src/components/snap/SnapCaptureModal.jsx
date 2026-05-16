@@ -3,6 +3,15 @@ import { authenticatedFetch } from "@/utils/api";
 
 const MAX_VIDEO_MS = 5000;
 const PHOTO_QUALITY = 0.85;
+const TARGET_RATIO = 4 / 5; // vertical 5:4 (portrait)
+const CAPTION_MAX_WORDS = 50;
+
+const countWords = (s) => (s.match(/\S+/g) || []).length;
+const clampWords = (s, max) => {
+  const words = s.match(/\S+/g) || [];
+  if (words.length <= max) return s;
+  return words.slice(0, max).join(" ");
+};
 
 const pickRecorderMime = () => {
   if (typeof MediaRecorder === "undefined") return "";
@@ -55,8 +64,9 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
       if (stream) stream.getTracks().forEach((t) => t.stop());
       const ms = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1080 },
+          height: { ideal: 1350 },
+          aspectRatio: { ideal: TARGET_RATIO },
           facingMode: { ideal: "environment" },
         },
         audio: nextMode === "video",
@@ -92,10 +102,25 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   const capturePhoto = async () => {
     const v = videoRef.current;
     if (!v || !v.videoWidth) return;
+    const sw = v.videoWidth;
+    const sh = v.videoHeight;
+    const sourceRatio = sw / sh;
+    let cropW, cropH, cropX, cropY;
+    if (sourceRatio > TARGET_RATIO) {
+      cropH = sh;
+      cropW = sh * TARGET_RATIO;
+      cropX = (sw - cropW) / 2;
+      cropY = 0;
+    } else {
+      cropW = sw;
+      cropH = sw / TARGET_RATIO;
+      cropX = 0;
+      cropY = (sh - cropH) / 2;
+    }
     const canvas = document.createElement("canvas");
-    canvas.width = v.videoWidth;
-    canvas.height = v.videoHeight;
-    canvas.getContext("2d").drawImage(v, 0, 0);
+    canvas.width = Math.round(cropW);
+    canvas.height = Math.round(cropH);
+    canvas.getContext("2d").drawImage(v, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", PHOTO_QUALITY));
     if (!blob) return;
     setPreviewBlob(blob);
@@ -203,7 +228,13 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden">
+      <div
+        className="bg-white w-full flex flex-col overflow-hidden"
+        style={{
+          maxWidth: "min(95vw, calc((100vh - 14rem) * 4 / 5))",
+          maxHeight: "95vh",
+        }}
+      >
         {/* header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#e8e9ed]">
           <div>
@@ -217,7 +248,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
         <div className="flex-1 overflow-y-auto">
           {step === "capture" && (
             <div className="flex flex-col">
-              <div className="bg-black aspect-[3/4] relative flex items-center justify-center overflow-hidden">
+              <div className="bg-black aspect-[4/5] relative flex items-center justify-center overflow-hidden">
                 {streamError ? (
                   <div className="text-white text-sm text-center px-6">
                     <p>Camera blocked: {streamError}</p>
@@ -280,7 +311,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
 
           {step === "preview" && previewUrl && (
             <div className="flex flex-col">
-              <div className="bg-black aspect-[3/4] flex items-center justify-center overflow-hidden">
+              <div className="bg-black aspect-[4/5] flex items-center justify-center overflow-hidden">
                 {mode === "photo" ? (
                   <img src={previewUrl} alt="preview" className="w-full h-full object-cover" />
                 ) : (
@@ -300,12 +331,12 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Caption</label>
                 <textarea
                   value={caption}
-                  onChange={(e) => setCaption(e.target.value.slice(0, 500))}
+                  onChange={(e) => setCaption(clampWords(e.target.value, CAPTION_MAX_WORDS))}
                   rows={2}
                   placeholder="Say something…"
                   className="mt-1 w-full bg-[#e8e9ed] p-3 text-sm outline-none"
                 />
-                <div className="text-[10px] text-gray-400 text-right">{caption.length}/500</div>
+                <div className="text-[10px] text-gray-400 text-right">{countWords(caption)}/{CAPTION_MAX_WORDS} words</div>
               </div>
 
               <div>
