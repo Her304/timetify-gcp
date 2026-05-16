@@ -71,26 +71,26 @@ export const Snap = ({
         </span>
       </div>
 
-      <div className="bg-[#e8e9ed] p-5 w-full">
-        {allToday.length === 0 ? (
-          <div className="py-8 text-center">
-            <p className="text-gray-400 text-sm italic">No classes today.</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {allToday.map((course, idx) => {
-              const courseSnaps = snapsFor(course);
-              const uploaders = groupSnapsByUploader(courseSnaps);
-              const isOwn = course.owner === "Me";
-              const liveNow = isLiveNow(course);
+      {allToday.length === 0 ? (
+        <div className="bg-[#e8e9ed] p-5 w-full text-center">
+          <p className="text-gray-400 text-sm italic">No classes today.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {allToday.map((course, idx) => {
+            const courseSnaps = snapsFor(course);
+            const uploaders = groupSnapsByUploader(courseSnaps);
+            const isOwn = course.owner === "Me";
+            const liveNow = isLiveNow(course);
 
-              return (
-                <div
-                  key={`${course.owner}-${course.id || idx}`}
-                  className="bg-white p-3 flex items-stretch gap-3 shadow-sm"
-                >
-                  {/* Class info — left */}
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
+            return (
+              <div
+                key={`${course.owner}-${course.id || idx}`}
+                className="grid grid-cols-1 md:grid-cols-2 gap-3"
+              >
+                {/* Left panel: class info */}
+                <div className="bg-[#e8e9ed] p-3">
+                  <div className="bg-white p-3 flex items-center gap-3 shadow-sm border border-[#d4d6dd]">
                     <div
                       className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${
                         isOwn
@@ -121,16 +121,21 @@ export const Snap = ({
                       </p>
                     </div>
                   </div>
+                </div>
 
-                  {/* Stories carousel — right */}
-                  <div className="flex items-center gap-2 overflow-x-auto flex-shrink-0 pl-1 -mr-1 pr-1">
+                {/* Right panel: snaps */}
+                <div className="bg-[#e8e9ed] p-3 flex flex-col gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    snaps
+                  </h3>
+                  <div className="flex items-center gap-3 overflow-x-auto pb-1">
                     {/* Add tile (own courses only) */}
                     {isOwn && (
                       <button
                         type="button"
                         onClick={() => setCaptureCourse(course)}
                         title={liveNow ? `Snap ${course.base_course || course.course}` : "Snap Now!"}
-                        className="flex flex-col items-center gap-0.5 flex-shrink-0 hover:opacity-70 transition-opacity"
+                        className="flex flex-col items-center gap-1 flex-shrink-0 hover:opacity-70 transition-opacity"
                       >
                         <div className="relative w-12 h-12 rounded-full bg-[#607196] flex items-center justify-center text-white text-xs font-bold">
                           <ArOnYouIcon className="w-6 h-6 text-white" />
@@ -139,7 +144,7 @@ export const Snap = ({
                           </span>
                         </div>
                         <span className="text-[10px] font-semibold text-gray-700 leading-none">
-                          {liveNow ? course.base_course || course.course : "you"}
+                          {liveNow ? course.base_course || course.course : "add"}
                         </span>
                       </button>
                     )}
@@ -157,7 +162,7 @@ export const Snap = ({
                           })
                         }
                         title={`${u.snaps.length} snap${u.snaps.length === 1 ? "" : "s"}`}
-                        className="flex flex-col items-center gap-0.5 flex-shrink-0 hover:opacity-70 transition-opacity"
+                        className="flex flex-col items-center gap-1 flex-shrink-0 hover:opacity-70 transition-opacity"
                       >
                         <div
                           className={`relative w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold ${
@@ -185,11 +190,11 @@ export const Snap = ({
                     )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {captureCourse && (
         <SnapCaptureModal
