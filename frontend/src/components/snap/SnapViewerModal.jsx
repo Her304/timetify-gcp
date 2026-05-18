@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticatedFetch } from "@/utils/api";
+import { T, FF, Icon, Avatar } from "@/components/shared/brand";
 
 const resolveMediaUrl = (url) => {
   if (!url) return null;
@@ -60,16 +61,13 @@ export default function SnapViewerModal({
   const [deleting, setDeleting] = useState(false);
   const touchStartX = useRef(null);
 
-  useEffect(() => {
-    setIdx(0);
-  }, [snaps]);
+  useEffect(() => { setIdx(0); }, [snaps]);
 
   const current = ordered[idx];
   const currentId = current ? current.id : null;
   const currentIsMine = !!(current && current.is_mine);
   const currentHasViewed = !!(current && current.has_viewed);
 
-  // Mark as viewed each time the current snap changes (skip self-uploads).
   useEffect(() => {
     if (currentId == null) return;
     if (currentIsMine) return;
@@ -115,18 +113,18 @@ export default function SnapViewerModal({
     }
   };
 
-  const avatarLetter = (current.uploader_username || "?")[0].toUpperCase();
+  const avatarLetter = (current.uploader_username || "?")[0].toLowerCase();
   const mediaUrl = resolveMediaUrl(current.media_url);
   const duringClass = course
     ? wasDuringClass(current.created_at, course.start_time, course.end_time)
     : false;
   const duringClassLabel = duringClass
-    ? `snap from ${course.base_course || course.course || courseLabel}`
+    ? `snap from ${(course.base_course || course.course || courseLabel)?.toLowerCase()}`
     : null;
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
       onKeyDown={onKey}
       tabIndex={-1}
       ref={(el) => el && el.focus()}
@@ -136,19 +134,27 @@ export default function SnapViewerModal({
           type="button"
           onClick={(e) => { e.stopPropagation(); onSelectPrev && onSelectPrev(); }}
           title={`@${prevTile.username}`}
-          className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#607196] text-white flex items-center justify-center text-base sm:text-lg font-bold ring-2 ring-[#ffc759] ring-offset-2 ring-offset-black/80 hover:opacity-80 transition-opacity"
+          className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 hover:opacity-80 transition-opacity"
         >
-          {prevTile.username[0].toUpperCase()}
+          <Avatar
+            name={prevTile.username[0].toLowerCase()}
+            bg={T.coral} fg="#fff" size={52} ring={T.coral}
+          />
         </button>
       ) : onAdd ? (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onAdd(); }}
           title="Add a snap"
-          className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#607196] text-white flex items-center justify-center hover:opacity-80 transition-opacity"
+          className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 hover:opacity-80 transition-opacity"
         >
-          <ArOnYouIcon className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
-          <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-[#ffc759] text-gray-900 flex items-center justify-center text-xs font-bold border-2 border-black/80 leading-none">+</span>
+          <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center" style={{ background: T.coral }}>
+            <ArOnYouIcon className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
+            <span
+              className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold leading-none"
+              style={{ background: T.lime, color: T.ink, border: '2px solid rgba(0,0,0,0.85)' }}
+            >+</span>
+          </div>
         </button>
       ) : null}
 
@@ -157,106 +163,125 @@ export default function SnapViewerModal({
           type="button"
           onClick={(e) => { e.stopPropagation(); onSelectNext && onSelectNext(); }}
           title={`@${nextTile.username}`}
-          className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#607196] text-white flex items-center justify-center text-base sm:text-lg font-bold ring-2 ring-[#ffc759] ring-offset-2 ring-offset-black/80 hover:opacity-80 transition-opacity"
+          className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 hover:opacity-80 transition-opacity"
         >
-          {nextTile.username[0].toUpperCase()}
+          <Avatar
+            name={nextTile.username[0].toLowerCase()}
+            bg={T.coral} fg="#fff" size={52} ring={T.coral}
+          />
         </button>
       )}
 
       <div
-        className="bg-white w-full flex flex-col overflow-hidden"
+        className="w-full flex flex-col overflow-hidden rounded-3xl"
         style={{
-          maxWidth: "min(95vw, calc((100vh - 14rem) * 4 / 5))",
+          background: T.ink, color: '#fff',
+          maxWidth: "min(95vw, calc((100vh - 12rem) * 4 / 5))",
           maxHeight: "95vh",
         }}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
         {/* header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[#e8e9ed]">
-          <div className="w-8 h-8 rounded-full bg-[#607196] flex items-center justify-center text-white text-xs font-bold">
-            {avatarLetter}
-          </div>
+        <div className="flex items-center gap-3 px-4 py-3">
+          <Avatar name={avatarLetter} bg={T.lime} fg={T.ink} size={38} ring={T.coral}/>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold text-gray-900 truncate">
+            <div className="text-base font-semibold text-white truncate" style={{ letterSpacing: -0.2 }}>
               @{current.uploader_username}
-              {current.is_mine && <span className="text-[10px] text-gray-400 ml-1">(you)</span>}
+              {current.is_mine && <span className="text-xs ml-1" style={{ color: 'rgba(255,255,255,.5)' }}>(you)</span>}
             </div>
-            <div className="text-xs text-gray-500 truncate">
-              {courseLabel} · {timeAgo(current.created_at)}
+            <div className="text-[11px] truncate" style={{ color: 'rgba(255,255,255,.6)', fontFamily: FF.mono }}>
+              {courseLabel?.toLowerCase()} · {timeAgo(current.created_at)}
               {duringClassLabel && (
-                <span className="ml-1 text-[#607196] font-semibold">· {duringClassLabel}</span>
+                <span className="ml-1" style={{ color: T.coral }}>· {duringClassLabel}</span>
               )}
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-900 text-xl leading-none">×</button>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full grid place-items-center"
+            style={{ background: 'rgba(255,255,255,.15)' }}
+          >
+            <Icon name="x" size={16} color="#fff"/>
+          </button>
         </div>
 
         {/* media */}
-        <div className="bg-black aspect-[4/5] relative flex items-center justify-center overflow-hidden">
-          {current.media_type === "photo" ? (
-            <img src={mediaUrl} alt="snap" className="w-full h-full object-contain" />
-          ) : (
-            <video src={mediaUrl} className="w-full h-full object-contain" controls autoPlay playsInline />
-          )}
+        <div className="px-3">
+          <div className="aspect-[4/5] rounded-2xl relative flex items-center justify-center overflow-hidden bg-black">
+            {current.media_type === "photo" ? (
+              <img src={mediaUrl} alt="snap" className="w-full h-full object-contain" />
+            ) : (
+              <video src={mediaUrl} className="w-full h-full object-contain" controls autoPlay playsInline />
+            )}
 
-          {ordered.length > 1 && (
-            <>
-              <button
-                onClick={() => go(-1)}
-                disabled={idx === 0}
-                className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 text-gray-900 w-8 h-8 disabled:opacity-30"
-                aria-label="Previous"
-              >
-                ‹
-              </button>
-              <button
-                onClick={() => go(1)}
-                disabled={idx === ordered.length - 1}
-                className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 text-gray-900 w-8 h-8 disabled:opacity-30"
-                aria-label="Next"
-              >
-                ›
-              </button>
-              <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-2 py-0.5">
-                {idx + 1} / {ordered.length}
-              </div>
-            </>
-          )}
+            {ordered.length > 1 && (
+              <>
+                <button
+                  onClick={() => go(-1)}
+                  disabled={idx === 0}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full grid place-items-center disabled:opacity-30"
+                  style={{ background: 'rgba(0,0,0,.5)', color: '#fff', backdropFilter: 'blur(6px)' }}
+                  aria-label="Previous"
+                >
+                  <Icon name="chevL" size={18} color="#fff"/>
+                </button>
+                <button
+                  onClick={() => go(1)}
+                  disabled={idx === ordered.length - 1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full grid place-items-center disabled:opacity-30"
+                  style={{ background: 'rgba(0,0,0,.5)', color: '#fff', backdropFilter: 'blur(6px)' }}
+                  aria-label="Next"
+                >
+                  <Icon name="chevR" size={18} color="#fff"/>
+                </button>
+                <div
+                  className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-[10px]"
+                  style={{ background: 'rgba(0,0,0,.55)', color: '#fff', fontFamily: FF.mono, letterSpacing: 0.5 }}
+                >
+                  {idx + 1} / {ordered.length}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* caption */}
         {current.caption && (
-          <div className="px-4 py-3 border-b border-[#e8e9ed] text-sm text-gray-800 whitespace-pre-wrap">
+          <div className="px-5 py-3 text-base whitespace-pre-wrap" style={{ fontFamily: FF.serif, lineHeight: 1.25, letterSpacing: -0.2, color: '#fff' }}>
             {current.caption}
           </div>
         )}
 
         {/* footer */}
-        <div className="px-4 py-3 flex items-center justify-between gap-2 flex-wrap">
+        <div className="px-4 py-4 flex items-center justify-between gap-2 flex-wrap">
           {current.is_mine ? (
             <button
               onClick={deleteSnap}
               disabled={deleting}
-              className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-semibold disabled:opacity-50"
+              className="px-4 py-2 rounded-full text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 lowercase"
+              style={{ background: 'rgba(237,106,74,.18)', color: T.coral, border: `1px solid ${T.coral}` }}
             >
-              {deleting ? "Deleting…" : "Delete"}
+              <Icon name="trash" size={12} color={T.coral}/>
+              {deleting ? "deleting…" : "delete"}
             </button>
           ) : (
             <>
               <button
                 disabled
                 title="Coming soon"
-                className="px-3 py-1.5 bg-[#e8e9ed] text-gray-500 text-xs font-semibold cursor-not-allowed"
+                className="px-3 py-2 rounded-full text-xs font-medium cursor-not-allowed lowercase"
+                style={{ background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.55)' }}
               >
-                💬 Chat with @{current.uploader_username}
+                chat w/ @{current.uploader_username}
               </button>
               <button
                 disabled
                 title="Coming soon"
-                className="px-3 py-1.5 bg-[#e8e9ed] text-gray-500 text-xs font-semibold cursor-not-allowed"
+                className="px-3 py-2 rounded-full text-xs font-medium cursor-not-allowed lowercase"
+                style={{ background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.55)' }}
               >
-                🚩 Report
+                report
               </button>
             </>
           )}

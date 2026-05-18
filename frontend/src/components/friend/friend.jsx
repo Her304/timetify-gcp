@@ -1,64 +1,69 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { T, FF, MonoLabel, Avatar, Icon, PillBtn, Star } from "@/components/shared/brand";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-const AvatarCircle = ({ name, size = "md" }) => {
-  const initials = name ? name.charAt(0).toUpperCase() : "?";
-  const sizeClasses = size === "lg" ? "w-14 h-14 text-xl" : "w-10 h-10 text-sm";
+// Stable color palette for friend avatars based on first-letter
+const avatarPalette = [T.lime, T.lilac, "#f0c4a8", "#b8d8c2", T.coral];
+const colorFor = (name) => {
+  if (!name) return T.lilac;
+  const code = name.charCodeAt(0);
+  return avatarPalette[code % avatarPalette.length];
+};
+const isCoral = (c) => c === T.coral;
+
+const FriendCard = ({ name, university, major, gradYear, onAction, actionLabel, actionVariant = "primary", onReject, showDetails }) => {
+  const bg = colorFor(name);
   return (
-    <div className={`${sizeClasses} rounded-full bg-[#607196]/10 text-[#607196] flex items-center justify-center font-bold flex-shrink-0`}>
-      {initials}
+    <div className="flex items-center bg-white border border-ink-8 rounded-2xl p-4 gap-4 hover:border-coral transition-colors">
+      <Avatar name={(name?.[0] || "?").toLowerCase()} bg={bg} fg={isCoral(bg) ? '#fff' : T.ink} size={48} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="font-medium text-ink text-lg lowercase" style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}>{name}</span>
+          {university && <span className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>@{university}</span>}
+        </div>
+        {(major || gradYear) && (
+          <p className="text-xs text-ink-60 mt-0.5 lowercase">
+            {major}{gradYear ? ` · class of ${gradYear}` : ""}
+          </p>
+        )}
+      </div>
+      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+        {showDetails && (
+          <span className="text-[10px] text-ink-40" style={{ fontFamily: FF.mono, letterSpacing: 0.5 }}>tap for more</span>
+        )}
+        {onAction && actionLabel && (
+          <div className="flex gap-2">
+            <PillBtn
+              onClick={onAction}
+              bg={
+                actionVariant === "primary" ? T.ink :
+                actionVariant === "connect" ? T.coral :
+                actionVariant === "accent" ? T.coral :
+                T.cream
+              }
+              fg={
+                actionVariant === "primary" ? T.cream :
+                actionVariant === "connect" ? "#fff" :
+                actionVariant === "accent" ? "#fff" :
+                T.ink60
+              }
+              size="sm"
+              style={actionVariant === "muted" ? { border: `1px solid ${T.ink15}` } : {}}
+            >
+              {actionLabel}
+            </PillBtn>
+            {onReject && (
+              <PillBtn onClick={onReject} bg="#fff" fg={T.ink60} size="sm" style={{ border: `1px solid ${T.ink15}` }}>
+                reject
+              </PillBtn>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
-
-const FriendCard = ({ name, university, major, gradYear, onAction, actionLabel, actionVariant = "primary", onReject, showDetails }) => (
-  <div className="flex items-center bg-[#e8e9ed]  p-4 gap-4">
-    <AvatarCircle name={name} size="lg" />
-    <div className="flex-1 min-w-0">
-      <div className="flex items-baseline gap-2 flex-wrap">
-        <span className="font-extrabold text-gray-900">{name}</span>
-        {university && <span className="text-sm text-gray-500">@{university}</span>}
-      </div>
-      {(major || gradYear) && (
-        <p className="text-sm text-gray-500 mt-0.5">
-          {major}{gradYear ? ` | Graduate by ${gradYear}` : ""}
-        </p>
-      )}
-    </div>
-    <div className="flex flex-col items-end gap-2 flex-shrink-0">
-      {showDetails && (
-        <span className="text-xs text-gray-400 cursor-pointer hover:text-[#607196]">Click for more details</span>
-      )}
-      {onAction && actionLabel && (
-        <div className="flex gap-2">
-          <button
-            onClick={onAction}
-            className={`px-4 py-2  text-sm font-bold transition-colors ${
-              actionVariant === "primary"
-                ? "bg-[#607196] text-white hover:bg-[#4a5a7a]"
-                : actionVariant === "connect"
-                ? "bg-white border border-[#607196] text-[#607196] hover:bg-[#607196] hover:text-white"
-                : actionVariant === "accent"
-                ? "bg-[#ffc759] text-gray-900 hover:bg-[#e5b34e]"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-          }`}
-          >
-            {actionLabel}
-          </button>
-          {onReject && (
-            <button
-              onClick={onReject}
-              className="px-4 py-2  text-sm font-bold bg-white border border-gray-200 text-gray-600 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors"
-            >
-              Reject
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  </div>
-);
 
 const SearchFriend = ({
   searchfriends,
@@ -67,7 +72,6 @@ const SearchFriend = ({
   friendRequests,
   respondToFriendRequest,
   Class_details = [],
-  currentUser,
 }) => {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -119,35 +123,43 @@ const SearchFriend = ({
   const displayedFriends = showAllFriends ? friendsList : friendsList.slice(0, 3);
   const displayedRequests = showAllRequests ? friendRequests : friendRequests.slice(0, 3);
 
+  const dayColors = [T.coral, T.lilac, T.lime, "#b8d8c2", "#f0c4a8", T.coral, T.lilac];
+
   return (
     <div className="space-y-10 pb-12">
       {popup && (
-        <div className="fixed top-4 right-4 bg-[#607196] text-white px-6 py-3  shadow-xl z-50 animate-in fade-in slide-in-from-top-4 duration-300">
-          Friend request sent!
+        <div className="fixed top-4 right-4 px-5 py-3 rounded-full shadow-xl z-50 text-sm font-semibold"
+             style={{ background: T.coral, color: '#fff' }}>
+          friend request sent!
         </div>
       )}
 
+      {/* Header */}
+      <div>
+        <MonoLabel>find ppl · {uniqueOwners.length} u know</MonoLabel>
+        <h1 id="search" className="text-4xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+          ppl u might<br/>actually like
+          <span className="inline-block ml-2 align-middle">
+            <Star color={T.coral} size={22}/>
+          </span>
+        </h1>
+      </div>
+
       {/* Search */}
       <section>
-        <h2 id="search" className="text-3xl font-extrabold text-gray-900 mb-5">Search</h2>
-        <div className="bg-[#e8e9ed]  px-4 py-3 flex items-center gap-3">
-          <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
-          </svg>
+        <div className="bg-white rounded-full border border-ink-15 px-5 py-2 flex items-center gap-3">
+          <Icon name="search" size={16} color={T.ink60}/>
           <input
             type="text"
-            placeholder="Find your Friends here!"
+            placeholder="search by name, class, or major"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            className="flex-1 bg-transparent outline-none text-gray-700 placeholder-gray-400 text-sm font-medium"
+            className="flex-1 bg-transparent outline-none text-ink placeholder-ink-40 text-sm"
           />
-          <button
-            onClick={handleSearch}
-            className="px-5 py-2 bg-[#607196] text-white text-sm font-bold  hover:bg-[#4a5a7a] transition-colors"
-          >
-            Search
-          </button>
+          <PillBtn onClick={handleSearch} bg={T.coral} fg="#fff" size="sm">
+            search
+          </PillBtn>
         </div>
 
         {results.length > 0 && (
@@ -167,10 +179,10 @@ const SearchFriend = ({
                 }
                 actionLabel={
                   friend.status === 0
-                    ? "Pending"
+                    ? "pending"
                     : friend.status === 1
-                    ? "Friends ✓"
-                    : "Add Friend"
+                    ? "friends ✓"
+                    : "add friend"
                 }
                 actionVariant={friend.status === 0 || friend.status === 1 ? "muted" : "accent"}
               />
@@ -178,8 +190,8 @@ const SearchFriend = ({
           </div>
         )}
         {results.length === 0 && query && (
-          <div className="mt-4 p-8 bg-[#e8e9ed]  text-center">
-            <p className="text-gray-400 text-sm">No results found for "{query}"</p>
+          <div className="mt-4 p-8 bg-white border border-ink-8 rounded-2xl text-center">
+            <p className="text-ink-60 text-sm lowercase">no results found for &ldquo;{query}&rdquo;</p>
           </div>
         )}
       </section>
@@ -187,18 +199,21 @@ const SearchFriend = ({
       {/* My Friends */}
       <section>
         <div className="flex items-center justify-between mb-5">
-          <h2 id="my-friends" className="text-3xl font-extrabold text-gray-900">
-            My Friends {friendsList.length > 0 && `(${friendsList.length})`}
-          </h2>
+          <div>
+            <MonoLabel>my ppl</MonoLabel>
+            <h2 id="my-friends" className="text-3xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+              my friends{friendsList.length > 0 && ` (${friendsList.length})`}
+            </h2>
+          </div>
           {!showAllFriends && friendsList.length > 3 && (
-            <button onClick={() => setShowAllFriends(true)} className="text-sm font-semibold text-gray-400 hover:text-[#607196] transition-colors">
-              View more friends
+            <button onClick={() => setShowAllFriends(true)} className="text-xs font-semibold text-coral hover:text-coral-dark lowercase">
+              view more friends
             </button>
           )}
         </div>
         {friendsList.length === 0 ? (
-          <div className="bg-[#e8e9ed]  p-8 text-center">
-            <p className="text-gray-400 text-sm">You haven't added any friends yet.</p>
+          <div className="bg-white border border-ink-8 rounded-2xl p-8 text-center">
+            <p className="text-ink-60 text-sm lowercase">u haven&apos;t added any friends yet.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -212,7 +227,7 @@ const SearchFriend = ({
                   major={f.major}
                   gradYear={f.grad_year}
                   showDetails
-                  actionLabel="Friends ✓"
+                  actionLabel="friends ✓"
                   actionVariant="muted"
                 />
               );
@@ -221,72 +236,84 @@ const SearchFriend = ({
         )}
       </section>
 
-      {/* Me & My friends schedule */}
+      {/* Schedule */}
       <section id="schedule">
-        <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-          <h2 className="text-3xl font-extrabold text-gray-900">Me &amp; My friends schedule</h2>
+        <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
+          <div>
+            <MonoLabel>schedules</MonoLabel>
+            <h2 className="text-3xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+              me &amp; my friends
+            </h2>
+          </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500 font-medium">Sort:</span>
+            <MonoLabel>sort</MonoLabel>
             <div className="relative">
               <select
                 value={selectedOwner}
                 onChange={(e) => setSelectedOwner(e.target.value)}
-                className="appearance-none bg-[#e8e9ed] text-gray-800 text-sm font-semibold px-4 py-2 pr-8  border-none outline-none cursor-pointer"
+                className="appearance-none bg-white text-ink text-sm font-medium px-4 py-2 pr-8 rounded-full border border-ink-15 outline-none cursor-pointer hover:border-ink-40 transition-colors"
               >
-                <option value="all">All of my friend</option>
+                <option value="all">all of my friends</option>
                 {uniqueOwners.map((o) => (
                   <option key={o} value={o}>{o}</option>
                 ))}
               </select>
-              <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-60 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </div>
           </div>
         </div>
 
-        <div className="bg-[#e8e9ed]  p-5 w-full overflow-hidden">
+        <div className="bg-white rounded-2xl border border-ink-8 p-5 w-full overflow-hidden">
           <div className="flex flex-row overflow-x-auto gap-3 pb-2 min-h-[280px]">
-            {days.map((day) => {
+            {days.map((day, dayIdx) => {
               const dayItems = deduped.filter(
                 (c) =>
                   c.day &&
                   (c.day.toLowerCase() === day.toLowerCase() ||
                     c.day.toLowerCase() === day.slice(0, 3).toLowerCase())
               );
+              const dayColor = dayColors[dayIdx % dayColors.length];
               return (
                 <div key={day} className="flex-1 min-w-[130px] flex flex-col gap-2">
-                  <div className="pb-2 border-b-2 border-[#607196] mb-1">
-                    <h3 className="text-[10px] font-bold text-[#607196] text-center uppercase tracking-widest">
+                  <div className="pb-2 mb-1 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: dayColor }} />
+                    <h3 className="text-[10px] font-medium text-ink-60 uppercase tracking-widest" style={{ fontFamily: FF.mono }}>
                       {day.slice(0, 3)}
                     </h3>
                   </div>
                   <div className="flex flex-col gap-2 flex-1">
                     {dayItems.length > 0 ? (
-                      dayItems.map((course, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-white  p-2.5 shadow-sm flex flex-col gap-1"
-                        >
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full self-start ${
-                              course.owner === "Me"
-                                ? "bg-[#607196]/10 text-[#607196]"
-                                : "bg-[#ffc759]/20 text-amber-700"
-                            }`}
+                      dayItems.map((course, idx) => {
+                        const isMine = course.owner === "Me" || course.owner?.startsWith("Me,");
+                        return (
+                          <div
+                            key={idx}
+                            className="rounded-xl p-2.5 flex flex-col gap-1 border"
+                            style={{ background: isMine ? T.cream : '#fff', borderColor: T.ink08 }}
                           >
-                            {course.owner}
-                          </span>
-                          <h4 className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight">
-                            {course.course}
-                          </h4>
-                          <p className="text-[10px] text-gray-500">{course.time}</p>
-                          <p className="text-[10px] text-gray-500 truncate">{course.location}</p>
-                        </div>
-                      ))
+                            <span
+                              className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full self-start"
+                              style={{
+                                background: isMine ? T.coralLt : T.lilac + "55",
+                                color: isMine ? T.coralDk : T.lilacDk,
+                                fontFamily: FF.mono, letterSpacing: 0.5,
+                              }}
+                            >
+                              {course.owner}
+                            </span>
+                            <h4 className="text-xs font-semibold text-ink line-clamp-2 leading-tight lowercase">
+                              {course.course}
+                            </h4>
+                            <p className="text-[10px] text-ink-60" style={{ fontFamily: FF.mono }}>{course.time}</p>
+                            <p className="text-[10px] text-ink-60 truncate">{course.location}</p>
+                          </div>
+                        );
+                      })
                     ) : (
                       <div className="flex-1 flex items-center justify-center min-h-[80px]">
-                        <p className="text-[10px] text-gray-400 italic">—</p>
+                        <p className="text-[10px] text-ink-40">—</p>
                       </div>
                     )}
                   </div>
@@ -296,7 +323,7 @@ const SearchFriend = ({
           </div>
           {Class_details.length === 0 && (
             <div className="py-8 text-center">
-              <p className="text-gray-400 text-sm">Add friends to see their schedule here.</p>
+              <p className="text-ink-60 text-sm lowercase">add friends to see their schedule here.</p>
             </div>
           )}
         </div>
@@ -306,12 +333,15 @@ const SearchFriend = ({
       {friendRequests && friendRequests.length > 0 && (
         <section id="request">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-3xl font-extrabold text-gray-900">
-              Request ({friendRequests.length})
-            </h2>
+            <div>
+              <MonoLabel>inbox</MonoLabel>
+              <h2 className="text-3xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+                requests ({friendRequests.length})
+              </h2>
+            </div>
             {!showAllRequests && friendRequests.length > 3 && (
-              <button onClick={() => setShowAllRequests(true)} className="text-sm font-semibold text-gray-400 hover:text-[#607196] transition-colors">
-                View more request
+              <button onClick={() => setShowAllRequests(true)} className="text-xs font-semibold text-coral hover:text-coral-dark lowercase">
+                view more
               </button>
             )}
           </div>

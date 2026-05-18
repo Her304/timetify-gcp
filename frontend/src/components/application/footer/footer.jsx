@@ -1,37 +1,36 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
+import { AppMark, T, FF } from "@/components/shared/brand";
 
 export const Footer = ({ currentUser }) => {
   return (
-    <footer className="bg-[#607196] text-white py-12 px-8 mt-12">
+    <footer style={{ background: T.ink, color: T.cream }} className="py-12 px-8 mt-12">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-start gap-8 mb-12">
-          {/* Left Side: Logo and Links */}
-          <div className="space-y-6">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-serif font-normal tracking-tight">Timetify</span>
+        <div className="flex flex-col md:flex-row justify-between items-start gap-8 mb-10">
+          <div className="space-y-5">
+            <div className="flex items-center gap-2.5">
+              <AppMark size={32}/>
+              <span className="text-2xl" style={{ fontFamily: FF.serif, letterSpacing: -0.6 }}>timetify</span>
             </div>
-            <nav className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-medium text-white">
+            <nav className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
               {!currentUser && (
                 <>
-                  <Link to="/login" className="hover:text-white transition-colors">Login</Link>
-                  <Link to="/register" className="hover:text-white transition-colors">Register</Link>
+                  <Link to="/login" className="hover:text-coral transition-colors lowercase">login</Link>
+                  <Link to="/register" className="hover:text-coral transition-colors lowercase">register</Link>
                 </>
               )}
-              <Link to="/about" className="hover:text-white transition-colors">About</Link>
-              <Link to="/help" className="hover:text-white transition-colors">Help</Link>
-              <Link to="/privacy" className="hover:text-white transition-colors">Privacy</Link>
-              <a href="https://github.com/Her304/timetify" className="hover:text-white transition-colors">Github</a>
+              <Link to="/about" className="hover:text-coral transition-colors lowercase">about</Link>
+              <Link to="/help" className="hover:text-coral transition-colors lowercase">help</Link>
+              <Link to="/privacy" className="hover:text-coral transition-colors lowercase">privacy</Link>
+              <a href="https://github.com/Her304/timetify" className="hover:text-coral transition-colors lowercase">github</a>
             </nav>
           </div>
         </div>
 
-        {/* Bottom Bar */}
-        <div className="pt-8 border-t border-white flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-white">
-          <p className="text-white">© {new Date().getFullYear()} timetify. All rights reserved.</p>
-          <div className="flex gap-6">
-            <Link to="/terms" className="text-white hover:text-white-500 transition-colors">Terms</Link>
-            <Link to="/privacy" className="text-white hover:text-white-500 transition-colors">Privacy</Link>
+        <div className="pt-6 flex flex-col md:flex-row justify-between items-center gap-4 text-xs" style={{ borderTop: '1px solid rgba(248,244,237,.15)', fontFamily: FF.mono, color: 'rgba(248,244,237,.6)' }}>
+          <p>© {new Date().getFullYear()} timetify · all rights reserved</p>
+          <div className="flex gap-5">
+            <Link to="/terms" className="hover:text-coral transition-colors">terms</Link>
+            <Link to="/privacy" className="hover:text-coral transition-colors">privacy</Link>
           </div>
         </div>
       </div>

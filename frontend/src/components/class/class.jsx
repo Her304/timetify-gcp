@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
+import { T, FF, MonoLabel, Icon } from "@/components/shared/brand";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -8,20 +9,17 @@ const AccordionSection = ({ title, children }) => {
   const [open, setOpen] = useState(false);
   return (
     <div
-      className="bg-[#e8e9ed]  overflow-hidden cursor-pointer"
+      className="bg-white rounded-2xl border border-ink-8 overflow-hidden cursor-pointer"
       onClick={() => setOpen((o) => !o)}
     >
       <div className="flex items-center justify-between px-5 py-4">
-        <span className="font-bold text-gray-800">{title}</span>
-        <svg
-          className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <span className="text-base text-ink lowercase" style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}>{title}</span>
+        <div className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
+          <Icon name="chevD" size={16} color={T.ink60}/>
+        </div>
       </div>
       {open && (
-        <div className="px-5 pb-4 border-t border-white/60" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 pb-4 border-t border-ink-8 pt-3" onClick={(e) => e.stopPropagation()}>
           {children}
         </div>
       )}
@@ -60,7 +58,6 @@ export const ClassDetails = ({ Class_details = [] }) => {
     fetchCourseDetails();
   }, [courseName]);
 
-  // Syllabus processing
   let ongoingWeek = null;
   let upcomingWeeks = [];
   let pastWeeks = [];
@@ -105,7 +102,6 @@ export const ClassDetails = ({ Class_details = [] }) => {
     });
   }
 
-  // Derive schedule info for the selected course
   const scheduleLines = displayClasses.length > 0
     ? (() => {
         const times = new Set();
@@ -124,79 +120,76 @@ export const ClassDetails = ({ Class_details = [] }) => {
       })()
     : null;
 
+  const dayColors = [T.coral, T.lilac, T.lime, "#b8d8c2", "#f0c4a8", T.coral, T.lilac];
+
   return (
-    <div className="space-y-10 pb-12">
-      {/* Page header */}
-      <h1 className="text-3xl font-extrabold text-gray-900">My Class</h1>
+    <div className="space-y-8 pb-12">
+      <div>
+        <MonoLabel>my classes</MonoLabel>
+        <h1 className="text-4xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+          {courseName ? courseName.toLowerCase() : 'pick a class'}
+        </h1>
+        {fetchedCourse?.course_name && (
+          <p className="text-ink-60 text-sm mt-1 lowercase">{fetchedCourse.course_name}</p>
+        )}
+      </div>
 
       {courseName ? (
-        <div className="space-y-6">
-          {/* Course name heading */}
-          <h2 className="text-2xl font-extrabold text-gray-900">{courseName}</h2>
-          {fetchedCourse?.course_name && (
-            <p className="text-gray-500 -mt-4 text-sm font-medium">{fetchedCourse.course_name}</p>
-          )}
-
-          {/* Course detail card */}
-          <div className="bg-[#e8e9ed]  p-5 space-y-4">
+        <div className="space-y-5">
+          <div className="bg-white border border-ink-8 rounded-2xl p-5 space-y-4">
             {loading ? (
               <div className="space-y-3 animate-pulse">
-                <div className="h-4 bg-white/60 rounded w-3/4" />
-                <div className="h-4 bg-white/60 rounded w-1/2" />
+                <div className="h-4 bg-ink-8 rounded-full w-3/4" />
+                <div className="h-4 bg-ink-8 rounded-full w-1/2" />
               </div>
             ) : (
               <>
-                {/* Schedule info */}
                 {scheduleLines && (
                   <div className="space-y-1">
                     {scheduleLines.time && (
-                      <p className="font-bold text-gray-800">{scheduleLines.time} every {scheduleLines.repeatDays}</p>
+                      <p className="text-base text-ink">
+                        <span style={{ fontFamily: FF.mono }}>{scheduleLines.time}</span> every <span className="lowercase">{scheduleLines.repeatDays}</span>
+                      </p>
                     )}
                     {scheduleLines.location && (
-                      <p className="text-sm text-gray-500">@{scheduleLines.location}</p>
+                      <p className="text-sm text-ink-60">@{scheduleLines.location}</p>
                     )}
                   </div>
                 )}
 
-                {/* Ongoing week */}
                 {fetchedCourse?.has_ai_content && ongoingWeek && (
                   <>
-                    <hr className="border-white/60" />
+                    <hr className="border-ink-8" />
                     <div>
-                      <p className="font-bold text-gray-800 mb-1">Ongoing:</p>
-                      <p className="text-sm text-gray-700">
-                        Week {ongoingWeek.week_number}: {ongoingWeek.week_topic}
+                      <MonoLabel>ongoing</MonoLabel>
+                      <p className="text-base text-ink mt-1.5">
+                        <span className="font-semibold">wk {ongoingWeek.week_number}:</span> {ongoingWeek.week_topic}
                       </p>
                     </div>
 
-                    {/* This week's assignments */}
                     {(upcomingAssignmentsThisWeek.length > 0 || upcomingExamsThisWeek.length > 0) && (
                       <div>
-                        <p className="font-bold text-gray-800 mb-2">Upcoming Assignments on Week {ongoingWeek.week_number}:</p>
-                        <div className="space-y-2">
+                        <MonoLabel>due this week</MonoLabel>
+                        <div className="space-y-2 mt-2">
                           {upcomingExamsThisWeek.map((e, idx) => (
-                            <div key={`ex-${idx}`} className="flex items-start gap-2 bg-white  p-3">
-                              <span className="text-[#607196] mt-0.5">
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
+                            <div key={`ex-${idx}`} className="flex items-start gap-2 bg-cream rounded-xl p-3 border border-ink-8">
+                              <span className="mt-0.5" style={{ color: T.coral }}>
+                                <Icon name="check" size={14}/>
                               </span>
                               <div>
-                                <p className="text-sm font-semibold text-gray-800">{e.exam_topic}</p>
-                                <p className="text-xs text-gray-500">Exam — {new Date(e.exam_date).toLocaleDateString()}</p>
+                                <p className="text-sm font-semibold text-ink">{e.exam_topic}</p>
+                                <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>exam · {new Date(e.exam_date).toLocaleDateString()}</p>
                               </div>
                             </div>
                           ))}
                           {upcomingAssignmentsThisWeek.map((a, idx) => (
-                            <div key={`as-${idx}`} className="flex items-start gap-2 bg-white  p-3">
-                              <span className="text-[#607196] mt-0.5">
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
+                            <div key={`as-${idx}`} className="flex items-start gap-2 bg-cream rounded-xl p-3 border border-ink-8">
+                              <span className="mt-0.5" style={{ color: T.coral }}>
+                                <Icon name="check" size={14}/>
                               </span>
                               <div>
-                                <p className="text-sm font-semibold text-gray-800">{a.assignment_topic}</p>
-                                <p className="text-xs text-gray-500">Due on {new Date(a.assignment_due).toLocaleDateString()}</p>
+                                <p className="text-sm font-semibold text-ink">{a.assignment_topic}</p>
+                                <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>due {new Date(a.assignment_due).toLocaleDateString()}</p>
                               </div>
                             </div>
                           ))}
@@ -206,89 +199,88 @@ export const ClassDetails = ({ Class_details = [] }) => {
                   </>
                 )}
 
-                {fetchedCourse?.has_ai_content && <hr className="border-white/60" />}
+                {fetchedCourse?.has_ai_content && <hr className="border-ink-8" />}
 
-                {/* Accordion sections */}
                 {fetchedCourse?.has_ai_content && (
                   <div className="space-y-2">
-                    <AccordionSection title="Future Assignments">
+                    <AccordionSection title="future assignments">
                       {futureAssignments.length > 0 ? (
-                        <div className="space-y-2 pt-3">
+                        <div className="space-y-2">
                           {futureAssignments.map((a, idx) => (
-                            <div key={idx} className="bg-white  p-3 flex justify-between items-center">
-                              <p className="text-sm font-semibold text-gray-800">{a.assignment_topic}</p>
-                              <p className="text-xs text-gray-500">{new Date(a.assignment_due).toLocaleDateString()}</p>
+                            <div key={idx} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8">
+                              <p className="text-sm font-medium text-ink">{a.assignment_topic}</p>
+                              <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{new Date(a.assignment_due).toLocaleDateString()}</p>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-400 italic pt-3">No future assignments.</p>
+                        <p className="text-sm text-ink-40">no future assignments.</p>
                       )}
                     </AccordionSection>
 
-                    <AccordionSection title="Upcoming Midterm / Exam">
+                    <AccordionSection title="upcoming midterm / exam">
                       {futureExams.length > 0 ? (
-                        <div className="space-y-2 pt-3">
+                        <div className="space-y-2">
                           {futureExams.map((e, idx) => (
-                            <div key={idx} className="bg-white  p-3 flex justify-between items-center">
-                              <p className="text-sm font-semibold text-gray-800">{e.exam_topic}</p>
-                              <p className="text-xs text-gray-500">{new Date(e.exam_date).toLocaleDateString()}</p>
+                            <div key={idx} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8">
+                              <p className="text-sm font-medium text-ink">{e.exam_topic}</p>
+                              <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{new Date(e.exam_date).toLocaleDateString()}</p>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-400 italic pt-3">No upcoming exams.</p>
+                        <p className="text-sm text-ink-40">no upcoming exams.</p>
                       )}
                     </AccordionSection>
 
-                    <AccordionSection title="Upcoming Weeks">
+                    <AccordionSection title="upcoming weeks">
                       {upcomingWeeks.length > 0 ? (
-                        <div className="space-y-2 pt-3">
+                        <div className="space-y-2">
                           {upcomingWeeks.map((w, idx) => (
-                            <div key={idx} className="bg-white  p-3">
-                              <p className="text-xs font-bold text-[#607196]">Week {w.week_number}</p>
-                              <p className="text-sm text-gray-800">{w.week_topic}</p>
+                            <div key={idx} className="bg-cream rounded-xl p-3 border border-ink-8">
+                              <span className="text-xs font-medium text-coral" style={{ fontFamily: FF.mono, letterSpacing: 0.5 }}>wk {w.week_number}</span>
+                              <p className="text-sm text-ink">{w.week_topic}</p>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-400 italic pt-3">No upcoming weeks.</p>
+                        <p className="text-sm text-ink-40">no upcoming weeks.</p>
                       )}
                     </AccordionSection>
 
-                    <AccordionSection title="Past Weeks">
+                    <AccordionSection title="past weeks">
                       {pastWeeks.length > 0 ? (
-                        <div className="space-y-2 pt-3">
+                        <div className="space-y-2">
                           {[...pastWeeks].reverse().map((w, idx) => (
-                            <div key={idx} className="bg-white  p-3 opacity-70">
-                              <p className="text-xs font-bold text-gray-400">Week {w.week_number}</p>
-                              <p className="text-sm text-gray-700">{w.week_topic}</p>
+                            <div key={idx} className="bg-cream rounded-xl p-3 border border-ink-8 opacity-70">
+                              <span className="text-xs font-medium text-ink-40" style={{ fontFamily: FF.mono, letterSpacing: 0.5 }}>wk {w.week_number}</span>
+                              <p className="text-sm text-ink-60">{w.week_topic}</p>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-400 italic pt-3">No past weeks.</p>
+                        <p className="text-sm text-ink-40">no past weeks.</p>
                       )}
                     </AccordionSection>
 
-                    <AccordionSection title="Past Assignments">
+                    <AccordionSection title="past assignments">
                       {pastAssignments.length > 0 || pastExams.length > 0 ? (
-                        <div className="space-y-2 pt-3">
+                        <div className="space-y-2">
                           {pastExams.map((e, idx) => (
-                            <div key={`pe-${idx}`} className="bg-white  p-3 flex justify-between items-center opacity-70">
-                              <p className="text-sm text-gray-700">{e.exam_topic}</p>
-                              <span className="text-xs text-gray-400">Past</span>
+                            <div key={`pe-${idx}`} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8 opacity-70">
+                              <p className="text-sm text-ink-60">{e.exam_topic}</p>
+                              <span className="text-xs text-ink-40" style={{ fontFamily: FF.mono }}>past</span>
                             </div>
                           ))}
                           {pastAssignments.map((a, idx) => (
-                            <div key={`pa-${idx}`} className="bg-white  p-3 flex justify-between items-center opacity-70">
-                              <p className="text-sm text-gray-700">{a.assignment_topic}</p>
-                              <span className="text-xs text-gray-400">Past</span>
+                            <div key={`pa-${idx}`} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8 opacity-70">
+                              <p className="text-sm text-ink-60">{a.assignment_topic}</p>
+                              <span className="text-xs text-ink-40" style={{ fontFamily: FF.mono }}>past</span>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-400 italic pt-3">No past assignments.</p>
+                        <p className="text-sm text-ink-40">no past assignments.</p>
                       )}
                     </AccordionSection>
                   </div>
@@ -298,37 +290,38 @@ export const ClassDetails = ({ Class_details = [] }) => {
           </div>
         </div>
       ) : (
-        /* No course selected: show weekly schedule grid */
         <div className="space-y-4">
-          <p className="text-gray-500 text-sm">Select a course from the sidebar to view details.</p>
-          <div className="bg-[#e8e9ed]  p-5 w-full overflow-hidden">
+          <p className="text-ink-60 text-sm lowercase">select a course from the sidebar to view details.</p>
+          <div className="bg-white border border-ink-8 rounded-2xl p-5 w-full overflow-hidden">
             <div className="flex flex-row overflow-x-auto gap-3 pb-2 min-h-[240px]">
-              {days.map((day) => {
+              {days.map((day, dayIdx) => {
                 const dayClasses = displayClasses.filter(
                   (cls) =>
                     cls.day &&
                     (cls.day.toLowerCase() === day.toLowerCase() ||
                       cls.day.toLowerCase() === day.slice(0, 3).toLowerCase())
                 );
+                const dayColor = dayColors[dayIdx % dayColors.length];
                 return (
                   <div key={day} className="flex-1 min-w-[120px] flex flex-col gap-2">
-                    <div className="pb-2 border-b-2 border-[#607196] mb-1">
-                      <h3 className="text-[10px] font-bold text-[#607196] text-center uppercase tracking-widest">
+                    <div className="pb-2 mb-1 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: dayColor }}/>
+                      <h3 className="text-[10px] font-medium text-ink-60 uppercase tracking-widest" style={{ fontFamily: FF.mono }}>
                         {day.slice(0, 3)}
                       </h3>
                     </div>
                     <div className="flex flex-col gap-2 flex-1">
                       {dayClasses.length > 0 ? (
                         dayClasses.map((cls, idx) => (
-                          <a key={idx} href={`/class/${cls.base_course}`} className="bg-white  p-2.5 shadow-sm block hover:shadow-md transition-shadow">
-                            <p className="text-xs font-bold text-gray-800 line-clamp-2">{cls.course}</p>
-                            <p className="text-[10px] text-gray-500 mt-1">{cls.time}</p>
-                            <p className="text-[10px] text-gray-500 truncate">{cls.location}</p>
+                          <a key={idx} href={`/class/${cls.base_course}`} className="bg-cream rounded-xl p-2.5 border border-ink-8 hover:border-coral transition-colors block">
+                            <p className="text-xs font-semibold text-ink line-clamp-2 lowercase">{cls.course}</p>
+                            <p className="text-[10px] text-ink-60 mt-1" style={{ fontFamily: FF.mono }}>{cls.time}</p>
+                            <p className="text-[10px] text-ink-60 truncate">{cls.location}</p>
                           </a>
                         ))
                       ) : (
                         <div className="flex-1 flex items-center justify-center min-h-[60px]">
-                          <p className="text-[10px] text-gray-400 italic">—</p>
+                          <p className="text-[10px] text-ink-40">—</p>
                         </div>
                       )}
                     </div>

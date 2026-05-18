@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import SnapCaptureModal from "@/components/snap/SnapCaptureModal";
 import SnapViewerModal from "@/components/snap/SnapViewerModal";
+import { T, FF, MonoLabel, Avatar, Icon } from "@/components/shared/brand";
 
 const toMinutes = (hhmm) => {
   if (!hhmm || typeof hhmm !== "string") return null;
@@ -87,44 +88,45 @@ export const Snap = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* Today block */}
-        <div className="bg-[#e8e9ed] p-4 flex flex-col gap-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-            Today Class
-          </h3>
+        <div className="bg-white border border-ink-8 rounded-2xl p-5 flex flex-col gap-3">
+          <MonoLabel>today · class</MonoLabel>
           {allToday.length === 0 ? (
-            <p className="text-gray-400 text-sm italic">No classes today.</p>
+            <p className="text-ink-40 text-sm">no classes today.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {allToday.map((c, idx) => {
                 const liveNow = isLiveNow(c);
+                const isMe = c.owner === "Me";
+                const ownerName = isMe ? (currentUser?.username || "") : (c.owner || "");
+                const initial = ownerName.charAt(0).toUpperCase() || "?";
+                const avatarBg = isMe ? T.coral : T.lilac;
+                const avatarFg = isMe ? "#fff" : T.ink;
                 return (
                   <div
                     key={`${c.owner}-${c.id || idx}`}
-                    className="bg-white p-3 flex items-center gap-3 shadow-sm border border-[#d4d6dd]"
+                    className="bg-cream rounded-xl p-3 flex items-center gap-3 border border-ink-8"
                   >
-                    <div className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold bg-[#607196] text-white">
-                      {(c.owner === "Me"
-                        ? currentUser?.username || ""
-                        : c.owner || ""
-                      ).charAt(0).toUpperCase() || "?"}
-                    </div>
+                    <Avatar name={initial.toLowerCase()} bg={avatarBg} fg={avatarFg} size={44} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <h4 className="text-sm font-bold text-gray-900 leading-tight truncate">
+                        <h4 className="text-sm font-semibold text-ink leading-tight truncate lowercase">
                           {c.course}
                         </h4>
                         {liveNow && (
-                          <span className="text-[9px] font-bold bg-[#ffc759] text-gray-900 px-1.5 py-0.5 leading-none">
-                            LIVE
+                          <span
+                            className="text-[9px] font-semibold px-2 py-0.5 rounded-full leading-none uppercase"
+                            style={{ background: T.coral, color: '#fff', fontFamily: FF.mono, letterSpacing: 1 }}
+                          >
+                            live
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
-                        <span className="w-1 h-1 rounded-full bg-[#607196] inline-block flex-shrink-0" />
+                      <p className="text-[11px] text-ink-60 flex items-center gap-1.5 mt-1" style={{ fontFamily: FF.mono }}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: T.coral }} />
                         {c.time}
                       </p>
-                      <p className="text-[11px] text-gray-500 flex items-center gap-1 truncate">
-                        <span className="w-1 h-1 rounded-full bg-[#ffc759] inline-block flex-shrink-0" />
+                      <p className="text-[11px] text-ink-60 flex items-center gap-1.5 truncate">
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: T.lime }} />
                         {c.location}
                       </p>
                     </div>
@@ -136,10 +138,8 @@ export const Snap = ({
         </div>
 
         {/* Snaps block */}
-        <div className="bg-[#e8e9ed] p-4 flex flex-col gap-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-            Snaps
-          </h3>
+        <div className="bg-white border border-ink-8 rounded-2xl p-5 flex flex-col gap-3">
+          <MonoLabel>snaps · {tiles.length}</MonoLabel>
           <div className="flex flex-wrap gap-4">
             {/* Add tile */}
             <button
@@ -147,15 +147,18 @@ export const Snap = ({
               onClick={handleAddClick}
               disabled={myCourses.length === 0}
               title="Add a snap"
-              className="flex flex-col items-center gap-1 flex-shrink-0 hover:opacity-70 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <div className="relative w-16 h-16 rounded-full bg-[#607196] flex items-center justify-center text-white font-bold">
+              <div className="relative w-16 h-16 rounded-full flex items-center justify-center" style={{ background: T.coral }}>
                 <ArOnYouIcon className="w-8 h-8 text-white" />
-                <span className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-[#ffc759] text-gray-900 flex items-center justify-center text-base font-bold border-2 border-white leading-none">
+                <span
+                  className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full flex items-center justify-center text-base font-bold leading-none"
+                  style={{ background: T.lime, color: T.ink, border: `2px solid ${T.cream}` }}
+                >
                   +
                 </span>
               </div>
-              <span className="text-xs font-semibold text-gray-700 leading-none">snap now!</span>
+              <span className="text-[11px] font-medium text-ink leading-none" style={{ fontFamily: FF.mono, letterSpacing: 0.5 }}>snap now!</span>
             </button>
 
             {/* Uploader tiles */}
@@ -165,20 +168,24 @@ export const Snap = ({
                 type="button"
                 onClick={() => setViewerTileIdx(i)}
                 title={`${t.snaps.length} snap${t.snaps.length === 1 ? "" : "s"}`}
-                className="flex flex-col items-center gap-1 flex-shrink-0 hover:opacity-70 transition-opacity"
+                className="flex flex-col items-center gap-1.5 flex-shrink-0 hover:opacity-80 transition-opacity"
               >
-                <div className="relative w-16 h-16 rounded-full flex items-center justify-center text-lg font-bold bg-[#607196] text-white ring-2 ring-[#ffc759] ring-offset-2 ring-offset-[#e8e9ed]">
-                  {t.username[0].toUpperCase()}
-                </div>
-                <span className="text-xs font-semibold text-gray-700 leading-none truncate max-w-[68px]">
+                <Avatar
+                  name={t.username[0].toLowerCase()}
+                  bg={t.isMine ? T.coral : T.lilac}
+                  fg={t.isMine ? '#fff' : T.ink}
+                  size={64}
+                  ring={T.coral}
+                />
+                <span className="text-[11px] font-medium text-ink-60 leading-none truncate max-w-[68px] lowercase">
                   {t.isMine ? "you" : t.username}
                 </span>
               </button>
             ))}
 
             {tiles.length === 0 && (
-              <p className="text-gray-400 text-sm italic self-center">
-                No snaps yet today.
+              <p className="text-ink-40 text-sm self-center">
+                no snaps yet today.
               </p>
             )}
           </div>
@@ -192,11 +199,16 @@ export const Snap = ({
           onClick={() => setPickerOpen(false)}
         >
           <div
-            className="bg-white w-full max-w-sm p-4 shadow-lg"
+            className="bg-cream w-full max-w-sm p-5 rounded-2xl shadow-xl border border-ink-8"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-bold text-gray-900 mb-3">Pick a class to snap</h3>
-            <div className="flex flex-col gap-1">
+            <div className="mb-4">
+              <MonoLabel>step 1</MonoLabel>
+              <h3 className="text-2xl text-ink leading-none mt-1" style={{ fontFamily: FF.serif, letterSpacing: -0.5 }}>
+                pick a class to snap
+              </h3>
+            </div>
+            <div className="flex flex-col gap-2">
               {myCourses.map((c) => (
                 <button
                   key={c.id}
@@ -205,17 +217,20 @@ export const Snap = ({
                     setPickerOpen(false);
                     setCaptureCourse(c);
                   }}
-                  className="bg-[#e8e9ed] hover:bg-[#d4d6dd] p-3 text-left flex items-center justify-between transition-colors"
+                  className="bg-white hover:bg-cream border border-ink-8 hover:border-coral rounded-xl p-3 text-left flex items-center justify-between transition-colors"
                 >
                   <div>
-                    <div className="text-sm font-bold text-gray-900">{c.course}</div>
-                    <div className="text-[11px] text-gray-500">
+                    <div className="text-sm font-semibold text-ink lowercase">{c.course}</div>
+                    <div className="text-[11px] text-ink-60 mt-0.5" style={{ fontFamily: FF.mono }}>
                       {c.time} · {c.location}
                     </div>
                   </div>
                   {isLiveNow(c) && (
-                    <span className="text-[10px] font-bold bg-[#ffc759] text-gray-900 px-2 py-0.5">
-                      LIVE
+                    <span
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase"
+                      style={{ background: T.coral, color: '#fff', fontFamily: FF.mono, letterSpacing: 1 }}
+                    >
+                      live
                     </span>
                   )}
                 </button>
@@ -224,9 +239,9 @@ export const Snap = ({
             <button
               type="button"
               onClick={() => setPickerOpen(false)}
-              className="mt-3 w-full text-xs text-gray-500 hover:text-gray-700"
+              className="mt-4 w-full text-xs text-ink-60 hover:text-ink lowercase"
             >
-              Cancel
+              cancel
             </button>
           </div>
         </div>

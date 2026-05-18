@@ -66,7 +66,7 @@ export default function Landing() {
     <>
       <style>{styles}</style>
 
-      <div style={{ fontFamily: "'Figtree', sans-serif", background: 'var(--bg)', color: 'var(--text)', overflowX: 'hidden' }}>
+      <div style={{ fontFamily: "'Geist', sans-serif", background: 'var(--bg)', color: 'var(--text)', overflowX: 'hidden' }}>
 
         {/* ── HERO ─────────────────────────────────────────────────────────── */}
         <section style={{ position: 'relative', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -84,7 +84,7 @@ export default function Landing() {
             <p
               className="fade-up d-1"
               style={{
-                fontFamily: "'DM Serif Text', serif",
+                fontFamily: "'Bricolage Grotesque', sans-serif",
                 fontStyle: 'italic',
                 fontSize: 'clamp(1rem, 2vw, 1.25rem)',
                 color: 'rgba(255,255,255,0.6)',
@@ -106,7 +106,7 @@ export default function Landing() {
                 marginBottom: 0,
               }}
             >
-              No more <br /><em style={{ fontFamily: "'DM Serif Text', serif", fontStyle: 'italic', fontWeight: 400 }}>"What class am I supposed to be at?"</em>
+              No more <br /><em style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontStyle: 'italic', fontWeight: 400 }}>"What class am I supposed to be at?"</em>
             </h1>
 
             <h1
@@ -119,7 +119,7 @@ export default function Landing() {
                 margin: '18px 0',
               }}
             >
-              <em style={{ fontFamily: "'DM Serif Text', serif", fontStyle: 'italic', fontWeight: 400 }}>"Guys, can we find a time slot?"</em>
+              <em style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontStyle: 'italic', fontWeight: 400 }}>"Guys, can we find a time slot?"</em>
             </h1>
 
             <h1
@@ -132,7 +132,7 @@ export default function Landing() {
                 marginBottom: 0,
               }}
             >
-              <em style={{ fontFamily: "'DM Serif Text', serif", fontStyle: 'italic', fontWeight: 400 }}>"When are you guys free to hang out?"</em>
+              <em style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontStyle: 'italic', fontWeight: 400 }}>"When are you guys free to hang out?"</em>
             </h1>
 
             {/* Scroll hint */}
@@ -159,7 +159,7 @@ export default function Landing() {
           <h2
             className="fade-up d-6"
             style={{
-              fontFamily: "'DM Serif Text', serif",
+              fontFamily: "'Bricolage Grotesque', sans-serif",
               fontSize: 'clamp(2rem, 5vw, 4.5rem)',
               fontWeight: 400,
               color: 'var(--text)',
@@ -204,7 +204,7 @@ export default function Landing() {
             <div className="fade-up d-7" style={{ flex: '1 1 360px', minWidth: 0 }}>
               <div style={{ width: 40, height: 3, background: 'var(--brand)', borderRadius: 2, marginBottom: 28 }} />
               <h3 style={{
-                fontFamily: "'DM Serif Text', serif",
+                fontFamily: "'Bricolage Grotesque', sans-serif",
                 fontSize: 'clamp(1.6rem, 3vw, 2.6rem)',
                 fontWeight: 400,
                 lineHeight: 1.3,
@@ -251,7 +251,7 @@ export default function Landing() {
             }}
           >
             <p style={{
-              fontFamily: "'DM Serif Text', serif",
+              fontFamily: "'Bricolage Grotesque', sans-serif",
               fontStyle: 'italic',
               fontSize: 'clamp(0.85rem, 1.5vw, 1rem)',
               color: 'rgba(255,255,255,0.5)',
@@ -291,7 +291,7 @@ export default function Landing() {
               fontSize: 'clamp(1rem, 2vw, 1.3rem)',
               color: 'var(--muted)',
               fontStyle: 'italic',
-              fontFamily: "'DM Serif Text', serif",
+              fontFamily: "'Bricolage Grotesque', sans-serif",
               marginBottom: 16,
             }}
           >
@@ -301,7 +301,7 @@ export default function Landing() {
           <h1
             className="fade-up d-7"
             style={{
-              fontFamily: "'DM Serif Text', serif",
+              fontFamily: "'Bricolage Grotesque', sans-serif",
               fontSize: 'clamp(4rem, 14vw, 10rem)',
               fontWeight: 400,
               color: 'var(--brand)',

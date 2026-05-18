@@ -4,23 +4,37 @@
 @source "../node_modules/flowbite";
 
 :root {
-  --text-primary: #101828;
-  --text-secondary: #475467;
-  --bg-primary: #ffffff;
-  --border-primary: #eaecf0;
-  --accent-primary: #607196;
-  --brand: #607196;
-  --brand-dark: #4a5a7a;
-  --brand-secondary: #e8e9ed;
-  --brand-accent: #ffc759;
+  --ink: #1F1A22;
+  --ink-60: rgba(31, 26, 34, 0.6);
+  --ink-40: rgba(31, 26, 34, 0.4);
+  --ink-15: rgba(31, 26, 34, 0.15);
+  --ink-08: rgba(31, 26, 34, 0.08);
+  --cream: #F8F4ED;
+  --paper: #FCFAF5;
+  --coral: #ED6A4A;
+  --coral-dk: #C04A2E;
+  --coral-lt: #F9D9CC;
+  --lilac: #C8B0DF;
+  --lilac-dk: #7A5BA0;
+  --lime: #C9EE6F;
 
-  font-family: "Figtree", sans-serif;
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-60);
+  --bg-primary: var(--cream);
+  --border-primary: var(--ink-08);
+  --accent-primary: var(--coral);
+  --brand: var(--coral);
+  --brand-dark: var(--coral-dk);
+  --brand-secondary: var(--lilac);
+  --brand-accent: var(--lime);
+
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: var(--text-secondary);
-  background-color: var(--bg-primary);
+  color-scheme: light;
+  color: var(--ink);
+  background-color: var(--cream);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;

@@ -72,8 +72,8 @@ const DefaultActions = ({ activeUrl }: { activeUrl?: string }) => {
             <div className="flex gap-4">
                 <div className="relative">
                     <div className="flex flex-row space-x-4">
-                        <a href="/login" className="px-8 py-3 bg-[#607196] text-white text-center font-semibold rounded-none hover:bg-[#607196]/80 transition-colors shadow-sm">Log In</a>
-                        <a href="/register" className="px-8 py-3 bg-transparent text-[#607196] text-center font-semibold border-2 border-[#607196] rounded-none hover:bg-[#607196]/10 transition-colors shadow-sm">Register</a>
+                        <a href="/login" className="px-8 py-3 bg-coral text-white text-center font-semibold rounded-none hover:bg-coral/80 transition-colors shadow-sm">Log In</a>
+                        <a href="/register" className="px-8 py-3 bg-transparent text-coral text-center font-semibold border-2 border-coral rounded-none hover:bg-coral/10 transition-colors shadow-sm">Register</a>
                     </div>
                 </div>
             </div>
@@ -119,7 +119,7 @@ export const HeaderNavigationBase = ({
                             className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                         >
                             <div className="flex items-center gap-2">
-                                <h2 className="text-xl text-[#607196] font-normal" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</h2>
+                                <h2 className="text-xl text-coral font-normal" style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>Timetify</h2>
                                 <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
                             </div>
                         </a>
@@ -130,12 +130,12 @@ export const HeaderNavigationBase = ({
 
                     <div className="px-6 py-4">
                         <p
-                            className="fade-up d-6 !text-[#ffc759]"
+                            className="fade-up d-6 !text-coral"
                             style={{
                                 fontSize: 'clamp(1rem, 4vw, 1.5rem)',
                                 color: 'var(--muted)',
                                 fontStyle: 'italic',
-                                fontFamily: "'DM Serif Text', serif",
+                                fontFamily: "'Bricolage Grotesque', sans-serif",
                                 marginBottom: 16,
                                 textAlign: 'left',
                             }}
@@ -146,7 +146,7 @@ export const HeaderNavigationBase = ({
                         <h1
                             className="fade-up d-7"
                             style={{
-                                fontFamily: "'DM Serif Text', serif",
+                                fontFamily: "'Bricolage Grotesque', sans-serif",
                                 fontSize: 'clamp(4rem, 14vw, 8rem)',
                                 fontWeight: 400,
                                 color: 'var(--brand)',
@@ -162,8 +162,8 @@ export const HeaderNavigationBase = ({
 
                     <div className="mt-auto flex flex-col gap-3 pl-16">
                         <div className="flex flex-col space-y-3">
-                            <a href="/login" className="px-6 py-3 bg-[#607196] text-white text-center font-semibold rounded-none hover:bg-[#607196]/80 transition-colors shadow-sm">Log In</a>
-                            <a href="/register" className="px-6 py-3 bg-transparent text-[#607196] text-center font-semibold border-2 border-[#607196] rounded-none hover:bg-[#607196]/10 transition-colors shadow-sm">Register</a>
+                            <a href="/login" className="px-6 py-3 bg-coral text-white text-center font-semibold rounded-none hover:bg-coral/80 transition-colors shadow-sm">Log In</a>
+                            <a href="/register" className="px-6 py-3 bg-transparent text-coral text-center font-semibold border-2 border-coral rounded-none hover:bg-coral/10 transition-colors shadow-sm">Register</a>
                         </div>
                         <br />
                     </div>
@@ -182,7 +182,7 @@ export const HeaderNavigationBase = ({
                                 className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                             >
                                 <div className="flex items-center gap-3">
-                                    <h2 className="text-3xl text-[#607196] font-normal" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</h2>
+                                    <h2 className="text-3xl text-coral font-normal" style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>Timetify</h2>
                                     <span className="px-2 py-1 text-xs leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
                                 </div>
                             </a>
