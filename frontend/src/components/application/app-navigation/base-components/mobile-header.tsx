@@ -20,7 +20,7 @@ export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
                     className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                     <div className="flex items-center gap-2">
-                        <h2 className="text-xl text-[#607196] font-normal" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</h2>
+                        <h2 className="text-xl text-coral font-normal" style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>timetify</h2>
                         <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
                     </div>
                 </a>

@@ -30,6 +30,7 @@ import Help from "@/components/help/help";
 import Privacy from "@/components/privacy/privacy";
 import Terms from "@/components/terms/terms";
 import Landing from "@/components/landing/Landing";
+import { AppMark, T, FF, MonoLabel, PillBtn } from "@/components/shared/brand";
 
 const simpleItems = [];
 const HeaderNavigationSimpleDemo = () => <HeaderNavigationBase activeUrl="/" items={simpleItems} />;
@@ -84,28 +85,29 @@ const MobileNav = ({ totalClasses, currentUser, logoutUser }) => {
   const avatarLetter = (currentUser?.username?.[0] || currentUser?.email?.[0] || "U").toUpperCase();
 
   return (
-    <div className="md:hidden flex items-center bg-white border-b border-[#e8e9ed] h-12 flex-shrink-0">
+    <div className="md:hidden flex items-center bg-cream border-b border-ink-8 h-14 flex-shrink-0">
       {/* Scrollable section */}
       <div className="flex items-center flex-1 overflow-x-auto whitespace-nowrap px-3 gap-0 min-w-0">
         {/* Brand + avatar */}
         <div className="flex items-center gap-2 flex-shrink-0 pr-3">
-          <span className="text-lg text-[#607196] font-normal flex-shrink-0" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</span>
-          <a href="/profile" className="w-6 h-6 rounded-full bg-[#607196] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+          <AppMark size={28} />
+          <span className="text-lg text-ink flex-shrink-0" style={{ fontFamily: FF.serif, letterSpacing: -0.4 }}>timetify</span>
+          <a href="/profile" className="w-7 h-7 rounded-full bg-coral flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
             {avatarLetter}
           </a>
         </div>
 
-        <div className="w-px h-5 bg-gray-300 flex-shrink-0" />
+        <div className="w-px h-5 bg-ink-15 flex-shrink-0" />
 
         {/* Current page + all subtabs */}
         <div className="flex items-center gap-1.5 px-3 flex-shrink-0">
-          <span className="text-sm font-bold text-gray-900">{pageLabel}</span>
+          <span className="text-sm font-semibold text-ink lowercase">{pageLabel}</span>
           {subtabs.map((tab) => (
             <span key={tab.href} className="flex items-center gap-1.5">
-              <span className="text-gray-300 text-sm">•</span>
+              <span className="text-ink-40 text-sm">·</span>
               <a
                 href={tab.href}
-                className={`text-sm whitespace-nowrap ${isSubActive(tab.href) ? "font-semibold text-[#607196]" : "text-gray-400 hover:text-gray-700"}`}
+                className={`text-sm whitespace-nowrap lowercase ${isSubActive(tab.href) ? "font-semibold text-coral" : "text-ink-60 hover:text-ink"}`}
               >
                 {tab.label}
               </a>
@@ -113,12 +115,12 @@ const MobileNav = ({ totalClasses, currentUser, logoutUser }) => {
           ))}
         </div>
 
-        <div className="w-px h-5 bg-gray-300 flex-shrink-0" />
+        <div className="w-px h-5 bg-ink-15 flex-shrink-0" />
 
         {/* All head tabs (no Profile) */}
         <div className="flex items-center gap-3 px-3 flex-shrink-0">
           {headTabs.map((tab) => (
-            <a key={tab.href} href={tab.href} className="text-sm text-gray-400 font-medium hover:text-gray-700 whitespace-nowrap">
+            <a key={tab.href} href={tab.href} className="text-sm text-ink-60 font-medium hover:text-ink whitespace-nowrap lowercase">
               {tab.label}
             </a>
           ))}
@@ -129,9 +131,9 @@ const MobileNav = ({ totalClasses, currentUser, logoutUser }) => {
       <div className="flex-shrink-0 h-full flex items-center px-2">
         <button
           onClick={logoutUser}
-          className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors whitespace-nowrap"
+          className="px-3 py-1.5 text-xs font-semibold text-cream bg-ink hover:opacity-90 rounded-full transition-opacity whitespace-nowrap"
         >
-          Log Out
+          log out
         </button>
       </div>
     </div>
@@ -453,7 +455,7 @@ const App = () => {
   const todayStr = new Date().toLocaleDateString("en-US", { day: "numeric", month: "short" });
 
   return (
-    <div className={`flex ${currentUser ? "md:flex-row flex-col" : "flex-col"} h-screen w-full bg-white overflow-hidden`}>
+    <div className={`flex ${currentUser ? "md:flex-row flex-col" : "flex-col"} h-screen w-full ${currentUser ? "bg-cream" : "bg-white"} overflow-hidden`}>
       {currentUser ? (
         <SidebarNavigationSimple items={navItemsSimple} secondaryItems={secondaryNavItems} LogOut={LogOut} />
       ) : (
@@ -474,15 +476,20 @@ const App = () => {
                 currentUser ? (
                   <div id="snap" className="space-y-10">
                     {/* Date header */}
-                    <h1 className="text-4xl font-extrabold text-gray-900">{todayStr}</h1>
+                    <div className="flex items-end justify-between flex-wrap gap-3">
+                      <div>
+                        <MonoLabel>today</MonoLabel>
+                        <h1 className="text-5xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1.2 }}>{todayStr.toLowerCase()}</h1>
+                      </div>
+                    </div>
 
                     {loading ? (
                       <div className="space-y-3">
-                        <div className="h-32 bg-[#e8e9ed]  animate-pulse" />
-                        <div className="h-32 bg-[#e8e9ed]  animate-pulse" />
+                        <div className="h-32 bg-ink-8 rounded-2xl animate-pulse" />
+                        <div className="h-32 bg-ink-8 rounded-2xl animate-pulse" />
                       </div>
                     ) : error ? (
-                      <div className="p-4 bg-red-50 border border-red-200  text-red-700">
+                      <div className="p-4 bg-coral-light border border-coral text-coral-dark rounded-2xl">
                         <p className="font-semibold">Error loading schedule</p>
                         <p className="text-sm">{error}</p>
                       </div>
@@ -500,9 +507,12 @@ const App = () => {
 
                         {/* My weekly schedule */}
                         <section id="schedule">
-                          <h2 className="text-2xl font-extrabold text-gray-900 mb-4">
-                            My weekly schedules
-                          </h2>
+                          <div className="mb-4">
+                            <MonoLabel>my week</MonoLabel>
+                            <h2 className="text-3xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+                              ur week, ur ppl
+                            </h2>
+                          </div>
                           <TotalClassSchedule Class_details={totalClasses} />
                         </section>
 
@@ -620,33 +630,36 @@ const FriendScheduleSection = ({ allClasses }) => {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <h2 className="text-2xl font-extrabold text-gray-900">
-          Me &amp; My friends schedule
-        </h2>
+      <div className="flex items-end justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <MonoLabel>me &amp; friends</MonoLabel>
+          <h2 className="text-3xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+            who&apos;s where, when
+          </h2>
+        </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500 font-medium">Sort:</span>
+          <MonoLabel>sort</MonoLabel>
           <div className="relative">
             <select
               value={selected || "all"}
               onChange={(e) => setSelected(e.target.value)}
-              className="appearance-none bg-[#e8e9ed] text-gray-800 text-sm font-semibold px-4 py-2 pr-8  border-none outline-none cursor-pointer"
+              className="appearance-none bg-white text-ink text-sm font-medium px-4 py-2 pr-8 rounded-full border border-ink-15 outline-none cursor-pointer hover:border-ink-40 transition-colors"
             >
-              <option value="all">All of my friend</option>
+              <option value="all">all of my friends</option>
               {uniqueOwners.map((o) => (
                 <option key={o} value={o}>{o}</option>
               ))}
             </select>
-            <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-60 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </div>
         </div>
       </div>
 
-      <div className="bg-[#e8e9ed]  p-5 w-full overflow-hidden">
+      <div className="bg-white rounded-2xl border border-ink-8 p-5 w-full overflow-hidden">
         <div className="flex flex-row overflow-x-auto gap-3 pb-2 min-h-[280px]">
-          {days.map((day) => {
+          {days.map((day, dayIdx) => {
             const rawDay = filteredClasses.filter(
               (c) =>
                 c.day &&
@@ -666,43 +679,52 @@ const FriendScheduleSection = ({ allClasses }) => {
               }
             });
 
+            const colorPalette = [T.coral, T.lilac, T.lime, "#b8d8c2", "#f0c4a8", T.coral, T.lilac];
+            const dayColor = colorPalette[dayIdx % colorPalette.length];
+
             return (
               <div key={day} className="flex-1 min-w-[130px] flex flex-col gap-2">
-                <div className="pb-2 border-b-2 border-[#607196] mb-1">
-                  <h3 className="text-[10px] font-bold text-[#607196] text-center uppercase tracking-widest">
+                <div className="pb-2 mb-1 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ background: dayColor }} />
+                  <h3 className="text-[10px] font-medium text-ink-60 uppercase tracking-widest" style={{ fontFamily: FF.mono }}>
                     {day.slice(0, 3)}
                   </h3>
                 </div>
                 <div className="flex flex-col gap-2 flex-1">
                   {grouped.length > 0 ? (
-                    grouped.map((course, idx) => (
-                      <div
-                        key={idx}
-                        className={`flex flex-col p-2.5  border shadow-sm ${
-                          course.owner === "Me"
-                            ? "bg-white border-white/80"
-                            : "bg-white/70 border-white/60"
-                        }`}
-                      >
-                        <span
-                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full self-start mb-1 ${
-                            course.owner === "Me"
-                              ? "bg-[#607196]/10 text-[#607196]"
-                              : "bg-[#ffc759]/20 text-amber-700"
-                          }`}
+                    grouped.map((course, idx) => {
+                      const isMine = course.owner === "Me" || course.owner?.startsWith("Me,");
+                      return (
+                        <div
+                          key={idx}
+                          className="flex flex-col p-2.5 rounded-xl"
+                          style={{
+                            background: isMine ? T.cream : "#fff",
+                            border: `1px solid ${T.ink08}`,
+                          }}
                         >
-                          {course.owner}
-                        </span>
-                        <h4 className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight mb-1">
-                          {course.course}
-                        </h4>
-                        <p className="text-[10px] text-gray-500">{course.time}</p>
-                        <p className="text-[10px] text-gray-500 truncate">{course.location}</p>
-                      </div>
-                    ))
+                          <span
+                            className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full self-start mb-1"
+                            style={{
+                              background: isMine ? T.coralLt : T.lilac + "55",
+                              color: isMine ? T.coralDk : T.lilacDk,
+                              fontFamily: FF.mono,
+                              letterSpacing: 0.5,
+                            }}
+                          >
+                            {course.owner}
+                          </span>
+                          <h4 className="text-xs font-semibold text-ink line-clamp-2 leading-tight mb-1">
+                            {course.course}
+                          </h4>
+                          <p className="text-[10px] text-ink-60" style={{ fontFamily: FF.mono }}>{course.time}</p>
+                          <p className="text-[10px] text-ink-60 truncate">{course.location}</p>
+                        </div>
+                      );
+                    })
                   ) : (
                     <div className="flex-1 flex items-center justify-center min-h-[80px]">
-                      <p className="text-[10px] text-gray-400 italic">—</p>
+                      <p className="text-[10px] text-ink-40">—</p>
                     </div>
                   )}
                 </div>
@@ -712,7 +734,7 @@ const FriendScheduleSection = ({ allClasses }) => {
         </div>
         {allClasses.length === 0 && (
           <div className="py-8 text-center">
-            <p className="text-gray-400 text-sm">Add friends to see their schedule here.</p>
+            <p className="text-ink-60 text-sm">add friends to see their schedule here.</p>
           </div>
         )}
       </div>

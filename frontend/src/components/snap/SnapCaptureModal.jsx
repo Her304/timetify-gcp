@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { authenticatedFetch } from "@/utils/api";
+import { T, FF, Icon, MonoLabel } from "@/components/shared/brand";
 
 const MAX_VIDEO_MS = 5000;
 const PHOTO_QUALITY = 0.85;
-const TARGET_RATIO = 4 / 5; // vertical 5:4 (portrait)
+const TARGET_RATIO = 4 / 5;
 const CAPTION_MAX_WORDS = 50;
 
 const countWords = (s) => (s.match(/\S+/g) || []).length;
@@ -53,9 +54,22 @@ const extFromMime = (mime) => {
   return ".bin";
 };
 
+const FocusBracket = ({ position }) => (
+  <div
+    style={{
+      position: 'absolute',
+      ...position,
+      width: 22, height: 22,
+      borderTop: '2px solid rgba(255,255,255,.6)',
+      borderLeft: '2px solid rgba(255,255,255,.6)',
+      transform: `rotate(${position.rot || 0}deg)`,
+    }}
+  />
+);
+
 export default function SnapCaptureModal({ course, friendsList, onClose, onUploaded }) {
-  const [mode, setMode] = useState("photo"); // 'photo' | 'video'
-  const [step, setStep] = useState("capture"); // 'capture' | 'preview' | 'details'
+  const [mode, setMode] = useState("photo");
+  const [step, setStep] = useState("capture");
   const [stream, setStream] = useState(null);
   const [streamError, setStreamError] = useState(null);
   const [recording, setRecording] = useState(false);
@@ -63,7 +77,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   const [previewBlob, setPreviewBlob] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [caption, setCaption] = useState("");
-  const [audienceType, setAudienceType] = useState("all"); // 'all' | 'selected'
+  const [audienceType, setAudienceType] = useState("all");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -238,86 +252,146 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   };
 
   const remainingMs = Math.max(0, MAX_VIDEO_MS - recordingMs);
+  const liveNow = isLiveNow(course);
+  const title = liveNow ? `snap ${course.course?.toLowerCase()}` : "snap now";
   const friendOptions = (friendsList || [])
     .map((f) => f.friend_details)
     .filter(Boolean);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
       <div
-        className="bg-white w-full flex flex-col overflow-hidden"
+        className="w-full flex flex-col overflow-hidden rounded-3xl"
         style={{
-          maxWidth: "min(95vw, calc((100vh - 14rem) * 4 / 5))",
+          background: T.ink, color: '#fff',
+          maxWidth: "min(95vw, calc((100vh - 12rem) * 4 / 5))",
           maxHeight: "95vh",
         }}
       >
         {/* header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#e8e9ed]">
-          <div className="text-sm font-bold text-gray-900">
-            {isLiveNow(course) ? `snap ${course.course}` : "snap now"}
-          </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-900 text-xl leading-none">×</button>
+        <div className="flex items-center justify-between px-5 py-4">
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full grid place-items-center text-white"
+            style={{ background: 'rgba(255,255,255,.12)' }}
+          >
+            <Icon name="x" size={14} color="#fff"/>
+          </button>
+          <span style={{ fontFamily: FF.serif, fontSize: 24, letterSpacing: -0.5, color: '#fff' }}>
+            {title}
+          </span>
+          <button
+            className="w-8 h-8 rounded-full grid place-items-center text-white"
+            style={{ background: 'rgba(255,255,255,.12)' }}
+          >
+            <Icon name="bolt" size={14} color="#fff"/>
+          </button>
         </div>
 
         {/* body */}
         <div className="flex-1 overflow-y-auto">
           {step === "capture" && (
             <div className="flex flex-col">
-              <div className="bg-black aspect-[4/5] relative flex items-center justify-center overflow-hidden">
-                {streamError ? (
-                  <div className="text-white text-sm text-center px-6">
-                    <p>Camera blocked: {streamError}</p>
-                    <p className="text-gray-400 text-xs mt-2">Allow camera access in your browser settings, then retry.</p>
-                  </div>
-                ) : (
-                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
-                )}
-                {recording && (
-                  <div className="absolute top-3 left-3 bg-red-500 text-white text-xs font-bold px-2 py-1 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                    REC · {(remainingMs / 1000).toFixed(1)}s
-                  </div>
-                )}
-              </div>
-              <div className="px-4 py-3 flex items-center justify-between gap-3 border-t border-[#e8e9ed]">
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => switchMode("photo")}
-                    disabled={recording}
-                    className={`px-3 py-1.5 text-xs font-semibold ${mode === "photo" ? "bg-[#607196] text-white" : "bg-[#e8e9ed] text-gray-700"}`}
+              <div className="relative px-3">
+                <div className="aspect-[4/5] rounded-2xl relative flex items-center justify-center overflow-hidden" style={{ background: '#2a2226' }}>
+                  {streamError ? (
+                    <div className="text-white text-sm text-center px-6">
+                      <p>camera blocked: {streamError}</p>
+                      <p className="text-white/60 text-xs mt-2">allow camera access in browser settings, then retry.</p>
+                    </div>
+                  ) : (
+                    <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
+                  )}
+                  {/* focus brackets */}
+                  <FocusBracket position={{ top: 16, left: 16, rot: 0 }}/>
+                  <FocusBracket position={{ top: 16, right: 16, rot: 90 }}/>
+                  <FocusBracket position={{ bottom: 16, right: 16, rot: 180 }}/>
+                  <FocusBracket position={{ bottom: 16, left: 16, rot: 270 }}/>
+
+                  {/* course pill on viewfinder */}
+                  <div
+                    className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs"
+                    style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)' }}
                   >
-                    Photo
-                  </button>
-                  <button
-                    onClick={() => switchMode("video")}
-                    disabled={recording}
-                    className={`px-3 py-1.5 text-xs font-semibold ${mode === "video" ? "bg-[#607196] text-white" : "bg-[#e8e9ed] text-gray-700"}`}
-                  >
-                    Video (5s)
-                  </button>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: T.coral }}/>
+                    <span style={{ fontFamily: FF.mono, letterSpacing: 1, textTransform: 'uppercase' }}>
+                      {course.course?.toLowerCase()} {liveNow && '· live'}
+                    </span>
+                  </div>
+
+                  {recording && (
+                    <div
+                      className="absolute top-14 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs"
+                      style={{ background: T.coral, color: '#fff', fontFamily: FF.mono, letterSpacing: 1 }}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                      REC · {(remainingMs / 1000).toFixed(1)}S
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              {/* mode chip row */}
+              <div className="flex items-center justify-center gap-5 mt-5"
+                   style={{ fontFamily: FF.mono, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                <button
+                  onClick={() => switchMode("photo")}
+                  disabled={recording}
+                  style={{ color: mode === "photo" ? T.coral : 'rgba(255,255,255,.5)', fontWeight: mode === "photo" ? 600 : 400 }}
+                >
+                  photo
+                </button>
+                <button
+                  onClick={() => switchMode("video")}
+                  disabled={recording}
+                  style={{ color: mode === "video" ? T.coral : 'rgba(255,255,255,.5)', fontWeight: mode === "video" ? 600 : 400 }}
+                >
+                  video
+                </button>
+              </div>
+
+              {/* capture controls */}
+              <div className="flex items-center justify-center py-5">
                 {mode === "photo" ? (
                   <button
                     onClick={capturePhoto}
                     disabled={!stream || !!streamError}
-                    className="px-5 py-2 bg-[#ffc759] text-gray-900 font-bold text-sm disabled:opacity-50"
+                    className="rounded-full grid place-items-center disabled:opacity-50"
+                    style={{
+                      width: 78, height: 78, padding: 5,
+                      background: 'transparent', border: '3px solid #fff',
+                    }}
                   >
-                    Capture
+                    <div
+                      className="rounded-full w-full h-full"
+                      style={{ background: T.coral, boxShadow: '0 0 24px rgba(237,106,74,.5)' }}
+                    />
                   </button>
                 ) : recording ? (
                   <button
                     onClick={stopRecording}
-                    className="px-5 py-2 bg-red-500 text-white font-bold text-sm"
+                    className="rounded-full grid place-items-center"
+                    style={{ width: 78, height: 78, padding: 5, background: 'transparent', border: '3px solid #fff' }}
                   >
-                    Stop
+                    <div
+                      className="rounded-md w-1/2 h-1/2"
+                      style={{ background: T.coral }}
+                    />
                   </button>
                 ) : (
                   <button
                     onClick={startRecording}
                     disabled={!stream || !!streamError}
-                    className="px-5 py-2 bg-[#ffc759] text-gray-900 font-bold text-sm disabled:opacity-50"
+                    className="rounded-full grid place-items-center disabled:opacity-50"
+                    style={{
+                      width: 78, height: 78, padding: 5,
+                      background: 'transparent', border: '3px solid #fff',
+                    }}
                   >
-                    Record
+                    <div
+                      className="rounded-full w-full h-full"
+                      style={{ background: T.coral, boxShadow: '0 0 24px rgba(237,106,74,.5)' }}
+                    />
                   </button>
                 )}
               </div>
@@ -326,63 +400,101 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
 
           {step === "preview" && previewUrl && (
             <div className="flex flex-col">
-              <div className="bg-black aspect-[4/5] flex items-center justify-center overflow-hidden">
-                {mode === "photo" ? (
-                  <img src={previewUrl} alt="preview" className="w-full h-full object-cover" />
-                ) : (
-                  <video src={previewUrl} className="w-full h-full object-cover" controls playsInline />
-                )}
+              <div className="px-3">
+                <div className="aspect-[4/5] rounded-2xl flex items-center justify-center overflow-hidden bg-black">
+                  {mode === "photo" ? (
+                    <img src={previewUrl} alt="preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <video src={previewUrl} className="w-full h-full object-cover" controls playsInline />
+                  )}
+                </div>
               </div>
-              <div className="px-4 py-3 flex items-center justify-between gap-3 border-t border-[#e8e9ed]">
-                <button onClick={retake} className="px-4 py-2 bg-[#e8e9ed] text-gray-700 text-sm font-semibold">Retake</button>
-                <button onClick={() => setStep("details")} className="px-5 py-2 bg-[#607196] text-white text-sm font-bold">Continue</button>
+              <div className="px-5 py-4 flex items-center justify-between gap-3">
+                <button
+                  onClick={retake}
+                  className="px-5 py-2 rounded-full text-sm font-semibold"
+                  style={{ background: 'rgba(255,255,255,.12)', color: '#fff' }}
+                >
+                  retake
+                </button>
+                <button
+                  onClick={() => setStep("details")}
+                  className="px-5 py-2 rounded-full text-sm font-bold"
+                  style={{ background: T.coral, color: '#fff' }}
+                >
+                  continue →
+                </button>
               </div>
             </div>
           )}
 
           {step === "details" && (
-            <div className="p-4 flex flex-col gap-4">
+            <div className="p-5 flex flex-col gap-4">
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Caption</label>
+                <MonoLabel color="rgba(255,255,255,.6)">caption</MonoLabel>
                 <textarea
                   value={caption}
                   onChange={(e) => setCaption(clampWords(e.target.value, CAPTION_MAX_WORDS))}
                   rows={2}
-                  placeholder="Say something…"
-                  className="mt-1 w-full bg-[#e8e9ed] p-3 text-sm outline-none"
+                  placeholder="say something…"
+                  className="mt-2 w-full p-3 rounded-2xl outline-none text-sm"
+                  style={{
+                    background: 'rgba(255,255,255,.08)', color: '#fff',
+                    border: '1px solid rgba(255,255,255,.15)',
+                  }}
                 />
-                <div className="text-[10px] text-gray-400 text-right">{countWords(caption)}/{CAPTION_MAX_WORDS} words</div>
+                <div className="text-[10px] text-right" style={{ color: 'rgba(255,255,255,.5)', fontFamily: FF.mono }}>
+                  {countWords(caption)}/{CAPTION_MAX_WORDS} words
+                </div>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Audience</label>
-                <div className="mt-1 flex gap-1">
+                <MonoLabel color="rgba(255,255,255,.6)">audience</MonoLabel>
+                <div className="mt-2 flex gap-2">
                   <button
                     onClick={() => setAudienceType("all")}
-                    className={`px-3 py-1.5 text-xs font-semibold ${audienceType === "all" ? "bg-[#607196] text-white" : "bg-[#e8e9ed] text-gray-700"}`}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium"
+                    style={{
+                      background: audienceType === "all" ? T.coral : 'rgba(255,255,255,.08)',
+                      color: '#fff',
+                    }}
                   >
-                    All friends
+                    all friends
                   </button>
                   <button
                     onClick={() => setAudienceType("selected")}
-                    className={`px-3 py-1.5 text-xs font-semibold ${audienceType === "selected" ? "bg-[#607196] text-white" : "bg-[#e8e9ed] text-gray-700"}`}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium"
+                    style={{
+                      background: audienceType === "selected" ? T.coral : 'rgba(255,255,255,.08)',
+                      color: '#fff',
+                    }}
                   >
-                    Selected
+                    selected
                   </button>
                 </div>
                 {audienceType === "selected" && (
-                  <div className="mt-2 max-h-40 overflow-y-auto bg-[#e8e9ed] p-2 flex flex-col gap-1">
+                  <div
+                    className="mt-2 max-h-40 overflow-y-auto rounded-2xl p-2 flex flex-col gap-1"
+                    style={{ background: 'rgba(255,255,255,.06)' }}
+                  >
                     {friendOptions.length === 0 ? (
-                      <p className="text-xs text-gray-500 italic p-2">No friends yet — add some to use this option.</p>
+                      <p className="text-xs p-2" style={{ color: 'rgba(255,255,255,.55)' }}>
+                        no friends yet — add some to use this option.
+                      </p>
                     ) : (
                       friendOptions.map((f) => (
-                        <label key={f.id} className="flex items-center gap-2 bg-white px-2 py-1.5 cursor-pointer">
+                        <label
+                          key={f.id}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer"
+                          style={{ background: 'rgba(255,255,255,.05)' }}
+                        >
                           <input
                             type="checkbox"
                             checked={selectedIds.has(f.id)}
                             onChange={() => toggleFriend(f.id)}
+                            style={{ accentColor: T.coral }}
                           />
-                          <span className="text-xs text-gray-800">@{f.username}</span>
+                          <span className="text-xs text-white" style={{ fontFamily: FF.mono }}>@{f.username}</span>
                         </label>
                       ))
                     )}
@@ -391,17 +503,29 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
               </div>
 
               {errorMsg && (
-                <div className="text-xs text-red-600 bg-red-50 p-2">{errorMsg}</div>
+                <div
+                  className="text-xs p-3 rounded-2xl"
+                  style={{ background: T.coralLt + "55", color: T.coralLt, border: `1px solid ${T.coral}` }}
+                >
+                  {errorMsg}
+                </div>
               )}
 
               <div className="flex items-center justify-between">
-                <button onClick={retake} className="px-4 py-2 bg-[#e8e9ed] text-gray-700 text-sm font-semibold">Retake</button>
+                <button
+                  onClick={retake}
+                  className="px-5 py-2 rounded-full text-sm font-semibold"
+                  style={{ background: 'rgba(255,255,255,.12)', color: '#fff' }}
+                >
+                  retake
+                </button>
                 <button
                   onClick={submit}
                   disabled={submitting || (audienceType === "selected" && selectedIds.size === 0)}
-                  className="px-5 py-2 bg-[#ffc759] text-gray-900 text-sm font-bold disabled:opacity-50"
+                  className="px-5 py-2 rounded-full text-sm font-bold disabled:opacity-50"
+                  style={{ background: T.coral, color: '#fff' }}
                 >
-                  {submitting ? "Posting…" : "Post"}
+                  {submitting ? "posting…" : "post →"}
                 </button>
               </div>
             </div>

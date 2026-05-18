@@ -1,86 +1,75 @@
-import React from 'react';
-import {
-  Users01,
-  CheckDone01,
-  Zap,
-  LineChartUp03,
-  MessageChatCircle
-} from "@untitledui/icons";
+import { Users01, CheckDone01, Zap, MessageChatCircle } from "@untitledui/icons";
+import { Star, Blob, T, FF, MonoLabel, PillBtn } from "@/components/shared/brand";
 
 const About = () => {
   return (
-    <div className="space-y-16 py-12">
-      {/* Hero Section */}
-      <section className="text-center space-y-6">
-        <h1 className="text-5xl font-extrabold text-gray-900 tracking-tight">
-          About <span className="text-[#ffc759]">Timetify</span>
+    <div className="space-y-12 py-8 relative">
+      <Star color={T.lime} size={32} style={{ position: 'absolute', top: 12, right: '15%', transform: 'rotate(-15deg)' }}/>
+      <Star color={T.coral} size={24} style={{ position: 'absolute', top: 64, left: '10%', transform: 'rotate(20deg)' }}/>
+      <Blob color={T.lilac} size={120} seed={2} style={{ position: 'absolute', top: 200, right: '6%', opacity: 0.5 }}/>
+
+      <section className="text-center space-y-3 relative">
+        <MonoLabel>about</MonoLabel>
+        <h1 className="text-6xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1.8 }}>
+          about <span style={{ color: T.coral }}>timetify</span>
         </h1>
-        <p className="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
-          The ultimate social scheduling platform designed to keep you and your friends in sync, effortlessly.
+        <p className="text-base text-ink-60 max-w-2xl mx-auto leading-relaxed">
+          the social scheduling platform that keeps u and ur friends in sync, effortlessly.
         </p>
       </section>
 
-      {/* Mission Section */}
-      <section className="grid md:grid-cols-1 gap-12 items-center bg-white p-10 rounded-3xl shadow-sm border border-gray-100">
-        <div className="space-y-6">
-          <div className="inline-flex items-center justify-center p-3 bg-[#607196]/10 rounded-2xl text-[#607196]">
-            <Users01 className="w-8 h-8" />
+      <section className="bg-white p-10 rounded-3xl border border-ink-8">
+        <div className="space-y-5">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full" style={{ background: T.coralLt, color: T.coralDk }}>
+            <Users01 className="w-6 h-6" />
           </div>
-          <h2 className="text-3xl font-bold text-gray-900">Our Mission</h2>
-          <p className="text-lg text-gray-600 leading-relaxed">
-            At Timetify, we believe that staying connected shouldn't be a chore. Our mission is to bridge the gap between individual productivity and social connection by providing a seamless way to share schedules, discover mutual free time, and plan together.
+          <h2 className="text-3xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>our mission</h2>
+          <p className="text-base text-ink-60 leading-relaxed">
+            staying connected shouldn&apos;t be a chore. timetify bridges individual productivity and social connection — share schedules, discover mutual free time, and plan together.
           </p>
         </div>
-
       </section>
 
-      {/* Features Section */}
-      <section className="space-y-12">
-        <div className="text-center space-y-4">
-          <h2 className="text-3xl font-bold text-gray-900">Why Choose Timetify?</h2>
-          <p className="text-gray-600 max-w-xl mx-auto">
-            Powerful tools designed to simplify your life and enhance your social connections.
-          </p>
+      <section className="space-y-6">
+        <div className="text-center space-y-2">
+          <MonoLabel>why timetify</MonoLabel>
+          <h2 className="text-3xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>built for the chaotic week</h2>
         </div>
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-2 gap-5">
           {[
-            {
-              icon: Zap,
-              title: "AI-Powered Extraction",
-              description: "Upload your syllabus and let our AI handle the scheduling for you."
-            },
-            {
-              icon: CheckDone01,
-              title: "Real-time Sync",
-              description: "Instantly see when your friends are free or busy throughout the day."
-            },
-
+            { icon: Zap, title: "ai-powered extraction", description: "upload ur syllabus and let our ai handle the scheduling.", bg: T.coral, fg: '#fff' },
+            { icon: CheckDone01, title: "real-time sync", description: "instantly see when ur friends are free or busy.", bg: T.lime, fg: T.ink },
           ].map((feature, i) => (
-            <div key={i} className="p-8 bg-white rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 group">
-              <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400 group-hover:bg-[#ffc759]/10 group-hover:text-[#ffc759] transition-colors">
+            <div key={i} className="p-7 bg-white rounded-3xl border border-ink-8 hover:border-coral transition-colors space-y-3">
+              <div className="w-12 h-12 rounded-full grid place-items-center" style={{ background: feature.bg, color: feature.fg }}>
                 <feature.icon className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900">{feature.title}</h3>
-              <p className="text-gray-600 leading-relaxed">{feature.description}</p>
+              <h3 className="text-xl text-ink leading-tight" style={{ fontFamily: FF.serif, letterSpacing: -0.5 }}>{feature.title}</h3>
+              <p className="text-sm text-ink-60 leading-relaxed">{feature.description}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Contact/CTA Section */}
-      <section className="relative overflow-hidden bg-[#607196] rounded-3xl p-12 text-center space-y-8">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-[#ffc759] opacity-10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/2"></div>
-        <div className="relative z-10 space-y-4 text-white">
-          <h2 className="text-3xl font-bold">Have Questions?</h2>
-          <p className="text-white max-w-lg mx-auto">
-            Our support team is always here to help you get the most out of Timetify.
+      <section className="relative overflow-hidden rounded-3xl p-10 sm:p-12 text-center space-y-5" style={{ background: T.ink, color: T.cream }}>
+        <Blob color={T.coral} size={200} seed={0} style={{ position: 'absolute', top: -60, right: -60, opacity: 0.7 }}/>
+        <Blob color={T.lilac} size={140} seed={2} style={{ position: 'absolute', bottom: -50, left: -50, opacity: 0.5 }}/>
+        <div className="relative z-10 space-y-4">
+          <MonoLabel color="rgba(248,244,237,.65)">questions?</MonoLabel>
+          <h2 className="text-4xl leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1.2 }}>
+            we&apos;re here to help.
+          </h2>
+          <p className="max-w-lg mx-auto text-sm" style={{ color: 'rgba(248,244,237,.85)' }}>
+            our team is always around to help u get the most out of timetify.
           </p>
-          <div className="flex justify-center gap-4 pt-4">
-            <a href="mailto:support@timetify.com" className="px-8 py-3 bg-[#ffc759] text-black font-bold rounded-xl hover:scale-105 transition-transform">
-              Contact Us
+          <div className="flex justify-center gap-3 pt-2 flex-wrap">
+            <a href="mailto:help@timetify.net">
+              <PillBtn bg={T.coral} fg="#fff" size="lg">contact us</PillBtn>
             </a>
-            <a href="https://github.com/Her304/timetify" className="px-8 py-3 bg-white/10 text-white font-bold rounded-xl hover:bg-white/20 transition-colors flex items-center gap-2">
-              <MessageChatCircle className="w-5 h-5" /> View on GitHub
+            <a href="https://github.com/Her304/timetify" target="_blank" rel="noopener noreferrer">
+              <PillBtn bg="rgba(255,255,255,.1)" fg="#fff" size="lg" style={{ border: '1px solid rgba(255,255,255,.2)' }}>
+                <MessageChatCircle className="w-4 h-4" /> view on github
+              </PillBtn>
             </a>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { ChevronRight } from "@untitledui/icons";
+import { AppMark, T, FF } from "@/components/shared/brand";
 
 export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
   const location = useLocation();
@@ -26,10 +27,11 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
   };
 
   return (
-    <div className="hidden md:flex flex-col h-screen sticky top-0 bg-white border-r border-[#e8e9ed] w-72 overflow-hidden flex-shrink-0">
+    <div className="hidden md:flex flex-col h-screen sticky top-0 bg-cream border-r border-ink-8 w-72 overflow-hidden flex-shrink-0">
       {/* Logo */}
-      <div className="px-6 pt-6 pb-4">
-        <h2 className="text-3xl font-normal text-[#607196] tracking-tight" style={{ fontFamily: "'DM Serif Text', serif" }}>Timetify</h2>
+      <div className="px-6 pt-6 pb-5 flex items-center gap-3">
+        <AppMark size={36} />
+        <h2 className="text-3xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -0.8 }}>timetify</h2>
       </div>
 
       {/* Primary nav */}
@@ -44,28 +46,28 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
               <div key={index} className="space-y-1">
                 <a
                   href={item.href}
-                  onClick={(e) => {
-                    if (hasChildren) toggleItem(item);
-                  }}
-                  className={`flex items-center w-full px-3 py-2.5 text-sm font-semibold  transition-colors group ${
-                    isExpanded
-                      ? "text-gray-900"
-                      : "text-gray-600 hover:bg-[#e8e9ed] hover:text-gray-900"
-                  } ${isForcedOpen ? "bg-[#e8e9ed]/60" : ""}`}
+                  onClick={() => { if (hasChildren) toggleItem(item); }}
+                  className={`flex items-center w-full px-3.5 py-2.5 text-sm font-semibold rounded-full transition-colors group ${
+                    isForcedOpen
+                      ? "bg-ink text-cream"
+                      : isExpanded
+                        ? "text-ink"
+                        : "text-ink-60 hover:bg-ink-8 hover:text-ink"
+                  }`}
                 >
                   {item.icon && (
                     <item.icon
-                      className={`mr-3 h-5 w-5 shrink-0 ${
-                        isExpanded ? "text-[#607196]" : "text-gray-400 group-hover:text-[#607196]"
+                      className={`mr-3 h-4 w-4 shrink-0 ${
+                        isForcedOpen ? "text-cream" : isExpanded ? "text-coral" : "text-ink-40 group-hover:text-coral"
                       }`}
                     />
                   )}
                   <span className="flex-1 text-left">{item.label}</span>
                   {hasChildren && (
                     <ChevronRight
-                      className={`h-4 w-4 text-gray-400 stroke-[2.5px] transition-transform duration-200 ${
-                        isExpanded ? "rotate-90" : ""
-                      }`}
+                      className={`h-4 w-4 stroke-[2.5px] transition-transform duration-200 ${
+                        isForcedOpen ? "text-cream" : "text-ink-40"
+                      } ${isExpanded ? "rotate-90" : ""}`}
                     />
                   )}
                 </a>
@@ -76,7 +78,7 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
                   }`}
                 >
                   <div className="overflow-hidden">
-                    <div className="space-y-0.5 ml-8 border-l-2 border-[#e8e9ed] pl-3 pb-1 mt-1">
+                    <div className="space-y-0.5 ml-7 border-l-2 border-ink-8 pl-3 pb-1 mt-1">
                       {item.items &&
                         item.items.map((subItem, subIndex) => {
                           const isSubActive =
@@ -86,13 +88,14 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
                             <a
                               key={subIndex}
                               href={subItem.href}
-                              className={`block px-3 py-2 text-sm  transition-colors ${
+                              className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-full transition-colors ${
                                 isSubActive
-                                  ? "bg-[#e8e9ed] text-gray-900 font-semibold"
-                                  : "text-gray-500 hover:bg-[#e8e9ed]/50 hover:text-gray-800"
+                                  ? "text-ink font-semibold"
+                                  : "text-ink-60 hover:text-ink"
                               }`}
                             >
-                              {subItem.label}
+                              {isSubActive && <span className="w-1.5 h-1.5 rounded-full bg-coral" />}
+                              <span>{subItem.label}</span>
                             </a>
                           );
                         })}
@@ -105,17 +108,17 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
         </nav>
       </div>
 
-      {/* Secondary items (Add, User) */}
+      {/* Secondary items (Add, Profile) */}
       {secondaryItems && secondaryItems.length > 0 && (
         <div className="px-4 pb-2 space-y-2">
           {secondaryItems.map((item, index) => (
             <a
               key={index}
               href={item.href}
-              className="flex items-center w-full px-4 py-3 text-sm font-semibold text-gray-800  bg-[#e8e9ed] hover:bg-[#d8dae0] transition-colors group"
+              className="flex items-center w-full px-4 py-2.5 text-sm font-semibold text-ink bg-white border border-ink-8 rounded-full hover:bg-ink-8 transition-colors group"
             >
               {item.icon && (
-                <item.icon className="mr-3 h-5 w-5 shrink-0 text-[#607196]" />
+                <item.icon className="mr-3 h-4 w-4 shrink-0 text-coral" />
               )}
               <span>{item.label}</span>
             </a>
@@ -138,10 +141,10 @@ export const SidebarNavigationSimple = ({ items, secondaryItems, LogOut }) => {
                     item.onClick();
                   }
                 }}
-                className={`flex items-center justify-center w-full px-4 py-3 text-sm font-bold text-white  transition-colors cursor-pointer ${
+                className={`flex items-center justify-center w-full px-4 py-2.5 text-sm font-bold rounded-full transition-colors cursor-pointer ${
                   isLogin
-                    ? "bg-[#607196] hover:bg-[#4a5a7a]"
-                    : "bg-red-500 hover:bg-red-600"
+                    ? "bg-coral hover:bg-coral-dark text-white"
+                    : "bg-ink hover:opacity-90 text-cream"
                 }`}
               >
                 {item.label}
