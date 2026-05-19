@@ -1,24 +1,6 @@
-import nateSmithImg from '../../assets/nate-smith-Qw_u8x5XS68-unsplash.jpg';
-import screenshotImg from '../../assets/Screenshot 2026-03-29 at 07.57.08.png';
-import jedVillejoImg from '../../assets/jed-villejo-bEcC0nyIp2g-unsplash.jpg';
-
-/*
-  All animation is done with pure CSS keyframes injected via a <style> tag.
-  Every section fades + rises in on page load with staggered delays.
-  Zero scroll logic, zero Framer Motion, zero external dependencies.
-*/
+import { T, FF, AppMark, Blob, Star, PillBtn } from '@/components/shared/brand';
 
 const styles = `
-
-  :root {
-    --brand: #607196;
-    --brand-dark: #4a5a7a;
-    --text: #1a1a2e;
-    --muted: #6b7280;
-    --bg: #ffffff;
-    --bg-soft: #f8f8f6;
-  }
-
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(32px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -39,7 +21,6 @@ const styles = `
     animation: fadeIn 1s ease forwards;
   }
 
-  /* Staggered delays */
   .d-0  { animation-delay: 0.1s; }
   .d-1  { animation-delay: 0.35s; }
   .d-2  { animation-delay: 0.6s; }
@@ -49,16 +30,6 @@ const styles = `
   .d-6  { animation-delay: 0.2s; }
   .d-7  { animation-delay: 0.5s; }
   .d-8  { animation-delay: 0.8s; }
-
-  /* Section-level stagger resets (applied via parent class) */
-  .section-anim .fade-up,
-  .section-anim .fade-in {
-    animation-play-state: paused;
-  }
-  .section-anim.in-view .fade-up,
-  .section-anim.in-view .fade-in {
-    animation-play-state: running;
-  }
 `;
 
 export default function Landing() {
@@ -66,81 +37,87 @@ export default function Landing() {
     <>
       <style>{styles}</style>
 
-      <div style={{ fontFamily: "'Geist', sans-serif", background: 'var(--bg)', color: 'var(--text)', overflowX: 'hidden' }}>
+      <div style={{ fontFamily: FF.sans, background: T.cream, color: T.ink, overflowX: 'hidden' }}>
 
         {/* ── HERO ─────────────────────────────────────────────────────────── */}
-        <section style={{ position: 'relative', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {/* Background image */}
-          <div className="fade-in d-0" style={{ position: 'absolute', inset: 0 }}>
-            <img
-              src={nateSmithImg}
-              alt=""
-              style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(0.42)' }}
-            />
+        <section style={{
+          position: 'relative',
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: T.ink,
+          overflow: 'hidden',
+        }}>
+          {/* Decorative blobs */}
+          <div style={{ position: 'absolute', top: '-10%', right: '-5%', opacity: 0.15, zIndex: 0 }}>
+            <Blob color={T.coral} size={320} seed={0} />
+          </div>
+          <div style={{ position: 'absolute', bottom: '-15%', left: '-8%', opacity: 0.12, zIndex: 0 }}>
+            <Blob color={T.lilac} size={280} seed={1} />
           </div>
 
-          {/* Hero text */}
-          <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 24px', maxWidth: 860 }}>
-            <p
+          {/* Hero content */}
+          <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: '0 24px', maxWidth: 900 }}>
+            <div className="fade-up d-0">
+              <AppMark size={64} shadow style={{ margin: '0 auto 48px' }} />
+            </div>
+
+            <h1
               className="fade-up d-1"
               style={{
-                fontFamily: "'Bricolage Grotesque', sans-serif",
-                fontStyle: 'italic',
-                fontSize: 'clamp(1rem, 2vw, 1.25rem)',
-                color: 'rgba(255,255,255,0.6)',
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
+                fontFamily: FF.serif,
+                fontSize: 'clamp(2rem, 5vw, 3.5rem)',
+                fontWeight: 400,
+                color: '#fff',
+                lineHeight: 1.2,
                 marginBottom: 32,
               }}
             >
-              Student life, simplified
-            </p>
+              ur schedule,<br />ur ppl.
+            </h1>
 
-            <h1
+            <p
               className="fade-up d-2"
               style={{
-                fontSize: 'clamp(1.6rem, 4vw, 3rem)',
-                fontWeight: 600,
-                color: '#fff',
-                lineHeight: 1.45,
-                marginBottom: 0,
+                fontSize: 'clamp(1rem, 2vw, 1.25rem)',
+                color: `rgba(255,255,255,0.7)`,
+                lineHeight: 1.6,
+                maxWidth: 600,
+                margin: '0 auto 48px',
               }}
             >
-              No more <br /><em style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontStyle: 'italic', fontWeight: 400 }}>"What class am I supposed to be at?"</em>
-            </h1>
+              upload a syllabus, see ur friends, snap with ur classes, actually coordinate. no more "what time is that again?"
+            </p>
 
-            <h1
-              className="fade-up d-3"
-              style={{
-                fontSize: 'clamp(1.6rem, 4vw, 3rem)',
-                fontWeight: 600,
-                color: '#fff',
-                lineHeight: 1.45,
-                margin: '18px 0',
-              }}
-            >
-              <em style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontStyle: 'italic', fontWeight: 400 }}>"Guys, can we find a time slot?"</em>
-            </h1>
-
-            <h1
-              className="fade-up d-4"
-              style={{
-                fontSize: 'clamp(1.6rem, 4vw, 3rem)',
-                fontWeight: 600,
-                color: '#fff',
-                lineHeight: 1.45,
-                marginBottom: 0,
-              }}
-            >
-              <em style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontStyle: 'italic', fontWeight: 400 }}>"When are you guys free to hang out?"</em>
-            </h1>
+            <div className="fade-up d-3" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+              <a href="/register" style={{ textDecoration: 'none' }}>
+                <PillBtn bg={T.coral} fg="#fff" size="md">
+                  sign up free →
+                </PillBtn>
+              </a>
+              <a href="/login" style={{ textDecoration: 'none' }}>
+                <PillBtn bg="transparent" fg={T.coral} size="md" style={{ border: `2px solid ${T.coral}` }}>
+                  log in
+                </PillBtn>
+              </a>
+            </div>
 
             {/* Scroll hint */}
             <div
-              className="fade-up d-5"
-              style={{ marginTop: 64, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'rgba(255,255,255,0.4)' }}
+              className="fade-up d-4"
+              style={{
+                marginTop: 80,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+                color: `rgba(255,255,255,0.4)`,
+              }}
             >
-              <span style={{ fontSize: '0.75rem', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Scroll to explore</span>
+              <span style={{ fontSize: '0.75rem', letterSpacing: '0.15em', textTransform: 'uppercase', fontFamily: FF.mono }}>
+                scroll to explore
+              </span>
               <svg width="16" height="24" viewBox="0 0 16 24" fill="none">
                 <rect x="6.5" y="0.5" width="3" height="9" rx="1.5" fill="rgba(255,255,255,0.4)" />
                 <path d="M8 16 L3 21 M8 16 L13 21" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeLinecap="round" />
@@ -149,207 +126,182 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ── BRAND MESSAGE ────────────────────────────────────────────────── */}
-        <section style={{
-          padding: '120px 24px',
-          background: 'var(--bg)',
-          display: 'flex',
-          justifyContent: 'center',
-        }}>
-          <h2
-            className="fade-up d-6"
-            style={{
-              fontFamily: "'Bricolage Grotesque', sans-serif",
-              fontSize: 'clamp(2rem, 5vw, 4.5rem)',
-              fontWeight: 400,
-              color: 'var(--text)',
-              textAlign: 'center',
-              maxWidth: 900,
-              lineHeight: 1.25,
-            }}
-          >
-            With <span style={{ color: '#607196', fontStyle: 'italic' }}>Timetify</span>, all your schedules are{' '}
-            <span style={{ color: '#ffc759', fontStyle: 'italic' }}>organized</span>{' '}
-            and{' '}
-            <span style={{ color: '#ffc759', fontStyle: 'italic' }}>shared.</span>
-          </h2>
-        </section>
-
-        {/* ── AI FEATURE — screenshot left, text right ─────────────────────── */}
-        <section style={{ background: 'var(--bg-soft)', padding: '100px 24px' }}>
-          <div style={{
-            maxWidth: 1100,
-            margin: '0 auto',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: 56,
-          }}>
-            {/* Screenshot — LEFT */}
-            <div className="fade-up d-6" style={{ flex: '1 1 420px', minWidth: 0 }}>
-              <img
-                src={screenshotImg}
-                alt="Timetify app screenshot"
-                style={{
-                  width: '100%',
-                  borderRadius: 20,
-                  boxShadow: '0 24px 64px rgba(0,0,0,0.12)',
-                  border: '1px solid rgba(0,0,0,0.06)',
-                  display: 'block',
-                }}
-              />
-            </div>
-
-            {/* Text — RIGHT */}
-            <div className="fade-up d-7" style={{ flex: '1 1 360px', minWidth: 0 }}>
-              <div style={{ width: 40, height: 3, background: 'var(--brand)', borderRadius: 2, marginBottom: 28 }} />
-              <h3 style={{
-                fontFamily: "'Bricolage Grotesque', sans-serif",
-                fontSize: 'clamp(1.6rem, 3vw, 2.6rem)',
+        {/* ── FEATURES ─────────────────────────────────────────────────────── */}
+        <section style={{ padding: '100px 24px', background: T.cream }}>
+          <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+            <h2
+              className="fade-up d-6"
+              style={{
+                fontFamily: FF.serif,
+                fontSize: 'clamp(2rem, 4vw, 3rem)',
                 fontWeight: 400,
-                lineHeight: 1.3,
-                marginBottom: 20,
-                color: 'var(--text)',
-              }}>
-                Upload your messy syllabus PDF
-              </h3>
-              <p style={{
-                fontSize: 'clamp(1rem, 1.5vw, 1.2rem)',
-                color: 'var(--muted)',
-                lineHeight: 1.8,
-                fontWeight: 300,
-              }}>
-                Let AI handle the rest — extracting lecture times, lab sessions, weekly topics,
-                assignments, and exam dates like magic.{' '}
-                <strong style={{ color: 'var(--text)', fontWeight: 600 }}>No more panic-scrolling</strong>{' '}
-                through 12-page PDFs at 2 a.m.
-              </p>
+                color: T.ink,
+                marginBottom: 64,
+                textAlign: 'center',
+              }}
+            >
+              what makes timetify different
+            </h2>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+              gap: 32,
+            }}>
+              {/* AI Parsing */}
+              <div
+                className="fade-up d-7"
+                style={{
+                  background: '#fff',
+                  padding: 32,
+                  borderRadius: 24,
+                  border: `1px solid ${T.ink08}`,
+                }}
+              >
+                <div style={{ marginBottom: 24 }}>
+                  <Star color={T.coral} size={40} />
+                </div>
+                <h3 style={{
+                  fontFamily: FF.serif,
+                  fontSize: '1.3rem',
+                  fontWeight: 400,
+                  color: T.ink,
+                  marginBottom: 12,
+                }}>
+                  parse ur pdf
+                </h3>
+                <p style={{
+                  fontSize: '1rem',
+                  color: T.ink60,
+                  lineHeight: 1.6,
+                }}>
+                  dump a messy syllabus, ai extracts times, exams, assignments. done in seconds.
+                </p>
+              </div>
+
+              {/* Friend Schedules */}
+              <div
+                className="fade-up d-8"
+                style={{
+                  background: '#fff',
+                  padding: 32,
+                  borderRadius: 24,
+                  border: `1px solid ${T.ink08}`,
+                }}
+              >
+                <div style={{ marginBottom: 24 }}>
+                  <Star color={T.lilac} size={40} />
+                </div>
+                <h3 style={{
+                  fontFamily: FF.serif,
+                  fontSize: '1.3rem',
+                  fontWeight: 400,
+                  color: T.ink,
+                  marginBottom: 12,
+                }}>
+                  see friends live
+                </h3>
+                <p style={{
+                  fontSize: '1rem',
+                  color: T.ink60,
+                  lineHeight: 1.6,
+                }}>
+                  know when ur friends are in class, who's in ur courses, who's free rn. zero awkward "are u busy?"
+                </p>
+              </div>
+
+              {/* Snap Feature */}
+              <div
+                className="fade-up d-7"
+                style={{
+                  background: '#fff',
+                  padding: 32,
+                  borderRadius: 24,
+                  border: `1px solid ${T.ink08}`,
+                }}
+              >
+                <div style={{ marginBottom: 24 }}>
+                  <Star color={T.lime} size={40} />
+                </div>
+                <h3 style={{
+                  fontFamily: FF.serif,
+                  fontSize: '1.3rem',
+                  fontWeight: 400,
+                  color: T.ink,
+                  marginBottom: 12,
+                }}>
+                  snap ur class
+                </h3>
+                <p style={{
+                  fontSize: '1rem',
+                  color: T.ink60,
+                  lineHeight: 1.6,
+                }}>
+                  quick 5sec video from lecture. friends see u, engage, keep everyone connected.
+                </p>
+              </div>
             </div>
-          </div>
-        </section>
-
-        {/* ── SOCIAL FEATURE — full-bleed image with text overlay ──────────── */}
-        <section style={{ position: 'relative', minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {/* Background image */}
-          <div className="fade-in d-6" style={{ position: 'absolute', inset: 0 }}>
-            <img
-              src={jedVillejoImg}
-              alt=""
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,12,30,0.58)', backdropFilter: 'blur(1px)' }} />
-          </div>
-
-          <div
-            className="fade-up d-7"
-            style={{
-              position: 'relative',
-              zIndex: 1,
-              textAlign: 'center',
-              maxWidth: 760,
-              padding: '80px 24px',
-            }}
-          >
-            <p style={{
-              fontFamily: "'Bricolage Grotesque', sans-serif",
-              fontStyle: 'italic',
-              fontSize: 'clamp(0.85rem, 1.5vw, 1rem)',
-              color: 'rgba(255,255,255,0.5)',
-              letterSpacing: '0.14em',
-              textTransform: 'uppercase',
-              marginBottom: 24,
-            }}>
-              Connect & Coordinate
-            </p>
-            <p style={{
-              fontSize: 'clamp(1.2rem, 2.5vw, 1.9rem)',
-              color: '#fff',
-              lineHeight: 1.65,
-              fontWeight: 300,
-            }}>
-              See which friends are in your classes, connect easily, and actually enjoy
-              the semester together.{' '}
-              <strong style={{ fontWeight: 600 }}>Group projects?</strong> Simple.
-              Finding someone to study with? Even easier.
-            </p>
           </div>
         </section>
 
         {/* ── CTA ──────────────────────────────────────────────────────────── */}
         <section style={{
-          padding: '140px 24px',
-          background: 'var(--bg)',
+          padding: '120px 24px',
+          background: T.coral,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           textAlign: 'center',
-          borderTop: '1px solid #f0f0f0',
+          position: 'relative',
+          overflow: 'hidden',
         }}>
-          <p
-            className="fade-up d-6 !text-[#ffc759]"
-            style={{
-              fontSize: 'clamp(1rem, 2vw, 1.3rem)',
-              color: 'var(--muted)',
-              fontStyle: 'italic',
-              fontFamily: "'Bricolage Grotesque', sans-serif",
-              marginBottom: 16,
-            }}
-          >
-            Asking about schedules?
-          </p>
+          {/* Decorative blobs */}
+          <div style={{ position: 'absolute', top: '-10%', right: '-8%', opacity: 0.1, zIndex: 0 }}>
+            <Blob color="#fff" size={280} seed={2} />
+          </div>
+          <div style={{ position: 'absolute', bottom: '-12%', left: '-5%', opacity: 0.08, zIndex: 0 }}>
+            <Blob color="#fff" size={320} seed={3} />
+          </div>
 
-          <h1
-            className="fade-up d-7"
-            style={{
-              fontFamily: "'Bricolage Grotesque', sans-serif",
-              fontSize: 'clamp(4rem, 14vw, 10rem)',
-              fontWeight: 400,
-              color: 'var(--brand)',
-              lineHeight: 1,
-              marginBottom: 56,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Timetify
-          </h1>
-
-          <div className="fade-up d-8" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
-            <a
-              href="/register"
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <h2
+              className="fade-up d-6"
               style={{
-                padding: '14px 40px',
-                background: 'var(--brand)',
+                fontFamily: FF.serif,
+                fontSize: 'clamp(2rem, 5vw, 3.5rem)',
+                fontWeight: 400,
                 color: '#fff',
-                fontWeight: 700,
-                borderRadius: 0,
-                fontSize: '1rem',
-                textDecoration: 'none',
-                transition: 'all 0.2s',
-                boxShadow: '0 8px 24px rgba(96,113,150,0.28)',
+                marginBottom: 32,
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--brand-dark)'; e.currentTarget.style.transform = 'scale(1.04)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--brand)'; e.currentTarget.style.transform = 'scale(1)'; }}
             >
-              Join Timetify Now
-            </a>
-            <a
-              href="/login"
+              ready to get ur life together?
+            </h2>
+
+            <p
+              className="fade-up d-7"
               style={{
-                padding: '14px 40px',
-                background: 'transparent',
-                color: 'var(--brand)',
-                border: '2px solid var(--brand)',
-                fontWeight: 700,
-                borderRadius: 0,
-                fontSize: '1rem',
-                textDecoration: 'none',
-                transition: 'all 0.2s',
+                fontSize: '1.1rem',
+                color: `rgba(255,255,255,0.9)`,
+                marginBottom: 48,
+                maxWidth: 600,
+                margin: '0 auto 48px',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = '#f4f6fb'; e.currentTarget.style.transform = 'scale(1.04)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.transform = 'scale(1)'; }}
             >
-              Welcome Back
-            </a>
+              join students at {/* placeholder for universities */} and never ask "what time?" again.
+            </p>
+
+            <div className="fade-up d-8" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+              <a href="/register" style={{ textDecoration: 'none' }}>
+                <PillBtn bg="#fff" fg={T.coral} size="md" style={{ fontWeight: 600 }}>
+                  sign up free
+                </PillBtn>
+              </a>
+              <a href="/login" style={{ textDecoration: 'none' }}>
+                <PillBtn bg="transparent" fg="#fff" size="md" style={{ border: `2px solid rgba(255,255,255,0.8)` }}>
+                  log in
+                </PillBtn>
+              </a>
+            </div>
           </div>
         </section>
 
