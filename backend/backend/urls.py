@@ -15,8 +15,8 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -27,14 +27,15 @@ from django.conf.urls.static import static
 
 from django.contrib.auth import views as auth_views
 
+from main.admin import site as admin_site
 from main.forms import CustomPasswordResetForm
 
-admin.site.site_header = "Timetify Admin"
-admin.site.site_title = "Timetify Admin Portal"
-admin.site.index_title = "Welcome to Timetify Admin"
-
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    # Project sets APPEND_SLASH=False (for SPA API parity), so bare /admin and
+    # /admin/login 404 by default. Redirect them explicitly so admin URL UX still works.
+    path("admin", RedirectView.as_view(url="/admin/", query_string=True, permanent=False)),
+    path("admin/login", RedirectView.as_view(url="/admin/login/", query_string=True, permanent=False)),
+    path("admin/", admin_site.urls),
     path("", include("main.urls")),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

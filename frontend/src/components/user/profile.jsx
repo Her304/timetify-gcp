@@ -4,7 +4,7 @@ import { T, FF, MonoLabel, Avatar, PillBtn, Blob, Star, Icon } from "@/component
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => {
+export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLogout }) => {
   const [allCourses, setAllCourses] = useState([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -329,6 +329,20 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [] }) => 
           )}
         </div>
       </section>
+
+      {/* Mobile-only log out pill — desktop has it in the header nav. */}
+      {onLogout && (
+        <div className="md:hidden mt-6">
+          <button
+            type="button"
+            onClick={onLogout}
+            className="w-full py-3 rounded-full text-sm font-semibold lowercase hover:opacity-90 transition-opacity"
+            style={{ background: T.coral, color: "#fff", fontFamily: FF.sans }}
+          >
+            log out
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,0 +1,188 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static admin_urls %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/dashboard.css' %}">{% endblock %}
+
+{% block coltype %}colMS{% endblock %}
+
+{% block bodyclass %}{{ block.super }} dashboard{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block nav-sidebar %}{{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="timetify-dash">
+
+  <div class="tt-kpi-grid">
+    <div class="tt-kpi-card">
+      <div class="tt-kpi-label">Total users</div>
+      <div class="tt-kpi-value">{{ kpis.total_users }}</div>
+    </div>
+    <div class="tt-kpi-card">
+      <div class="tt-kpi-label">Total courses</div>
+      <div class="tt-kpi-value">{{ kpis.total_courses }}</div>
+    </div>
+    <div class="tt-kpi-card">
+      <div class="tt-kpi-label">Active snaps</div>
+      <div class="tt-kpi-value">{{ kpis.active_snaps }}</div>
+    </div>
+    <div class="tt-kpi-card">
+      <div class="tt-kpi-label">Snaps · last 24h</div>
+      <div class="tt-kpi-value">{{ kpis.snaps_24h }}</div>
+    </div>
+  </div>
+
+  <div class="tt-card tt-chart-card">
+    <div class="tt-card-head">
+      <div>
+        <div class="tt-card-title">User growth</div>
+        <div class="tt-card-sub">Cumulative signups over time</div>
+      </div>
+      <div class="tt-range" role="tablist" aria-label="Time range">
+        <button type="button" class="tt-range-btn" data-range="week">Last week</button>
+        <button type="button" class="tt-range-btn is-active" data-range="month">Last month</button>
+        <button type="button" class="tt-range-btn" data-range="all">All time</button>
+      </div>
+    </div>
+    <div class="tt-chart-wrap">
+      <canvas id="ttUserGrowth" height="120"></canvas>
+    </div>
+  </div>
+
+  <div class="tt-two-col">
+    <div class="tt-card">
+      <div class="tt-card-head"><div class="tt-card-title">Recent signups</div></div>
+      <table class="tt-table">
+        <thead><tr><th>User</th><th>University</th><th>Joined</th></tr></thead>
+        <tbody>
+        {% for u in recent_users %}
+          <tr>
+            <td><a href="{% url 'admin:main_customuser_change' u.id %}">{{ u.username }}</a></td>
+            <td>{{ u.university|default:"—" }}</td>
+            <td>{{ u.date_joined|date:"M j, Y H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="tt-empty">No users yet</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tt-card">
+      <div class="tt-card-head"><div class="tt-card-title">Recent snaps</div></div>
+      <table class="tt-table">
+        <thead><tr><th>Uploader</th><th>Course</th><th>Type</th><th>Posted</th></tr></thead>
+        <tbody>
+        {% for s in recent_snaps %}
+          <tr>
+            <td><a href="{% url 'admin:main_snap_change' s.id %}">{{ s.uploader.username }}</a></td>
+            <td>{{ s.course.course_id }}</td>
+            <td>{{ s.get_media_type_display }}</td>
+            <td>{{ s.created_at|date:"M j, H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="tt-empty">No snaps yet</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tt-card tt-applist-card">
+    <div class="tt-card-head"><div class="tt-card-title">Apps &amp; models</div></div>
+    <div class="tt-applist">
+      {% if app_list %}
+        {% for app in app_list %}
+          <div class="tt-app">
+            <div class="tt-app-name">
+              <a href="{{ app.app_url }}">{{ app.name }}</a>
+            </div>
+            <table class="tt-table tt-app-models">
+              {% for model in app.models %}
+                <tr>
+                  <th scope="row">
+                    {% if model.admin_url %}
+                      <a href="{{ model.admin_url }}">{{ model.name }}</a>
+                    {% else %}
+                      {{ model.name }}
+                    {% endif %}
+                  </th>
+                  <td class="tt-app-actions">
+                    {% if model.add_url %}<a href="{{ model.add_url }}" class="tt-link">Add</a>{% endif %}
+                    {% if model.admin_url %}<a href="{{ model.admin_url }}" class="tt-link">{% if model.view_only %}View{% else %}Change{% endif %}</a>{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </table>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="tt-empty">{% trans "You don't have permission to view or edit anything." %}</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  const canvas = document.getElementById('ttUserGrowth');
+  if (!canvas || !window.Chart) return;
+  const ctx = canvas.getContext('2d');
+  const BRAND = '#607196';
+  const BRAND_FILL = 'rgba(96,113,150,0.10)';
+
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Users',
+      data: [],
+      borderColor: BRAND,
+      backgroundColor: BRAND_FILL,
+      borderWidth: 2,
+      pointRadius: 3,
+      pointBackgroundColor: BRAND,
+      pointBorderColor: '#fff',
+      tension: 0.25,
+      fill: true,
+    }]},
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: '#111827', padding: 10, cornerRadius: 0, displayColors: false },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#6b7280', font: { family: 'Figtree', size: 11 } } },
+        y: { beginAtZero: true, grid: { color: '#e8e9ed' }, ticks: { color: '#6b7280', precision: 0, font: { family: 'Figtree', size: 11 } } },
+      },
+    },
+  });
+
+  function load(range) {
+    fetch('users/growth.json?range=' + encodeURIComponent(range), { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(d => {
+        chart.data.labels = d.labels;
+        chart.data.datasets[0].data = d.values;
+        chart.update();
+      });
+  }
+
+  document.querySelectorAll('.tt-range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tt-range-btn').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      load(btn.dataset.range);
+    });
+  });
+
+  load('month');
+})();
+</script>
+{% endblock %}
+
+{% block sidebar %}{% endblock %}

@@ -8,6 +8,9 @@ class CustomUser(AbstractUser):
     email = models.EmailField(blank=False, unique=True)
     temp_password = models.CharField(max_length=128, null=True, blank=True)
     is_temp_password = models.BooleanField(default=False)
+    # Throttled (~60s) on every authenticated request by LastSeenMiddleware.
+    # Indexed so the friends page can sort/filter by recency cheaply.
+    last_seen = models.DateTimeField(null=True, blank=True, db_index=True)
 
     REQUIRED_FIELDS = ['email', 'university', 'major', 'grad_year']
 
@@ -167,3 +170,57 @@ class SnapAudience(models.Model):
 
     def __str__(self):
         return f"{self.viewer.username} → snap #{self.snap_id} viewed={self.has_viewed}"
+
+
+class ChatRoom(models.Model):
+    ROOM_DM = 'dm'
+    ROOM_GROUP = 'group'
+    ROOM_TYPE_CHOICES = [(ROOM_DM, 'DM'), (ROOM_GROUP, 'Group')]
+
+    room_type = models.CharField(max_length=8, choices=ROOM_TYPE_CHOICES, default=ROOM_DM)
+    name = models.CharField(max_length=80, null=True, blank=True)
+    created_by = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='chat_rooms_created')
+    # Reserved for future snap→DM continuation; unused in v1 UI.
+    linked_snap = models.ForeignKey(Snap, on_delete=models.SET_NULL, null=True, blank=True, related_name='chat_rooms')
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['room_type', 'is_active'])]
+
+    def __str__(self):
+        return f"ChatRoom #{self.pk} ({self.room_type})"
+
+
+class ChatRoomMember(models.Model):
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='chat_memberships')
+    # Group-only flag; ignored in v1 DM flows.
+    is_admin = models.BooleanField(default=False)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    last_read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('room', 'user')
+        indexes = [models.Index(fields=['user', 'room'])]
+
+    def __str__(self):
+        return f"{self.user.username} in room #{self.room_id}"
+
+
+class Message(models.Model):
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='messages_sent')
+    content = models.TextField()
+    reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
+    is_removed = models.BooleanField(default=False)
+    removed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['room', '-created_at'])]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        preview = (self.content or '')[:30]
+        return f"Msg #{self.pk} by {self.sender.username}: {preview}"
