@@ -5,6 +5,7 @@ import { BadgeWithDot } from "@/components/base/badges/badges";
 import { DropdownAccountButton } from "@/components/base/dropdown/dropdown-account-button";
 import { Input } from "@/components/base/input/input";
 import { UntitledLogo } from "@/components/foundations/logo/untitledui-logo";
+import { T, FF } from "@/components/shared/brand";
 import { cx } from "@/utils/cx";
 import { MobileNavigationHeader } from "./base-components/mobile-header";
 import { NavAccountCard } from "./base-components/nav-account-card";
@@ -69,13 +70,21 @@ interface HeaderNavigationBaseProps {
 const DefaultActions = ({ activeUrl }: { activeUrl?: string }) => {
     return (
         <>
-            <div className="flex gap-4">
-                <div className="relative">
-                    <div className="flex flex-row space-x-4">
-                        <a href="/login" className="px-8 py-3 bg-coral text-white text-center font-semibold rounded-none hover:bg-coral/80 transition-colors shadow-sm">Log In</a>
-                        <a href="/register" className="px-8 py-3 bg-transparent text-coral text-center font-semibold border-2 border-coral rounded-none hover:bg-coral/10 transition-colors shadow-sm">Register</a>
-                    </div>
-                </div>
+            <div className="flex gap-3">
+                <a
+                    href="/login"
+                    className="px-6 py-2.5 text-center font-medium rounded-full transition-all hover:scale-105"
+                    style={{ background: T.coral, color: '#fff' }}
+                >
+                    log in
+                </a>
+                <a
+                    href="/register"
+                    className="px-6 py-2.5 text-center font-medium rounded-full transition-all hover:scale-105"
+                    style={{ background: 'transparent', color: T.coral, border: `2px solid ${T.coral}` }}
+                >
+                    sign up
+                </a>
             </div>
         </>
     );
@@ -119,8 +128,8 @@ export const HeaderNavigationBase = ({
                             className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                         >
                             <div className="flex items-center gap-2">
-                                <h2 className="text-xl text-coral font-normal" style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>Timetify</h2>
-                                <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
+                                <h2 className="text-xl font-normal" style={{ fontFamily: FF.serif, color: T.coral }}>timetify</h2>
+                                <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium" style={{ background: T.lilacDk + '20', color: T.lilacDk, border: `1px solid ${T.lilac}` }}>Beta</span>
                             </div>
                         </a>
 
@@ -130,42 +139,37 @@ export const HeaderNavigationBase = ({
 
                     <div className="px-6 py-4">
                         <p
-                            className="fade-up d-6 !text-coral"
                             style={{
-                                fontSize: 'clamp(1rem, 4vw, 1.5rem)',
-                                color: 'var(--muted)',
-                                fontStyle: 'italic',
-                                fontFamily: "'Bricolage Grotesque', sans-serif",
-                                marginBottom: 16,
+                                fontSize: '0.9rem',
+                                color: T.ink60,
+                                fontFamily: FF.serif,
+                                marginBottom: 12,
                                 textAlign: 'left',
                             }}
                         >
-                            Asking about schedules?
+                            no more "what time is that?"
                         </p>
 
                         <h1
-                            className="fade-up d-7"
                             style={{
-                                fontFamily: "'Bricolage Grotesque', sans-serif",
-                                fontSize: 'clamp(4rem, 14vw, 8rem)',
+                                fontFamily: FF.serif,
+                                fontSize: '2rem',
                                 fontWeight: 400,
-                                color: 'var(--brand)',
-                                lineHeight: 1,
-                                marginBottom: 48,
-                                letterSpacing: '-0.02em',
+                                color: T.ink,
+                                lineHeight: 1.1,
+                                marginBottom: 32,
                                 textAlign: 'left',
                             }}
                         >
-                            Timetify
+                            ur schedule, ur ppl
                         </h1>
                     </div>
 
-                    <div className="mt-auto flex flex-col gap-3 pl-16">
+                    <div className="mt-auto flex flex-col gap-3 px-6 pb-4">
                         <div className="flex flex-col space-y-3">
-                            <a href="/login" className="px-6 py-3 bg-coral text-white text-center font-semibold rounded-none hover:bg-coral/80 transition-colors shadow-sm">Log In</a>
-                            <a href="/register" className="px-6 py-3 bg-transparent text-coral text-center font-semibold border-2 border-coral rounded-none hover:bg-coral/10 transition-colors shadow-sm">Register</a>
+                            <a href="/login" className="px-6 py-3 text-center font-medium rounded-full transition-colors" style={{ background: T.coral, color: '#fff' }}>log in</a>
+                            <a href="/register" className="px-6 py-3 text-center font-medium rounded-full transition-colors" style={{ background: 'transparent', color: T.coral, border: `2px solid ${T.coral}` }}>sign up</a>
                         </div>
-                        <br />
                     </div>
                 </aside>
             </MobileNavigationHeader>
@@ -181,9 +185,9 @@ export const HeaderNavigationBase = ({
                                 href="/"
                                 className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                             >
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-3xl text-coral font-normal" style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}>Timetify</h2>
-                                    <span className="px-2 py-1 text-xs leading-none font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Beta</span>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-2xl font-normal" style={{ fontFamily: FF.serif, color: T.coral }}>timetify</h2>
+                                    <span className="px-2 py-1 text-xs leading-none font-medium rounded-full" style={{ background: T.lilacDk + '20', color: T.lilacDk, border: `1px solid ${T.lilac}` }}>Beta</span>
                                 </div>
                             </a>
                         </div>
