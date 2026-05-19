@@ -1,0 +1,342 @@
+/* Timetify admin theme — aligns Django admin chrome with the app's design language.
+   Brand: #607196  Secondary: #e8e9ed  Accent: #ffc759  Surface: #f5f5f3 */
+
+:root {
+  --tt-brand: #607196;
+  --tt-brand-soft: rgba(96,113,150,0.10);
+  --tt-secondary: #e8e9ed;
+  --tt-accent: #ffc759;
+  --tt-surface: #f5f5f3;
+  --tt-ink: #111827;
+  --tt-mute: #6b7280;
+}
+
+html, body {
+  font-family: 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  background: var(--tt-surface) !important;
+  color: var(--tt-ink);
+}
+
+/* ---- Header ---- */
+#header {
+  background: var(--tt-brand) !important;
+  color: #fff !important;
+  padding: 14px 32px !important;
+  border-bottom: 0 !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+#branding h1, #branding h1 a:link, #branding h1 a:visited,
+#site-name a, .brand-link { color: #fff !important; text-decoration: none; }
+.brand-link { display: inline-flex; align-items: baseline; gap: 10px; }
+.brand-wordmark {
+  font-family: 'DM Serif Text', serif !important;
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: 0.2px;
+}
+.brand-sub {
+  font-family: 'Figtree', sans-serif !important;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  opacity: 0.8;
+}
+#user-tools { font-size: 12px; }
+#user-tools a {
+  color: #fff !important;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255,255,255,0.4);
+  padding-bottom: 1px;
+}
+#user-tools a:hover { border-bottom-color: #fff; }
+
+/* ---- Breadcrumbs ---- */
+div.breadcrumbs {
+  background: #fff !important;
+  color: var(--tt-mute) !important;
+  border-bottom: 1px solid var(--tt-secondary);
+  padding: 12px 32px;
+  font-size: 12px;
+  font-weight: 500;
+}
+div.breadcrumbs a { color: var(--tt-brand) !important; text-decoration: none; }
+div.breadcrumbs a:hover { text-decoration: underline; }
+
+/* ---- Main layout ---- */
+#container { background: var(--tt-surface) !important; }
+#content { padding: 24px 32px !important; }
+.module {
+  background: #fff !important;
+  border: 1px solid var(--tt-secondary) !important;
+  border-radius: 0 !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  margin-bottom: 20px;
+}
+.module h2, .module caption, .inline-group .tabular caption {
+  background: #fff !important;
+  color: var(--tt-ink) !important;
+  border-bottom: 1px solid var(--tt-secondary) !important;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  padding: 14px 16px !important;
+  border-radius: 0 !important;
+}
+
+/* ---- Links & buttons ---- */
+a:link, a:visited { color: var(--tt-brand); }
+a:hover { color: var(--tt-brand); opacity: 0.85; }
+
+input[type=submit], button, .button,
+.submit-row input, .submit-row a.deletelink {
+  border-radius: 0 !important;
+}
+.button, input[type=submit], input[type=button], .submit-row input, a.button {
+  background: var(--tt-brand) !important;
+  color: #fff !important;
+  border: 0 !important;
+  font-weight: 700;
+  padding: 10px 16px !important;
+  transition: background 150ms ease;
+}
+.button:hover, input[type=submit]:hover, input[type=button]:hover, .submit-row input:hover, a.button:hover {
+  background: rgba(96,113,150,0.85) !important;
+}
+.button.default, input[type=submit].default, .submit-row input.default {
+  background: var(--tt-brand) !important;
+}
+.submit-row a.deletelink {
+  background: #fff !important;
+  color: #b91c1c !important;
+  border: 1px solid #fecaca !important;
+}
+.submit-row a.deletelink:hover { background: #fef2f2 !important; }
+
+/* ---- Form fields ---- */
+input[type=text], input[type=password], input[type=email], input[type=url],
+input[type=number], input[type=tel], input[type=search],
+textarea, select, .vTextField {
+  border: 1px solid var(--tt-secondary) !important;
+  border-radius: 0 !important;
+  padding: 10px 12px !important;
+  font-family: 'Figtree', sans-serif !important;
+  font-size: 13px;
+  background: #fff;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+input[type=text]:focus, input[type=password]:focus, input[type=email]:focus,
+input[type=url]:focus, input[type=number]:focus, textarea:focus, select:focus,
+.vTextField:focus {
+  outline: none !important;
+  border-color: var(--tt-brand) !important;
+  box-shadow: 0 0 0 3px var(--tt-brand-soft) !important;
+}
+
+/* ---- Tables (changelist) ---- */
+#changelist table, table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+#changelist table thead th, table thead th {
+  background: #fafafa !important;
+  color: var(--tt-mute) !important;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--tt-secondary) !important;
+  padding: 12px 14px !important;
+}
+#changelist table tbody td, table tbody td {
+  border-bottom: 1px solid var(--tt-secondary) !important;
+  padding: 12px 14px !important;
+  font-size: 13px;
+}
+#changelist table tbody tr:hover td { background: #fafafa; }
+#changelist .actions {
+  background: #fff !important;
+  border-bottom: 1px solid var(--tt-secondary) !important;
+  padding: 10px 14px;
+}
+
+/* Filter sidebar */
+#changelist-filter {
+  background: #fff !important;
+  border: 1px solid var(--tt-secondary) !important;
+  border-radius: 0;
+}
+#changelist-filter h2 {
+  background: #fff !important;
+  border-bottom: 1px solid var(--tt-secondary);
+  color: var(--tt-ink) !important;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+#changelist-filter h3 { color: var(--tt-mute) !important; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+#changelist-filter li.selected a { color: var(--tt-brand) !important; font-weight: 600; }
+
+/* Pagination */
+.paginator { padding: 14px 0; border-top: 1px solid var(--tt-secondary); }
+.paginator a, .paginator .this-page {
+  border-radius: 0 !important;
+  padding: 6px 10px !important;
+  border: 1px solid var(--tt-secondary);
+  margin-right: 4px;
+}
+.paginator .this-page { background: var(--tt-brand); color: #fff; border-color: var(--tt-brand); }
+
+/* Messages / alerts */
+ul.messagelist li {
+  border-radius: 0 !important;
+  border: 1px solid var(--tt-secondary);
+  background: #fff;
+}
+ul.messagelist li.success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+ul.messagelist li.warning { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+ul.messagelist li.error   { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+
+/* ---- Dashboard custom blocks ---- */
+.timetify-dash { display: flex; flex-direction: column; gap: 20px; }
+.tt-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1024px) { .tt-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px)  { .tt-kpi-grid { grid-template-columns: 1fr; } }
+.tt-kpi-card {
+  background: #fff;
+  border: 1px solid var(--tt-secondary);
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.tt-kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tt-mute);
+  margin-bottom: 8px;
+}
+.tt-kpi-value {
+  font-family: 'DM Serif Text', serif;
+  font-size: 36px;
+  line-height: 1;
+  color: var(--tt-brand);
+}
+
+.tt-card {
+  background: #fff;
+  border: 1px solid var(--tt-secondary);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.tt-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--tt-secondary);
+}
+.tt-card-title {
+  font-family: 'DM Serif Text', serif;
+  font-size: 18px;
+  color: var(--tt-ink);
+  line-height: 1.2;
+}
+.tt-card-sub { font-size: 12px; color: var(--tt-mute); margin-top: 2px; }
+
+.tt-range { display: inline-flex; border: 1px solid var(--tt-secondary); }
+.tt-range-btn {
+  background: #fff;
+  border: 0;
+  border-right: 1px solid var(--tt-secondary);
+  padding: 8px 14px;
+  font-family: 'Figtree', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tt-mute);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.tt-range-btn:last-child { border-right: 0; }
+.tt-range-btn:hover { background: #fafafa; }
+.tt-range-btn.is-active { background: var(--tt-brand); color: #fff; }
+
+.tt-chart-wrap { padding: 20px; height: 320px; }
+
+.tt-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 960px) { .tt-two-col { grid-template-columns: 1fr; } }
+
+.tt-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.tt-table thead th {
+  background: #fafafa;
+  color: var(--tt-mute);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--tt-secondary);
+}
+.tt-table tbody td, .tt-table tbody th {
+  padding: 12px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--tt-secondary);
+  text-align: left;
+  font-weight: 400;
+}
+.tt-table tbody tr:last-child td, .tt-table tbody tr:last-child th { border-bottom: 0; }
+.tt-table tbody tr:hover td { background: #fafafa; }
+.tt-table a { color: var(--tt-brand); text-decoration: none; font-weight: 600; }
+.tt-table a:hover { text-decoration: underline; }
+.tt-empty { color: var(--tt-mute); font-size: 13px; padding: 16px; text-align: center; }
+
+.tt-applist { padding: 8px 20px 20px; }
+.tt-app + .tt-app { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--tt-secondary); }
+.tt-app-name {
+  font-family: 'DM Serif Text', serif;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.tt-app-name a { color: var(--tt-ink); text-decoration: none; }
+.tt-app-name a:hover { color: var(--tt-brand); }
+.tt-app-models th { font-weight: 600; color: var(--tt-ink); }
+.tt-app-actions { text-align: right; }
+.tt-link {
+  color: var(--tt-brand);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 12px;
+}
+.tt-link:hover { text-decoration: underline; }
+
+/* Object tools (Add buttons on changelist top-right) */
+.object-tools a {
+  border-radius: 0 !important;
+  background: var(--tt-brand) !important;
+  color: #fff !important;
+  border: 0 !important;
+  font-weight: 700;
+  padding: 8px 14px !important;
+  text-transform: none !important;
+}
+.object-tools a:hover { background: rgba(96,113,150,0.85) !important; }
+.object-tools a.addlink::before { color: #fff !important; }
+
+/* Sidebar nav (Django 4.1+) */
+#nav-sidebar { background: #fff !important; border-right: 1px solid var(--tt-secondary) !important; }
+#nav-sidebar .current-app .section:link, #nav-sidebar .current-app .section:visited { color: var(--tt-brand) !important; }
+#nav-sidebar a:link, #nav-sidebar a:visited { color: var(--tt-ink); }
+#nav-sidebar a:hover { color: var(--tt-brand); }
+
+/* Hide default dashboard heading since we render our own */
+body.dashboard #content > h1 { display: none; }

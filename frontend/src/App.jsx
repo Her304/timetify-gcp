@@ -1,16 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
-import { Routes, Route, useLocation } from "react-router-dom";
-import {
-  BarChartSquare02,
-  HomeLine,
-  Plus,
-  Rows01,
-  User01,
-  UsersPlus,
-} from "@untitledui/icons";
-import { SidebarNavigationSimple } from "@/components/application/app-navigation/sidebar-navigation/sidebar-simple.jsx";
-import { Snap } from "@/components/home/snap";
-import { TotalClassSchedule } from "@/components/home/total_class";
+import { useState, useEffect } from "react";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { HeaderNavApp } from "@/components/application/app-navigation/header-nav-app.jsx";
+import { MobileBottomNav } from "@/components/application/app-navigation/mobile-bottom-nav.jsx";
+import { MobileTopBar } from "@/components/application/app-navigation/mobile-top-bar.jsx";
+import { WeekView } from "@/components/home/week_view";
+import { Feed } from "@/components/feed/feed";
+import { ChatThread } from "@/components/chat/ChatThread";
 import { ClassDetails } from "@/components/class/class";
 import Register from "@/components/register/register";
 import Login from "@/components/login/login";
@@ -30,134 +25,9 @@ import Help from "@/components/help/help";
 import Privacy from "@/components/privacy/privacy";
 import Terms from "@/components/terms/terms";
 import Landing from "@/components/landing/Landing";
-import { AppMark, T, FF, MonoLabel, PillBtn } from "@/components/shared/brand";
 
 const simpleItems = [];
 const HeaderNavigationSimpleDemo = () => <HeaderNavigationBase activeUrl="/" items={simpleItems} />;
-
-// ---------- Mobile Top Navigation ----------
-const MobileNav = ({ totalClasses, currentUser, logoutUser }) => {
-  const location = useLocation();
-  const path = location.pathname;
-  const hash = location.hash;
-
-  const isHome = path === "/";
-  const isClass = path.startsWith("/class");
-  const isFriend = path === "/friend";
-  const isAdd = path === "/Add";
-  const isProfile = path === "/profile";
-
-  const courseNames = useMemo(
-    () => Array.from(new Set(totalClasses.map((c) => c.base_course))),
-    [totalClasses]
-  );
-
-  const pageLabel = isClass ? "My Class" : isFriend ? "Friend" : isAdd ? "Add" : isProfile ? "Profile" : "Home";
-
-  let subtabs = [];
-  if (isHome) {
-    subtabs = [
-      { label: "Snap", href: "/#snap" },
-      { label: "My Schedule", href: "/#schedule" },
-      { label: "Friends Schedule", href: "/#friend-schedule" },
-    ];
-  } else if (isClass) {
-    subtabs = courseNames.map((name) => ({ label: name, href: `/class/${name}` }));
-  } else if (isFriend) {
-    subtabs = [
-      { label: "Search", href: "/friend#search" },
-      { label: "My Friends", href: "/friend#my-friends" },
-      { label: "Schedule", href: "/friend#schedule" },
-      { label: "Request", href: "/friend#request" },
-    ];
-  }
-
-  const headTabs = [
-    !isHome && { label: "Home", href: "/" },
-    !isClass && { label: "My Class", href: "/class" },
-    !isFriend && { label: "Friend", href: "/friend" },
-    !isAdd && { label: "Add", href: "/Add" },
-  ].filter(Boolean);
-
-  const currentFull = path + hash;
-  const isSubActive = (href) => currentFull === href;
-
-  const avatarLetter = (currentUser?.username?.[0] || currentUser?.email?.[0] || "U").toUpperCase();
-
-  return (
-    <div className="md:hidden flex items-center bg-cream border-b border-ink-8 h-14 flex-shrink-0">
-      {/* Scrollable section */}
-      <div className="flex items-center flex-1 overflow-x-auto whitespace-nowrap px-3 gap-0 min-w-0">
-        {/* Brand + avatar */}
-        <div className="flex items-center gap-2 flex-shrink-0 pr-3">
-          <AppMark size={28} />
-          <span className="text-lg text-ink flex-shrink-0" style={{ fontFamily: FF.serif, letterSpacing: -0.4 }}>timetify</span>
-          <a href="/profile" className="w-7 h-7 rounded-full bg-coral flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {avatarLetter}
-          </a>
-        </div>
-
-        <div className="w-px h-5 bg-ink-15 flex-shrink-0" />
-
-        {/* Current page + all subtabs */}
-        <div className="flex items-center gap-1.5 px-3 flex-shrink-0">
-          <span className="text-sm font-semibold text-ink lowercase">{pageLabel}</span>
-          {subtabs.map((tab) => (
-            <span key={tab.href} className="flex items-center gap-1.5">
-              <span className="text-ink-40 text-sm">·</span>
-              <a
-                href={tab.href}
-                className={`text-sm whitespace-nowrap lowercase ${isSubActive(tab.href) ? "font-semibold text-coral" : "text-ink-60 hover:text-ink"}`}
-              >
-                {tab.label}
-              </a>
-            </span>
-          ))}
-        </div>
-
-        <div className="w-px h-5 bg-ink-15 flex-shrink-0" />
-
-        {/* All head tabs (no Profile) */}
-        <div className="flex items-center gap-3 px-3 flex-shrink-0">
-          {headTabs.map((tab) => (
-            <a key={tab.href} href={tab.href} className="text-sm text-ink-60 font-medium hover:text-ink whitespace-nowrap lowercase">
-              {tab.label}
-            </a>
-          ))}
-        </div>
-      </div>
-
-      {/* Log Out — always visible, pinned to the right */}
-      <div className="flex-shrink-0 h-full flex items-center px-2">
-        <button
-          onClick={logoutUser}
-          className="px-3 py-1.5 text-xs font-semibold text-cream bg-ink hover:opacity-90 rounded-full transition-opacity whitespace-nowrap"
-        >
-          log out
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// ---------- Google AdSense unit ----------
-const GoogleAd = () => {
-  useEffect(() => {
-    try {
-      (window.adsbygoogle = window.adsbygoogle || []).push({});
-    } catch (e) {}
-  }, []);
-  return (
-    <ins
-      className="adsbygoogle"
-      style={{ display: "block" }}
-      data-ad-client="ca-pub-9825491172037028"
-      data-ad-slot="5349227302"
-      data-ad-format="auto"
-      data-full-width-responsive="true"
-    />
-  );
-};
 
 // ---------- App ----------
 const App = () => {
@@ -406,129 +276,179 @@ const App = () => {
     } catch (err) { console.error("Respond to friend request error:", err); }
   };
 
-  const navItemsSimple = currentUser
-    ? [
-        {
-          label: "Home",
-          href: "/",
-          icon: HomeLine,
-          items: [
-            { label: "Snap", href: "/#snap" },
-            { label: "My Schedule", href: "/#schedule" },
-            { label: "Me & My Friend Schedule", href: "/#friend-schedule" },
-          ],
-        },
-        {
-          label: "My Class",
-          href: "/class",
-          icon: BarChartSquare02,
-          items: Array.from(new Set(totalClasses.map((cls) => cls.base_course))).map((name) => ({
-            label: name,
-            href: `/class/${name}`,
-          })),
-        },
-        {
-          label: "Friend",
-          href: "/friend",
-          icon: Rows01,
-          items: [
-            { label: "Search", href: "/friend#search" },
-            { label: "My Friends", href: "/friend#my-friends" },
-            { label: "Schedule", href: "/friend#schedule" },
-            { label: "Request", href: "/friend#request" },
-          ],
-        },
-      ]
-    : [];
+  return (
+    <AppShell
+      currentUser={currentUser}
+      logoutUser={logoutUser}
+      loading={loading}
+      error={error}
+      personalSchedule={personalSchedule}
+      friendsSchedule={friendsSchedule}
+      totalClasses={totalClasses}
+      allClasses={allClasses}
+      snapsByCourse={snapsByCourse}
+      friendsList={friendsList}
+      friendRequests={friendRequests}
+      fetchSnapFeed={fetchSnapFeed}
+      searchFriends={searchFriends}
+      sendFriendRequest={sendFriendRequest}
+      respondToFriendRequest={respondToFriendRequest}
+      setCurrentUser={setCurrentUser}
+      addCourse={addCourse}
+      analyzeCourse={analyzeCourse}
+      finalizeCourse={finalizeCourse}
+      registerUser={registerUser}
+      registrationErrors={registrationErrors}
+      loginUser={loginUser}
+      loginErrors={loginErrors}
+      courseErrors={courseErrors}
+      isErrorReportModalOpen={isErrorReportModalOpen}
+      setIsErrorReportModalOpen={setIsErrorReportModalOpen}
+    />
+  );
+};
 
-  const secondaryNavItems = currentUser
-    ? [
-        { label: "Add", href: "/Add", icon: Plus },
-        { label: "Profile", href: "/profile", icon: User01 },
-      ]
-    : [{ label: "Register", href: "/register", icon: UsersPlus }];
+// AppShell — uses useNavigate so it must live inside <Router>. App itself sits
+// directly inside the router in main.jsx so the same applies, but extracting
+// keeps the hook usage explicit & lets the camera button push routes.
+const AppShell = ({
+  currentUser,
+  logoutUser,
+  loading,
+  error,
+  personalSchedule,
+  friendsSchedule,
+  totalClasses,
+  allClasses,
+  snapsByCourse,
+  friendsList,
+  friendRequests,
+  fetchSnapFeed,
+  searchFriends,
+  sendFriendRequest,
+  respondToFriendRequest,
+  setCurrentUser,
+  addCourse,
+  analyzeCourse,
+  finalizeCourse,
+  registerUser,
+  registrationErrors,
+  loginUser,
+  loginErrors,
+  courseErrors,
+  isErrorReportModalOpen,
+  setIsErrorReportModalOpen,
+}) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Chat thread has its own pinned input bar + header; hiding the floating
+  // mobile pill AND the mobile top bar prevents either from competing with
+  // the chat's own chrome.
+  const isChatThread = location.pathname.startsWith("/chat/");
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
-  const LogOut = currentUser
-    ? [{ label: "Log Out", href: "/logout", onClick: logoutUser }]
-    : [{ label: "Log In", href: "/login" }];
-
-  const todayStr = new Date().toLocaleDateString("en-US", { day: "numeric", month: "short" });
+  // 30s poll for the global chat unread badge while authed. Also re-runs when
+  // the user enters /chat/<id> so the per-room read state catches up quickly
+  // (otherwise the badge lags by up to 30s after marking read on the server).
+  // No synchronous reset on logout: the badge nav surfaces (HeaderNavApp +
+  // MobileBottomNav) only render when currentUser is set, so a stale count is
+  // never displayed.
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await authenticatedFetch(
+          `${import.meta.env.VITE_API_URL}/api/chats/unread/`
+        );
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setUnreadChatCount(Number(data.total) || 0);
+      } catch {
+        // transient; next interval will retry
+      }
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [currentUser, location.pathname]);
 
   return (
-    <div className={`flex ${currentUser ? "md:flex-row flex-col" : "flex-col"} h-screen w-full ${currentUser ? "bg-cream" : "bg-white"} overflow-hidden`}>
+    <div className={`flex flex-col h-screen w-full ${currentUser ? "bg-cream" : "bg-white"} overflow-hidden`}>
       {currentUser ? (
-        <SidebarNavigationSimple items={navItemsSimple} secondaryItems={secondaryNavItems} LogOut={LogOut} />
+        <HeaderNavApp
+          currentUser={currentUser}
+          onLogout={logoutUser}
+          onRespondToRequest={respondToFriendRequest}
+          unreadChatCount={unreadChatCount}
+        />
       ) : (
         <HeaderNavigationSimpleDemo />
       )}
-
-      {/* Mobile top nav (only when logged in) */}
-      {currentUser && (
-        <MobileNavWrapper totalClasses={totalClasses} currentUser={currentUser} logoutUser={logoutUser} />
+      {currentUser && !isChatThread && (
+        <MobileTopBar
+          currentUser={currentUser}
+          onRespondToRequest={respondToFriendRequest}
+        />
       )}
 
       <main className="flex-1 overflow-y-auto flex flex-col">
-        <div className={`flex-1 ${currentUser ? "p-6 md:p-8 max-w-5xl w-full mx-auto" : ""}`}>
+        <div className={`flex-1 ${currentUser ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
           <Routes>
             <Route
               path="/"
               element={
                 currentUser ? (
-                  <div id="snap" className="space-y-10">
-                    {/* Date header */}
-                    <div className="flex items-end justify-between flex-wrap gap-3">
-                      <div>
-                        <MonoLabel>today</MonoLabel>
-                        <h1 className="text-5xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1.2 }}>{todayStr.toLowerCase()}</h1>
-                      </div>
+                  loading ? (
+                    <div className="space-y-3">
+                      <div className="h-32 bg-ink-8 rounded-2xl animate-pulse" />
+                      <div className="h-32 bg-ink-8 rounded-2xl animate-pulse" />
                     </div>
-
-                    {loading ? (
-                      <div className="space-y-3">
-                        <div className="h-32 bg-ink-8 rounded-2xl animate-pulse" />
-                        <div className="h-32 bg-ink-8 rounded-2xl animate-pulse" />
-                      </div>
-                    ) : error ? (
-                      <div className="p-4 bg-coral-light border border-coral text-coral-dark rounded-2xl">
-                        <p className="font-semibold">Error loading schedule</p>
-                        <p className="text-sm">{error}</p>
-                      </div>
-                    ) : (
-                      <>
-                        {/* Snap: unified class block */}
-                        <Snap
-                          personalClasses={personalSchedule}
-                          friendClasses={friendsSchedule}
-                          snapsByCourse={snapsByCourse}
-                          friendsList={friendsList}
-                          currentUser={currentUser}
-                          onSnapsChanged={fetchSnapFeed}
-                        />
-
-                        {/* My weekly schedule */}
-                        <section id="schedule">
-                          <div className="mb-4">
-                            <MonoLabel>my week</MonoLabel>
-                            <h2 className="text-3xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
-                              ur week, ur ppl
-                            </h2>
-                          </div>
-                          <TotalClassSchedule Class_details={totalClasses} />
-                        </section>
-
-                        {/* Me & My friends schedule */}
-                        <section id="friend-schedule">
-                          <FriendScheduleSection allClasses={allClasses} />
-                        </section>
-
-                        {/* AdSense ad unit */}
-                        <GoogleAd />
-                      </>
-                    )}
-                  </div>
+                  ) : error ? (
+                    <div className="p-4 bg-coral-light border border-coral text-coral-dark rounded-2xl">
+                      <p className="font-semibold">Error loading schedule</p>
+                      <p className="text-sm">{error}</p>
+                    </div>
+                  ) : (
+                    <WeekView
+                      allClasses={allClasses}
+                      currentUser={currentUser}
+                      onAddClass={() => navigate("/Add")}
+                    />
+                  )
                 ) : (
                   <Landing />
                 )
+              }
+            />
+            <Route
+              path="/feed"
+              element={
+                <ProtectedRoute currentUser={currentUser}>
+                  <Feed
+                    snapsByCourse={snapsByCourse}
+                    personalSchedule={personalSchedule}
+                    friendsList={friendsList}
+                    currentUser={currentUser}
+                    onSnapsChanged={fetchSnapFeed}
+                  />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/chat/:roomId"
+              element={
+                <ProtectedRoute currentUser={currentUser}>
+                  <ChatThread
+                    currentUser={currentUser}
+                    allClasses={allClasses}
+                    snapsByCourse={snapsByCourse}
+                  />
+                </ProtectedRoute>
               }
             />
             <Route
@@ -541,8 +461,8 @@ const App = () => {
                     friendsList={friendsList}
                     friendRequests={friendRequests}
                     respondToFriendRequest={respondToFriendRequest}
-                    Class_details={allClasses}
                     currentUser={currentUser}
+                    allClasses={allClasses}
                   />
                 </ProtectedRoute>
               }
@@ -577,7 +497,7 @@ const App = () => {
               path="/profile"
               element={
                 <ProtectedRoute currentUser={currentUser}>
-                  <Profile currentUser={currentUser} setCurrentUser={setCurrentUser} Class_details={totalClasses} />
+                  <Profile currentUser={currentUser} setCurrentUser={setCurrentUser} Class_details={totalClasses} onLogout={logoutUser} />
                 </ProtectedRoute>
               }
             />
@@ -588,157 +508,23 @@ const App = () => {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
-        <Footer currentUser={currentUser} />
+        <div className="hidden md:block">
+          <Footer currentUser={currentUser} />
+        </div>
       </main>
+
+      {currentUser && !isChatThread && (
+        <MobileBottomNav
+          currentUser={currentUser}
+          unreadChatCount={unreadChatCount}
+        />
+      )}
 
       <ErrorToast
         isOpen={isErrorReportModalOpen}
         onClose={() => setIsErrorReportModalOpen(false)}
       />
     </div>
-  );
-};
-
-// Wrapper so MobileNav can use useLocation (must be inside Router)
-const MobileNavWrapper = ({ totalClasses, currentUser, logoutUser }) => {
-  return <MobileNav totalClasses={totalClasses} currentUser={currentUser} logoutUser={logoutUser} />;
-};
-
-// ---------- Me & My friends schedule section (on home page) ----------
-const FriendScheduleSection = ({ allClasses }) => {
-  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-  const uniqueOwners = useMemo(() => {
-    const owners = new Set();
-    allClasses.forEach((c) => { if (c.owner) owners.add(c.owner); });
-    return Array.from(owners).sort((a, b) => {
-      if (a === "Me") return -1;
-      if (b === "Me") return 1;
-      return a.localeCompare(b);
-    });
-  }, [allClasses]);
-
-  const [selected, setSelected] = useState(null);
-  useEffect(() => {
-    if (uniqueOwners.length > 0 && selected === null) setSelected("all");
-  }, [uniqueOwners]);
-
-  const filteredClasses = useMemo(() => {
-    if (!selected || selected === "all") return allClasses;
-    return allClasses.filter((c) => c.owner === selected);
-  }, [allClasses, selected]);
-
-  return (
-    <>
-      <div className="flex items-end justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <MonoLabel>me &amp; friends</MonoLabel>
-          <h2 className="text-3xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
-            who&apos;s where, when
-          </h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <MonoLabel>sort</MonoLabel>
-          <div className="relative">
-            <select
-              value={selected || "all"}
-              onChange={(e) => setSelected(e.target.value)}
-              className="appearance-none bg-white text-ink text-sm font-medium px-4 py-2 pr-8 rounded-full border border-ink-15 outline-none cursor-pointer hover:border-ink-40 transition-colors"
-            >
-              <option value="all">all of my friends</option>
-              {uniqueOwners.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-            <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-60 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-ink-8 p-5 w-full overflow-hidden">
-        <div className="flex flex-row overflow-x-auto gap-3 pb-2 min-h-[280px]">
-          {days.map((day, dayIdx) => {
-            const rawDay = filteredClasses.filter(
-              (c) =>
-                c.day &&
-                (c.day.toLowerCase() === day.toLowerCase() ||
-                  c.day.toLowerCase() === day.slice(0, 3).toLowerCase())
-            );
-            const grouped = [];
-            rawDay.forEach((course) => {
-              const existing = grouped.find(
-                (g) => g.course === course.course && g.time === course.time && g.location === course.location
-              );
-              if (existing) {
-                const owners = new Set(existing.owner.split(/,\s*/).concat(course.owner.split(/,\s*/)));
-                existing.owner = Array.from(owners).sort((a, b) => (a === "Me" ? -1 : b === "Me" ? 1 : a.localeCompare(b))).join(", ");
-              } else {
-                grouped.push({ ...course });
-              }
-            });
-
-            const colorPalette = [T.coral, T.lilac, T.lime, "#b8d8c2", "#f0c4a8", T.coral, T.lilac];
-            const dayColor = colorPalette[dayIdx % colorPalette.length];
-
-            return (
-              <div key={day} className="flex-1 min-w-[130px] flex flex-col gap-2">
-                <div className="pb-2 mb-1 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: dayColor }} />
-                  <h3 className="text-[10px] font-medium text-ink-60 uppercase tracking-widest" style={{ fontFamily: FF.mono }}>
-                    {day.slice(0, 3)}
-                  </h3>
-                </div>
-                <div className="flex flex-col gap-2 flex-1">
-                  {grouped.length > 0 ? (
-                    grouped.map((course, idx) => {
-                      const isMine = course.owner === "Me" || course.owner?.startsWith("Me,");
-                      return (
-                        <div
-                          key={idx}
-                          className="flex flex-col p-2.5 rounded-xl"
-                          style={{
-                            background: isMine ? T.cream : "#fff",
-                            border: `1px solid ${T.ink08}`,
-                          }}
-                        >
-                          <span
-                            className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full self-start mb-1"
-                            style={{
-                              background: isMine ? T.coralLt : T.lilac + "55",
-                              color: isMine ? T.coralDk : T.lilacDk,
-                              fontFamily: FF.mono,
-                              letterSpacing: 0.5,
-                            }}
-                          >
-                            {course.owner}
-                          </span>
-                          <h4 className="text-xs font-semibold text-ink line-clamp-2 leading-tight mb-1">
-                            {course.course}
-                          </h4>
-                          <p className="text-[10px] text-ink-60" style={{ fontFamily: FF.mono }}>{course.time}</p>
-                          <p className="text-[10px] text-ink-60 truncate">{course.location}</p>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="flex-1 flex items-center justify-center min-h-[80px]">
-                      <p className="text-[10px] text-ink-40">—</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {allClasses.length === 0 && (
-          <div className="py-8 text-center">
-            <p className="text-ink-60 text-sm">add friends to see their schedule here.</p>
-          </div>
-        )}
-      </div>
-    </>
   );
 };
 

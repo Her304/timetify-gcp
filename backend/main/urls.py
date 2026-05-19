@@ -27,4 +27,11 @@ urlpatterns = [
     path('api/snaps/feed/', views.SnapFeedView.as_view(), name='snap-feed'),
     path('api/snaps/<int:pk>/view/', views.SnapViewView.as_view(), name='snap-view'),
     path('api/snaps/<int:pk>/', views.SnapDeleteView.as_view(), name='snap-delete'),
+    path('api/notifications/', views.NotificationsView.as_view(), name='notifications'),
+    path('api/chats/', views.ChatListCreateView.as_view(), name='chat-list-create'),
+    path('api/chats/unread/', views.UnreadCountView.as_view(), name='chat-unread'),
+    path('api/chats/<int:pk>/', views.ChatDetailView.as_view(), name='chat-detail'),
+    path('api/chats/<int:pk>/read/', views.ChatReadView.as_view(), name='chat-read'),
+    path('api/chats/<int:pk>/messages/', views.MessageListCreateView.as_view(), name='chat-messages'),
+    path('api/chats/<int:pk>/messages/<int:msg_id>/', views.MessageDeleteView.as_view(), name='chat-message-delete'),
 ]

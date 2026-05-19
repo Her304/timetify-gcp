@@ -12,12 +12,13 @@ from django.db.models import Q
 from .serializers import (
     RegisterSerializer, CourseSerializer, WeekSerializer,
     ExamSerializer, AssignmentSerializer, FriendSerializer,
-    FriendRequestSerializer, UserSerializer, SnapSerializer
+    FriendRequestSerializer, UserSerializer, SnapSerializer,
+    MessageSerializer, ChatRoomListSerializer, ChatRoomDetailSerializer,
 )
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message
 from datetime import datetime, timedelta
 from django.contrib.auth import get_user_model
 from main.utils import send_email
@@ -611,24 +612,61 @@ class FriendRequestUpdateView(generics.UpdateAPIView):
 class FriendListView(generics.ListAPIView):
     serializer_class = FriendSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_queryset(self):
         user = self.request.user
         friendships = models.Friend.objects.filter(
             Q(user=user) | Q(friend=user),
             status=1
         )
-        
+
         seen_friend_ids = set()
         unique_friendship_ids = []
-        
+
         for f in friendships:
             other_user_id = f.friend_id if f.user_id == user.id else f.user_id
             if other_user_id not in seen_friend_ids:
                 seen_friend_ids.add(other_user_id)
                 unique_friendship_ids.append(f.id)
-                
+
+        self._friend_user_ids = list(seen_friend_ids)
         return models.Friend.objects.filter(id__in=unique_friendship_ids)
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        # Precompute newest unexpired snap per friend so the friends page can
+        # render "snapped Xm ago" without an N+1 lookup per row.
+        friend_ids = getattr(self, "_friend_user_ids", None) or []
+        last_snap_by_user_id = {}
+        if friend_ids:
+            now = timezone.now()
+            rows = (
+                Snap.objects.filter(
+                    uploader_id__in=friend_ids,
+                    is_removed=False,
+                    expires_at__gt=now,
+                )
+                .values('uploader_id')
+                .order_by('uploader_id', '-created_at')
+            )
+            for r in rows:
+                uid = r['uploader_id']
+                if uid not in last_snap_by_user_id:
+                    last_snap_by_user_id[uid] = None  # placeholder
+            # second pass to grab the max created_at per uploader
+            from django.db.models import Max
+            agg = (
+                Snap.objects.filter(
+                    uploader_id__in=friend_ids,
+                    is_removed=False,
+                    expires_at__gt=now,
+                )
+                .values('uploader_id')
+                .annotate(latest=Max('created_at'))
+            )
+            last_snap_by_user_id = {row['uploader_id']: row['latest'] for row in agg}
+        ctx['last_snap_by_user_id'] = last_snap_by_user_id
+        return ctx
 
 class SearchFriend(generics.ListAPIView):
     serializer_class = UserSerializer
@@ -899,13 +937,23 @@ class SnapFeedView(APIView):
         ).select_related("uploader", "course").order_by("course_id", "-created_at")
 
         snaps = list(qs)
+        snap_ids = [s.id for s in snaps]
         viewed_ids = set(
             SnapAudience.objects.filter(
-                viewer=me, has_viewed=True, snap_id__in=[s.id for s in snaps]
+                viewer=me, has_viewed=True, snap_id__in=snap_ids
             ).values_list("snap_id", flat=True)
         )
 
-        ctx = {"request": request, "viewed_snap_ids": viewed_ids}
+        from django.db.models import Count
+        view_count_rows = (
+            SnapAudience.objects
+            .filter(snap_id__in=snap_ids, has_viewed=True)
+            .values('snap_id')
+            .annotate(c=Count('id'))
+        )
+        view_counts = {row['snap_id']: row['c'] for row in view_count_rows}
+
+        ctx = {"request": request, "viewed_snap_ids": viewed_ids, "view_counts": view_counts}
         grouped = {}
         for snap in snaps:
             key = str(snap.course_id)
@@ -955,3 +1003,382 @@ class SnapDeleteView(APIView):
         snap.is_removed = True
         snap.save(update_fields=["is_removed"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class NotificationsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        me = request.user
+        now = timezone.now()
+        today = now.date()
+        day_map = {0: "MON", 1: "TUE", 2: "WED", 3: "THU", 4: "FRI", 5: "SAT", 6: "SUN"}
+        current_day = day_map[now.weekday()]
+        current_time_str = now.strftime("%H:%M")
+
+        # 1. Pending friend requests (me = recipient)
+        pending = Friend.objects.filter(
+            friend=me, status=Friend.PENDING
+        ).select_related("user")
+        friend_requests_data = [
+            {
+                "id": req.id,
+                "user_id": req.user.id,
+                "username": req.user.username,
+                "major": req.user.major,
+                "grad_year": req.user.grad_year,
+            }
+            for req in pending
+        ]
+
+        # 2. Unseen snaps from friends (not viewed by me, not expired)
+        friend_ids = _friend_user_ids(me)
+        selected_snap_ids = list(
+            SnapAudience.objects.filter(viewer=me).values_list("snap_id", flat=True)
+        )
+        feed_snaps = list(
+            Snap.objects.filter(is_removed=False, expires_at__gt=now)
+            .filter(
+                (Q(visibility=Snap.VIS_ALL_FRIENDS) & Q(uploader_id__in=friend_ids))
+                | (Q(visibility=Snap.VIS_SELECTED) & Q(id__in=selected_snap_ids))
+            )
+            .select_related("uploader", "course")
+        )
+        viewed_ids = set(
+            SnapAudience.objects.filter(
+                viewer=me, has_viewed=True, snap_id__in=[s.id for s in feed_snaps]
+            ).values_list("snap_id", flat=True)
+        )
+        new_snaps_data = [
+            {
+                "id": snap.id,
+                "uploader_id": snap.uploader_id,
+                "uploader_username": snap.uploader.username,
+                "course_code": snap.course.course_id,
+                "course_name": snap.course.course_name,
+                "media_type": snap.media_type,
+                "created_at": snap.created_at.isoformat(),
+            }
+            for snap in feed_snaps
+            if snap.id not in viewed_ids
+        ]
+
+        # 3. Live class alerts — courses happening right now with 3+ friends enrolled
+        live_class_alerts = []
+        if friend_ids:
+            my_courses_today = list(
+                Course.objects.filter(user=me, start_date__lte=today, end_date__gte=today)
+            )
+            my_live = [
+                c for c in my_courses_today
+                if current_day in [d.strip().upper()[:3] for d in c.rep_date.split(",")]
+                and c.start_time.strftime("%H:%M") <= current_time_str < c.end_time.strftime("%H:%M")
+            ]
+            if my_live:
+                live_course_ids = [c.course_id for c in my_live]
+                friend_courses = list(
+                    Course.objects.filter(
+                        user_id__in=friend_ids,
+                        course_id__in=live_course_ids,
+                        start_date__lte=today,
+                        end_date__gte=today,
+                    ).select_related("user")
+                )
+                # Group by course_id → {user_id: username}, filtered to live right now
+                course_to_friends: dict = {}
+                for fc in friend_courses:
+                    days = [d.strip().upper()[:3] for d in fc.rep_date.split(",")]
+                    if current_day in days and fc.start_time.strftime("%H:%M") <= current_time_str < fc.end_time.strftime("%H:%M"):
+                        bucket = course_to_friends.setdefault(fc.course_id, {})
+                        bucket[fc.user.id] = fc.user.username
+
+                for course in my_live:
+                    friends_map = course_to_friends.get(course.course_id, {})
+                    if len(friends_map) >= 3:
+                        live_class_alerts.append({
+                            "course_id": course.course_id,
+                            "course_name": course.course_name,
+                            "friend_count": len(friends_map),
+                            "friends": [
+                                {"id": uid, "username": uname}
+                                for uid, uname in list(friends_map.items())[:5]
+                            ],
+                        })
+
+        return Response({
+            "friend_requests": friend_requests_data,
+            "new_snaps": new_snaps_data,
+            "live_class_alerts": live_class_alerts,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Phase 10A — Chat v1 (DM only)
+# ---------------------------------------------------------------------------
+
+MESSAGE_MAX_LEN = 2000
+INITIAL_MESSAGE_PAGE = 50
+OLDER_MESSAGE_PAGE = 50
+
+
+def _are_friends(user_a, user_b):
+    if not user_a or not user_b or user_a.id == user_b.id:
+        return False
+    return Friend.objects.filter(status=Friend.ACCEPTED).filter(
+        (Q(user=user_a) & Q(friend=user_b)) | (Q(user=user_b) & Q(friend=user_a))
+    ).exists()
+
+
+def _find_existing_dm(user_a, user_b):
+    """Return the active DM room between two users, or None."""
+    return (
+        ChatRoom.objects
+        .filter(room_type=ChatRoom.ROOM_DM, is_active=True,
+                members__user=user_a)
+        .filter(members__user=user_b)
+        .first()
+    )
+
+
+def _user_membership(room, user):
+    return ChatRoomMember.objects.filter(room=room, user=user).first()
+
+
+class ChatListCreateView(APIView):
+    """GET → list my DMs with denormalized other_user + last_message + unread_count.
+       POST { friend_id } → create-or-get DM with a friend (friend-gated, deduped)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        me = request.user
+        my_memberships = ChatRoomMember.objects.filter(user=me).values_list('room_id', 'last_read_at')
+        room_ids = [r for r, _ in my_memberships]
+        last_read_by_room = {r: lr for r, lr in my_memberships}
+        if not room_ids:
+            return Response({"chats": []})
+
+        rooms = list(
+            ChatRoom.objects
+            .filter(id__in=room_ids, is_active=True, room_type=ChatRoom.ROOM_DM)
+            .order_by('-created_at')
+        )
+
+        # Resolve the "other user" per room in a single query.
+        other_user_by_room = {}
+        member_rows = (
+            ChatRoomMember.objects
+            .filter(room_id__in=room_ids)
+            .exclude(user=me)
+            .select_related('user')
+        )
+        for mr in member_rows:
+            other_user_by_room[mr.room_id] = mr.user
+
+        # Last message per room (one extra query; small N).
+        last_message_by_room = {}
+        for room_id in room_ids:
+            msg = (
+                Message.objects
+                .filter(room_id=room_id)
+                .order_by('-created_at')
+                .first()
+            )
+            if msg:
+                last_message_by_room[room_id] = msg
+
+        # Unread per room: messages newer than my last_read_at and not from me.
+        unread_by_room = {}
+        for room_id in room_ids:
+            lr = last_read_by_room.get(room_id)
+            qs = Message.objects.filter(room_id=room_id).exclude(sender=me).filter(is_removed=False)
+            if lr:
+                qs = qs.filter(created_at__gt=lr)
+            unread_by_room[room_id] = qs.count()
+
+        # Sort: unread desc, then last_message.created_at desc, then room.created_at desc.
+        def sort_key(r):
+            unread = unread_by_room.get(r.id, 0)
+            lm = last_message_by_room.get(r.id)
+            ts = lm.created_at if lm else r.created_at
+            return (1 if unread > 0 else 0, ts)
+        rooms.sort(key=sort_key, reverse=True)
+
+        ctx = {
+            'request': request,
+            'other_user_by_room': other_user_by_room,
+            'last_message_by_room': last_message_by_room,
+            'unread_by_room': unread_by_room,
+        }
+        data = ChatRoomListSerializer(rooms, many=True, context=ctx).data
+        return Response({"chats": data})
+
+    def post(self, request):
+        me = request.user
+        friend_id = request.data.get('friend_id')
+        if not friend_id:
+            return Response({"detail": "friend_id required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            other = User.objects.get(pk=friend_id)
+        except User.DoesNotExist:
+            return Response({"detail": "user not found"}, status=status.HTTP_404_NOT_FOUND)
+        if other.id == me.id:
+            return Response({"detail": "cannot DM yourself"}, status=status.HTTP_400_BAD_REQUEST)
+        if not _are_friends(me, other):
+            return Response({"detail": "not_friends"}, status=status.HTTP_403_FORBIDDEN)
+
+        existing = _find_existing_dm(me, other)
+        if existing:
+            return Response({"id": existing.id, "created": False}, status=status.HTTP_200_OK)
+
+        from django.db import transaction
+        with transaction.atomic():
+            room = ChatRoom.objects.create(
+                room_type=ChatRoom.ROOM_DM,
+                created_by=me,
+            )
+            ChatRoomMember.objects.create(room=room, user=me)
+            ChatRoomMember.objects.create(room=room, user=other)
+
+        return Response({"id": room.id, "created": True}, status=status.HTTP_201_CREATED)
+
+
+class ChatDetailView(APIView):
+    """GET → room detail + last 50 messages (descending; client reverses for ascending render)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        me = request.user
+        try:
+            room = (
+                ChatRoom.objects
+                .prefetch_related('members__user')
+                .get(pk=pk, is_active=True)
+            )
+        except ChatRoom.DoesNotExist:
+            return Response({"detail": "room not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _user_membership(room, me):
+            return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
+
+        msgs = list(
+            Message.objects
+            .filter(room=room)
+            .select_related('sender')
+            .order_by('-created_at')[:INITIAL_MESSAGE_PAGE]
+        )
+        ctx = {'request': request, 'initial_messages': msgs}
+        return Response(ChatRoomDetailSerializer(room, context=ctx).data)
+
+
+class MessageListCreateView(APIView):
+    """GET ?before=<msg_id>&limit=50 → older messages, descending.
+       POST { content } → send a message (text only, ≤2000 chars trimmed)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        me = request.user
+        try:
+            room = ChatRoom.objects.get(pk=pk, is_active=True)
+        except ChatRoom.DoesNotExist:
+            return Response({"detail": "room not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not _user_membership(room, me):
+            return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            limit = min(int(request.query_params.get('limit', OLDER_MESSAGE_PAGE)), 100)
+        except ValueError:
+            limit = OLDER_MESSAGE_PAGE
+        before = request.query_params.get('before')
+
+        qs = Message.objects.filter(room=room).select_related('sender').order_by('-created_at')
+        if before:
+            try:
+                anchor = Message.objects.get(pk=before, room=room)
+                qs = qs.filter(created_at__lt=anchor.created_at)
+            except Message.DoesNotExist:
+                return Response({"detail": "anchor not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+        msgs = list(qs[:limit])
+        data = MessageSerializer(msgs, many=True, context={'request': request}).data
+        return Response({"messages": data})
+
+    def post(self, request, pk):
+        me = request.user
+        try:
+            room = ChatRoom.objects.get(pk=pk, is_active=True)
+        except ChatRoom.DoesNotExist:
+            return Response({"detail": "room not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not _user_membership(room, me):
+            return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
+
+        content = (request.data.get('content') or '').strip()
+        if not content:
+            return Response({"detail": "content required"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(content) > MESSAGE_MAX_LEN:
+            return Response(
+                {"detail": f"content exceeds {MESSAGE_MAX_LEN} chars"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        msg = Message.objects.create(room=room, sender=me, content=content)
+        return Response(
+            MessageSerializer(msg, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MessageDeleteView(APIView):
+    """DELETE /api/chats/<pk>/messages/<msg_id>/ — soft-delete own message.
+       Content stays in DB (future moderation); `is_removed=True` flips the
+       serializer to return empty content."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk, msg_id):
+        me = request.user
+        try:
+            msg = Message.objects.select_related('room').get(pk=msg_id, room_id=pk)
+        except Message.DoesNotExist:
+            return Response({"detail": "message not found"}, status=status.HTTP_404_NOT_FOUND)
+        if msg.sender_id != me.id:
+            return Response({"detail": "not your message"}, status=status.HTTP_403_FORBIDDEN)
+        if msg.is_removed:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        msg.is_removed = True
+        msg.removed_at = timezone.now()
+        msg.save(update_fields=['is_removed', 'removed_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ChatReadView(APIView):
+    """POST /api/chats/<pk>/read/ — bump my last_read_at to now."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        me = request.user
+        try:
+            room = ChatRoom.objects.get(pk=pk, is_active=True)
+        except ChatRoom.DoesNotExist:
+            return Response({"detail": "room not found"}, status=status.HTTP_404_NOT_FOUND)
+        membership = _user_membership(room, me)
+        if not membership:
+            return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
+        membership.last_read_at = timezone.now()
+        membership.save(update_fields=['last_read_at'])
+        return Response({"ok": True})
+
+
+class UnreadCountView(APIView):
+    """GET /api/chats/unread/ — total unread messages across all my DM rooms.
+       Used by App.jsx's 30s global poll to drive nav badges."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        me = request.user
+        memberships = ChatRoomMember.objects.filter(user=me).values_list('room_id', 'last_read_at')
+        total = 0
+        for room_id, lr in memberships:
+            qs = Message.objects.filter(room_id=room_id, is_removed=False).exclude(sender=me)
+            if lr:
+                qs = qs.filter(created_at__gt=lr)
+            total += qs.count()
+        return Response({"total": total})
