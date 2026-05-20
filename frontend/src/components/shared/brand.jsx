@@ -152,6 +152,9 @@ export const Icon = ({ name, size = 20, color = 'currentColor', stroke = 1.8, st
     home:     'M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-7h4v7h4a1 1 0 001-1V10',
     logout:   'M15 16l4-4-4-4M19 12H9M10 4H5a1 1 0 00-1 1v14a1 1 0 001 1h5',
     trash:    'M4 7h16M10 11v6M14 11v6M5 7l1 13a1 1 0 001 1h10a1 1 0 001-1l1-13M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3',
+    flag:     'M4 22V4M4 4h12l-2 4 2 4H4',
+    dots:     'M6 12h.01M12 12h.01M18 12h.01',
+    block:    'M12 22a10 10 0 100-20 10 10 0 000 20zM4.93 4.93l14.14 14.14',
   }[name];
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={name === 'play' ? color : 'none'}

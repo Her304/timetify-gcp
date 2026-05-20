@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticatedFetch } from "@/utils/api";
 import { T, FF, Icon, Avatar } from "@/components/shared/brand";
+import ReportModal from "@/components/shared/ReportModal";
 
 const resolveMediaUrl = (url) => {
   if (!url) return null;
@@ -59,6 +60,7 @@ export default function SnapViewerModal({
   );
   const [idx, setIdx] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const touchStartX = useRef(null);
 
   useEffect(() => { setIdx(0); }, [snaps]);
@@ -276,17 +278,25 @@ export default function SnapViewerModal({
                 chat w/ @{current.uploader_username}
               </button>
               <button
-                disabled
-                title="Coming soon"
-                className="px-3 py-2 rounded-full text-xs font-medium cursor-not-allowed lowercase"
-                style={{ background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.55)' }}
+                onClick={() => setReportOpen(true)}
+                className="px-3 py-2 rounded-full text-xs font-medium lowercase flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+                style={{ background: 'rgba(255,255,255,.08)', color: '#fff', border: '1px solid rgba(255,255,255,.16)' }}
               >
+                <Icon name="flag" size={11} color="#fff" />
                 report
               </button>
             </>
           )}
         </div>
       </div>
+      {reportOpen && (
+        <ReportModal
+          contentType="snap"
+          targetId={current.id}
+          targetLabel={`@${current.uploader_username}'s snap`}
+          onClose={() => setReportOpen(false)}
+        />
+      )}
     </div>
   );
 }

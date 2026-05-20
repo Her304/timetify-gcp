@@ -38,9 +38,14 @@ export const MobileTopBar = ({ currentUser, onRespondToRequest }) => {
     };
   }, [panelOpen]);
 
+  // Same badge math as the desktop header — see HeaderNavApp for why
+  // appealable received-reports count and filed-reports don't.
+  const actionableReports =
+    (notifications?.reports_received || []).filter((r) => r.can_appeal).length;
   const unreadCount =
     (notifications?.friend_requests?.length ?? 0) +
-    (notifications?.new_snaps?.length ?? 0);
+    (notifications?.new_snaps?.length ?? 0) +
+    actionableReports;
 
   const handleRespondToRequest = async (id, action) => {
     await onRespondToRequest?.(id, action);
@@ -98,6 +103,7 @@ export const MobileTopBar = ({ currentUser, onRespondToRequest }) => {
               notifications={notifications}
               loading={notifLoading}
               onRespondToRequest={handleRespondToRequest}
+              onRefresh={fetchNotifications}
               onClose={() => setPanelOpen(false)}
             />
           </div>

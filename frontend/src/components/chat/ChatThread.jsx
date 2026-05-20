@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { T, FF, MonoLabel, Avatar, Icon } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 import SnapViewerModal from "@/components/snap/SnapViewerModal";
+import ReportModal from "@/components/shared/ReportModal";
 
 const MAX_LEN = 2000;
 const COUNTER_THRESHOLD = 1800;
@@ -40,8 +41,39 @@ const formatLastSeen = (iso) => {
 };
 
 // One chat bubble. `mine` flips alignment + color; `__pending` dims it, `__failed`
-// surfaces a retry control supplied by the parent.
-const Bubble = ({ msg, mine, showTime, onRetry }) => {
+// surfaces a retry control supplied by the parent.  For non-own bubbles, the
+// ⋮ overflow button (hover-revealed on desktop, always faintly visible on
+// touch) opens an inline popover with "report message".
+const Bubble = ({ msg, mine, showTime, onRetry, onReport }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const longPressTimer = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [menuOpen]);
+
+  // Long-press on mobile opens the menu; we cancel on touchend / move.
+  const handleTouchStart = () => {
+    if (mine || msg.is_removed) return;
+    longPressTimer.current = setTimeout(() => setMenuOpen(true), 450);
+  };
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   if (msg.is_removed) {
     return (
       <div className={`flex ${mine ? "justify-end" : "justify-start"} px-1`}>
@@ -54,18 +86,61 @@ const Bubble = ({ msg, mine, showTime, onRetry }) => {
       </div>
     );
   }
+
   return (
-    <div className={`flex flex-col ${mine ? "items-end" : "items-start"} px-1`}>
-      <div
-        className="px-3.5 py-2 rounded-2xl max-w-[78%] whitespace-pre-wrap break-words text-[15px] leading-snug"
-        style={{
-          background: mine ? T.coral : T.ink08,
-          color: mine ? "#fff" : T.ink,
-          opacity: msg.__pending ? 0.6 : 1,
-          fontFamily: FF.sans,
-        }}
-      >
-        {msg.content}
+    <div className={`flex flex-col ${mine ? "items-end" : "items-start"} px-1 group`}>
+      <div className={`flex items-end gap-1.5 max-w-[88%] ${mine ? "flex-row-reverse" : ""}`}>
+        <div
+          className="px-3.5 py-2 rounded-2xl whitespace-pre-wrap break-words text-[15px] leading-snug"
+          style={{
+            background: mine ? T.coral : T.ink08,
+            color: mine ? "#fff" : T.ink,
+            opacity: msg.__pending ? 0.6 : 1,
+            fontFamily: FF.sans,
+          }}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={clearLongPress}
+          onTouchMove={clearLongPress}
+          onContextMenu={(e) => {
+            if (mine) return;
+            e.preventDefault();
+            setMenuOpen(true);
+          }}
+        >
+          {msg.content}
+        </div>
+        {!mine && (
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="message options"
+              className="w-7 h-7 rounded-full flex items-center justify-center opacity-30 group-hover:opacity-80 transition-opacity"
+              style={{ background: "transparent" }}
+            >
+              <Icon name="dots" size={14} color={T.ink60} stroke={2.4} />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute z-20 left-0 top-full mt-1 min-w-[140px] rounded-xl shadow-lg overflow-hidden"
+                style={{ background: "#fff", border: `1px solid ${T.ink15}` }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onReport?.(msg);
+                  }}
+                  className="w-full px-3 py-2 text-xs text-left lowercase flex items-center gap-2 hover:bg-ink-8"
+                  style={{ color: T.coralDk || T.coral, fontFamily: FF.sans }}
+                >
+                  <Icon name="flag" size={12} color={T.coralDk || T.coral} />
+                  report message
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {showTime && (
         <span
@@ -120,6 +195,10 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
   const [sending, setSending] = useState(false);
   const [olderLoading, setOlderLoading] = useState(false);
   const [olderExhausted, setOlderExhausted] = useState(false);
+  // Restriction state: same shape as SnapCaptureModal's banner. Set
+  // proactively from /api/restrictions/my/ on mount, or reactively when
+  // POST /api/chats/<id>/messages/ returns 403 with `detail='restricted'`.
+  const [restriction, setRestriction] = useState(null);
 
   const textareaRef = useRef(null);
   const topSentinelRef = useRef(null);
@@ -135,6 +214,26 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
       // ok — server-side last_read_at update is best-effort; the badge poll resolves it
     }
   }, [API, roomId]);
+
+  // Proactive restriction probe — runs once per mount.  Saves the user a
+  // round-trip of typing-then-failing if they're currently barred.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authenticatedFetch(`${API}/api/restrictions/my/`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        const chatRestrictions = (data.restrictions || []).filter(
+          (r) => r.restriction_type === "chat_messaging" || r.restriction_type === "both",
+        );
+        if (chatRestrictions.length > 0) setRestriction(chatRestrictions[0]);
+      } catch {
+        // Fail-open — the POST will surface the restriction if there really is one.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [API]);
 
   // Initial load + reset on roomId change.
   useEffect(() => {
@@ -295,6 +394,28 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
         method: "POST",
         body: JSON.stringify({ content }),
       });
+      if (res.status === 403) {
+        // Read the body once — if it's a restriction payload, flip the input
+        // into the banner state and roll back the optimistic bubble entirely
+        // (the user can read what they typed in their head; we don't keep a
+        // failed-bubble around because retry won't help).
+        const data = await res.json().catch(() => ({}));
+        if (data.detail === "restricted") {
+          setRestriction({
+            restriction_type: data.restriction_type,
+            expires_at: data.expires_at,
+            offense_count: data.offense_count,
+          });
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          return;
+        }
+        if (data.detail === "blocked") {
+          // Block in either direction — different banner copy than restriction.
+          setRestriction({ restriction_type: "blocked", expires_at: null, offense_count: null });
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          return;
+        }
+      }
       if (!res.ok) throw new Error("send_failed");
       const real = await res.json();
       setMessages((prev) => prev.map((m) => (m.id === tempId ? real : m)));
@@ -430,6 +551,9 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
   const [snapViewerIdx, setSnapViewerIdx] = useState(null);
   const snapViewerOpen = snapViewerIdx != null && theirSnapsToday.length > 0;
 
+  // Report-message popover: opening a ReportModal targeting the chosen message id.
+  const [reportingMsg, setReportingMsg] = useState(null);
+
   return (
     <div
       className="flex flex-col md:flex-row gap-4 w-full mx-auto"
@@ -531,6 +655,7 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
                 mine={m.sender_id === currentUser?.id}
                 showTime={showTimeByIdx[idx]}
                 onRetry={handleRetry}
+                onReport={(target) => setReportingMsg(target)}
               />
             ))}
             {/* Sentinel sits at the *visual* top under flex-col-reverse (DOM-last). */}
@@ -547,59 +672,64 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
         )}
       </div>
 
-      {/* Input bar */}
-      <div
-        className="border-t px-3 py-2"
-        style={{ borderColor: T.ink08, background: "#fff" }}
-      >
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => setText(e.target.value.slice(0, MAX_LEN))}
-            onKeyDown={onKeyDown}
-            placeholder={`message @${otherUser?.username || ""}`}
-            rows={1}
-            disabled={loading || error}
-            className="flex-1 resize-none px-3 py-2 rounded-2xl outline-none text-[15px] leading-snug placeholder:text-ink-40 disabled:opacity-50"
-            style={{
-              fontFamily: FF.sans,
-              background: T.cream,
-              color: T.ink,
-              border: `1px solid ${T.ink08}`,
-              maxHeight: TEXTAREA_LINE_PX * TEXTAREA_MAX_LINES + 16,
-            }}
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!canSend}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
-            style={{ background: T.coral, color: "#fff" }}
-            aria-label="send"
-          >
-            {sending ? (
-              <span className="inline-block w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-              </svg>
-            )}
-          </button>
-        </div>
-        {showCounter && (
-          <div
-            className="text-right text-[10px] mt-1 px-1"
-            style={{
-              color: charsLeft <= 50 ? T.coralDk : T.ink40,
-              fontFamily: FF.mono,
-              letterSpacing: 0.4,
-            }}
-          >
-            {charsLeft} chars left
+      {/* Input bar — replaced by a restriction banner when the user is barred
+          from chat (either via FunctionRestriction or a mutual UserBlock). */}
+      {restriction ? (
+        <ChatRestrictionBanner restriction={restriction} />
+      ) : (
+        <div
+          className="border-t px-3 py-2"
+          style={{ borderColor: T.ink08, background: "#fff" }}
+        >
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(e) => setText(e.target.value.slice(0, MAX_LEN))}
+              onKeyDown={onKeyDown}
+              placeholder={`message @${otherUser?.username || ""}`}
+              rows={1}
+              disabled={loading || error}
+              className="flex-1 resize-none px-3 py-2 rounded-2xl outline-none text-[15px] leading-snug placeholder:text-ink-40 disabled:opacity-50"
+              style={{
+                fontFamily: FF.sans,
+                background: T.cream,
+                color: T.ink,
+                border: `1px solid ${T.ink08}`,
+                maxHeight: TEXTAREA_LINE_PX * TEXTAREA_MAX_LINES + 16,
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!canSend}
+              className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity disabled:opacity-30"
+              style={{ background: T.coral, color: "#fff" }}
+              aria-label="send"
+            >
+              {sending ? (
+                <span className="inline-block w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                </svg>
+              )}
+            </button>
           </div>
-        )}
-      </div>
+          {showCounter && (
+            <div
+              className="text-right text-[10px] mt-1 px-1"
+              style={{
+                color: charsLeft <= 50 ? T.coralDk : T.ink40,
+                fontFamily: FF.mono,
+                letterSpacing: 0.4,
+              }}
+            >
+              {charsLeft} chars left
+            </div>
+          )}
+        </div>
+      )}
       </div>
       {/* Side panel: shared classes today + their snaps today.
           Mobile: stacks under the chat column (scroll to see).
@@ -625,6 +755,14 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
           snaps={theirSnapsToday}
           onClose={() => setSnapViewerIdx(null)}
           onChanged={() => setSnapViewerIdx(null)}
+        />
+      )}
+      {reportingMsg && (
+        <ReportModal
+          contentType="chat_message"
+          targetId={reportingMsg.id}
+          targetLabel={`message from @${reportingMsg.sender_username || otherUser?.username || ""}`}
+          onClose={() => setReportingMsg(null)}
         />
       )}
     </div>
@@ -781,6 +919,51 @@ const TheirSnapsCard = ({ otherUser, snaps, onOpenViewer }) => {
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+// Replacement for the input bar when chat is disabled. We render the same
+// shape (border-top, white background) so the layout doesn't jump when the
+// restriction lands mid-session.
+const ChatRestrictionBanner = ({ restriction }) => {
+  const blocked = restriction.restriction_type === "blocked";
+  let copy;
+  if (blocked) {
+    copy = "you and this user can't message each other.";
+  } else if (restriction.expires_at) {
+    const d = new Date(restriction.expires_at);
+    const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    copy = `chat is restricted after a moderation action. you can send messages again on ${date}, ${time}.`;
+  } else {
+    copy = "chat is restricted indefinitely after a moderation action. message an admin to lift this.";
+  }
+  return (
+    <div
+      className="border-t px-4 py-4 flex items-start gap-3"
+      style={{ borderColor: T.ink08, background: "#fff" }}
+    >
+      <div
+        className="w-9 h-9 rounded-full grid place-items-center flex-shrink-0"
+        style={{ background: 'rgba(237,106,74,.14)', border: `1px solid ${T.coral}` }}
+      >
+        <Icon name="lock" size={16} color={T.coral} />
+      </div>
+      <div className="flex-1">
+        <div
+          className="text-sm lowercase mb-1"
+          style={{ fontFamily: FF.serif, color: T.ink, letterSpacing: -0.2 }}
+        >
+          {blocked ? "blocked" : "messaging restricted"}
+        </div>
+        <p
+          className="text-xs lowercase"
+          style={{ color: T.ink60, fontFamily: FF.sans, lineHeight: 1.45 }}
+        >
+          {copy}
+        </p>
+      </div>
     </div>
   );
 };

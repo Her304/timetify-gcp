@@ -81,6 +81,10 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  // Restriction state: set proactively from GET /api/restrictions/my/ on mount,
+  // or reactively when POST /api/snaps/ returns 403 with the restriction payload.
+  // Shape: { restriction_type, expires_at, offense_count } | null
+  const [restriction, setRestriction] = useState(null);
 
   const videoRef = useRef(null);
   const recorderRef = useRef(null);
@@ -112,8 +116,32 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   };
 
   useEffect(() => {
-    startStream(mode);
+    // Proactive restriction check — avoids spinning up the camera at all if
+    // the user is already barred. We only start the stream once we've heard
+    // back from the server (or it errored — fail-open).
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/restrictions/my/`);
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          const snapRestrictions = (data.restrictions || []).filter(
+            (r) => r.restriction_type === "snap_posting" || r.restriction_type === "both",
+          );
+          if (snapRestrictions.length > 0) {
+            setRestriction(snapRestrictions[0]);
+            return;
+          }
+        }
+      } catch {
+        // Network error → fall through to start the camera anyway. The POST
+        // will still 403 if there's actually a restriction.
+      }
+      if (!cancelled) startStream(mode);
+    })();
     return () => {
+      cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
       if (tickRef.current) clearInterval(tickRef.current);
       if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
@@ -239,7 +267,17 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErrorMsg(data.error || "Upload failed.");
+        if (res.status === 403 && data.detail === "restricted") {
+          // Hand off to the banner UI; the camera section will rerender as the
+          // restriction screen and the user can dismiss with the X.
+          setRestriction({
+            restriction_type: data.restriction_type,
+            expires_at: data.expires_at,
+            offense_count: data.offense_count,
+          });
+        } else {
+          setErrorMsg(data.error || data.detail || "Upload failed.");
+        }
         setSubmitting(false);
         return;
       }
@@ -290,7 +328,10 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
 
         {/* body */}
         <div className="flex-1 overflow-y-auto">
-          {step === "capture" && (
+          {restriction ? (
+            <RestrictionBanner restriction={restriction} onClose={onClose} />
+          ) : null}
+          {!restriction && step === "capture" && (
             <div className="flex flex-col">
               <div className="relative px-3">
                 <div className="aspect-[4/5] rounded-2xl relative flex items-center justify-center overflow-hidden" style={{ background: '#2a2226' }}>
@@ -400,7 +441,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
             </div>
           )}
 
-          {step === "preview" && previewUrl && (
+          {!restriction && step === "preview" && previewUrl && (
             <div className="flex flex-col">
               <div className="px-3">
                 <div className="aspect-[4/5] rounded-2xl flex items-center justify-center overflow-hidden bg-black">
@@ -430,7 +471,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
             </div>
           )}
 
-          {step === "details" && (
+          {!restriction && step === "details" && (
             <div className="p-5 flex flex-col gap-4">
               <div>
                 <MonoLabel color="rgba(255,255,255,.6)">caption</MonoLabel>
@@ -537,3 +578,36 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
     </div>
   );
 }
+
+// Restriction banner used in place of the camera viewfinder when the user's
+// snap-posting privileges are revoked. Same shape backend returns from
+// `/api/restrictions/my/` and from 403 `/api/snaps/` responses.
+const formatRestrictionExpiry = (iso) => {
+  if (!iso) return "until an admin lifts it";
+  const d = new Date(iso);
+  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `until ${date}, ${time}`;
+};
+
+const RestrictionBanner = ({ restriction, onClose }) => (
+  <div className="p-6 flex flex-col items-center text-center gap-3">
+    <div className="w-14 h-14 rounded-full grid place-items-center" style={{ background: 'rgba(237,106,74,.18)', border: `1px solid ${T.coral}` }}>
+      <Icon name="lock" size={22} color={T.coral} />
+    </div>
+    <div style={{ fontFamily: FF.serif, fontSize: 22, letterSpacing: -0.4, color: '#fff' }}>
+      snap posting restricted
+    </div>
+    <p className="text-sm max-w-xs" style={{ color: 'rgba(255,255,255,.7)' }}>
+      you can't post snaps right now after a moderation action on prior content.
+      this is offense #{restriction.offense_count || "?"} — restriction lifts {formatRestrictionExpiry(restriction.expires_at)}.
+    </p>
+    <button
+      onClick={onClose}
+      className="mt-2 px-5 py-2 rounded-full text-sm font-bold lowercase"
+      style={{ background: T.coral, color: "#fff" }}
+    >
+      got it
+    </button>
+  </div>
+);

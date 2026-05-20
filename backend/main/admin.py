@@ -13,7 +13,9 @@ from django.utils import timezone
 from .models import (
     CustomUser, Course, Week, Exam, Assignment, Friend, BackendLog, ErrorReport,
     Snap, SnapAudience, ChatRoom, ChatRoomMember, Message,
+    Report, AiReport, SimilarityCheck, Appeal, FunctionRestriction, UserBlock,
 )
+from .moderation_pipeline import admin_remove, admin_dismiss
 
 
 class TimetifyAdminSite(AdminSite):
@@ -252,3 +254,100 @@ class MessageAdmin(admin.ModelAdmin):
     def preview(self, obj):
         return (obj.content or '')[:60]
     preview.short_description = 'content'
+
+
+# --- Moderation admin --------------------------------------------------------
+
+class AiReportInline(admin.TabularInline):
+    model = AiReport
+    extra = 0
+    can_delete = False
+    fields = ('version', 'provider', 'recommended_action', 'violation_likelihood', 'report_document', 'generated_at')
+    readonly_fields = fields
+    ordering = ('version',)
+
+
+class SimilarityCheckInline(admin.StackedInline):
+    model = SimilarityCheck
+    extra = 0
+    can_delete = False
+    fields = ('similarity_score', 'provider', 'ai_report_v1', 'ai_report_v2', 'checked_at')
+    readonly_fields = fields
+
+
+class AppealInline(admin.StackedInline):
+    model = Appeal
+    extra = 0
+    can_delete = False
+    fields = ('reported_user', 'reason', 'status', 'created_at')
+    readonly_fields = ('reported_user', 'created_at')
+
+
+@admin.register(Report, site=site)
+class ReportAdmin(admin.ModelAdmin):
+    list_display = ('id', 'reporter', 'reported_user', 'content_type', 'status', 'appeal_deadline', 'created_at')
+    list_filter = ('status', 'content_type', 'created_at')
+    search_fields = ('reporter__username', 'reported_user__username', 'free_text')
+    readonly_fields = (
+        'reporter', 'reported_user', 'content_type',
+        'snap', 'chat_message', 'template_reasons', 'free_text',
+        'created_at', 'updated_at',
+    )
+    inlines = [AiReportInline, SimilarityCheckInline, AppealInline]
+    actions = ['action_remove_content', 'action_dismiss_report']
+
+    def action_remove_content(self, request, queryset):
+        # Reuses the same pipeline as POST /api/admin/reports/<id>/act/ so the
+        # restriction ladder + emails stay consistent across surfaces.
+        for r in queryset:
+            admin_remove(r)
+        self.message_user(request, f"Removed content for {queryset.count()} report(s).")
+    action_remove_content.short_description = "Remove reported content + restrict user"
+
+    def action_dismiss_report(self, request, queryset):
+        for r in queryset:
+            admin_dismiss(r)
+        self.message_user(request, f"Dismissed {queryset.count()} report(s).")
+    action_dismiss_report.short_description = "Dismiss report (no action)"
+
+
+@admin.register(AiReport, site=site)
+class AiReportAdmin(admin.ModelAdmin):
+    list_display = ('id', 'report', 'version', 'provider', 'recommended_action', 'violation_likelihood', 'generated_at')
+    list_filter = ('version', 'recommended_action', 'provider')
+    readonly_fields = ('report', 'version', 'provider', 'raw_response', 'report_document',
+                       'violation_likelihood', 'violation_categories', 'recommended_action', 'generated_at')
+
+
+@admin.register(SimilarityCheck, site=site)
+class SimilarityCheckAdmin(admin.ModelAdmin):
+    list_display = ('id', 'report', 'similarity_score', 'provider', 'checked_at')
+    readonly_fields = ('report', 'ai_report_v1', 'ai_report_v2', 'similarity_score', 'provider', 'raw_response', 'checked_at')
+
+
+@admin.register(Appeal, site=site)
+class AppealAdmin(admin.ModelAdmin):
+    list_display = ('id', 'report', 'reported_user', 'status', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('reported_user__username',)
+    readonly_fields = ('report', 'reported_user', 'reason', 'created_at')
+
+
+@admin.register(FunctionRestriction, site=site)
+class FunctionRestrictionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'restriction_type', 'offense_count', 'expires_at', 'is_active', 'created_at')
+    list_filter = ('restriction_type', 'is_active', 'offense_count')
+    search_fields = ('user__username',)
+    actions = ['action_lift_restriction']
+
+    def action_lift_restriction(self, request, queryset):
+        count = queryset.update(is_active=False)
+        self.message_user(request, f"Lifted {count} restriction(s).")
+    action_lift_restriction.short_description = "Lift selected restrictions"
+
+
+@admin.register(UserBlock, site=site)
+class UserBlockAdmin(admin.ModelAdmin):
+    list_display = ('id', 'blocker', 'blocked', 'reason', 'created_at')
+    list_filter = ('reason', 'created_at')
+    search_fields = ('blocker__username', 'blocked__username')

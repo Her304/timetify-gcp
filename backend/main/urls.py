@@ -34,4 +34,17 @@ urlpatterns = [
     path('api/chats/<int:pk>/read/', views.ChatReadView.as_view(), name='chat-read'),
     path('api/chats/<int:pk>/messages/', views.MessageListCreateView.as_view(), name='chat-messages'),
     path('api/chats/<int:pk>/messages/<int:msg_id>/', views.MessageDeleteView.as_view(), name='chat-message-delete'),
+    # Moderation: user-facing
+    path('api/reports/', views.ReportCreateView.as_view(), name='report-create'),
+    path('api/reports/my/', views.ReportMyListView.as_view(), name='reports-my'),
+    path('api/reports/received/', views.ReportReceivedListView.as_view(), name='reports-received'),
+    path('api/appeals/', views.AppealCreateView.as_view(), name='appeal-create'),
+    path('api/appeals/my/', views.AppealMyListView.as_view(), name='appeals-my'),
+    path('api/blocks/', views.BlockListView.as_view(), name='blocks-list'),
+    path('api/blocks/<int:pk>/', views.BlockDeleteView.as_view(), name='block-delete'),
+    path('api/restrictions/my/', views.MyRestrictionsView.as_view(), name='restrictions-my'),
+    # Moderation: admin + cron
+    path('api/admin/reports/', views.AdminReportListView.as_view(), name='admin-reports'),
+    path('api/admin/reports/<int:pk>/act/', views.AdminReportActView.as_view(), name='admin-report-act'),
+    path('api/admin/run-moderation/', views.AdminRunModerationView.as_view(), name='admin-run-moderation'),
 ]
