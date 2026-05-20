@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { authenticatedFetch } from "../../utils/api";
 import { T, FF, MonoLabel, Avatar, PillBtn, Blob, Star, Icon } from "@/components/shared/brand";
 
@@ -18,6 +18,37 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [courseFilter, setCourseFilter] = useState("all");
+  const [blocks, setBlocks] = useState([]);
+  const [blocksLoading, setBlocksLoading] = useState(false);
+  const [unblockingId, setUnblockingId] = useState(null);
+
+  const fetchBlocks = useCallback(async () => {
+    setBlocksLoading(true);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/blocks/`);
+      if (res.ok) {
+        const data = await res.json();
+        setBlocks(data.blocks || []);
+      }
+    } finally {
+      setBlocksLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchBlocks(); }, [fetchBlocks]);
+
+  const handleUnblock = async (blockId) => {
+    setUnblockingId(blockId);
+    try {
+      const res = await authenticatedFetch(
+        `${import.meta.env.VITE_API_URL}/api/blocks/${blockId}/`,
+        { method: "DELETE" },
+      );
+      if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
+    } finally {
+      setUnblockingId(null);
+    }
+  };
 
   useEffect(() => {
     const fetchAllCourses = async () => {
@@ -326,6 +357,76 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
             <div className="py-8 text-center">
               <p className="text-ink-40 text-sm">no courses found.</p>
             </div>
+          )}
+        </div>
+      </section>
+
+      {/* Blocked users */}
+      <section>
+        <div className="mb-4">
+          <MonoLabel>boundaries</MonoLabel>
+          <h2 className="text-2xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -0.8 }}>
+            blocked users
+          </h2>
+        </div>
+        <div className="bg-white border border-ink-8 rounded-2xl p-5">
+          {blocksLoading ? (
+            <div className="space-y-3">
+              <div className="h-10 bg-ink-8 animate-pulse rounded-xl" />
+              <div className="h-10 bg-ink-8 animate-pulse rounded-xl" />
+            </div>
+          ) : blocks.length === 0 ? (
+            <p className="text-ink-40 text-sm lowercase">no one blocked.</p>
+          ) : (
+            <div className="space-y-2">
+              {blocks.map((b) => (
+                <div
+                  key={b.id}
+                  className="bg-cream rounded-xl p-4 flex items-center justify-between border border-ink-8"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar
+                      name={(b.blocked_username || "?").slice(0, 2).toLowerCase()}
+                      bg={T.ink08}
+                      fg={T.ink}
+                      size={32}
+                    />
+                    <div className="min-w-0">
+                      <div
+                        className="text-sm lowercase truncate"
+                        style={{ fontFamily: FF.serif, color: T.ink, letterSpacing: -0.3 }}
+                      >
+                        {b.blocked_username}
+                      </div>
+                      <div
+                        className="text-[10px] uppercase mt-0.5"
+                        style={{ color: T.ink40, fontFamily: FF.mono, letterSpacing: 0.5 }}
+                      >
+                        {b.reason === "appeal_auto" ? "appeal auto-block" : "manual block"}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleUnblock(b.id)}
+                    disabled={unblockingId === b.id}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
+                    style={{ background: "#fff", color: T.ink, border: `1px solid ${T.ink15}` }}
+                  >
+                    {unblockingId === b.id ? "…" : "unblock"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {blocks.length > 0 && (
+            <p
+              className="text-[10px] mt-3 lowercase"
+              style={{ color: T.ink40, fontFamily: FF.mono, letterSpacing: 0.4 }}
+            >
+              unblocking only lifts your side. if the other user also blocked
+              you, they'd have to unblock you separately.
+            </p>
           )}
         </div>
       </section>

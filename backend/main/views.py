@@ -826,6 +826,10 @@ class SnapUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
+        restriction = _active_restriction(request.user, 'snap_posting')
+        if restriction:
+            return Response(_restriction_403_payload(restriction), status=status.HTTP_403_FORBIDDEN)
+
         file_obj = request.FILES.get("media")
         if not file_obj:
             return Response({"error": "No file uploaded."}, status=status.HTTP_400_BAD_REQUEST)
@@ -929,12 +933,15 @@ class SnapFeedView(APIView):
         selected_snap_ids = list(
             SnapAudience.objects.filter(viewer=me).values_list("snap_id", flat=True)
         )
+        blocked_ids = _blocked_user_ids(me)
 
         qs = Snap.objects.filter(is_removed=False, expires_at__gt=now).filter(
             Q(uploader=me)
             | (Q(visibility=Snap.VIS_ALL_FRIENDS) & Q(uploader_id__in=friend_ids))
             | (Q(visibility=Snap.VIS_SELECTED) & Q(id__in=selected_snap_ids))
         ).select_related("uploader", "course").order_by("course_id", "-created_at")
+        if blocked_ids:
+            qs = qs.exclude(uploader_id__in=blocked_ids)
 
         snaps = list(qs)
         snap_ids = [s.id for s in snaps]
@@ -981,6 +988,9 @@ class SnapViewView(APIView):
                 allowed = snap.uploader_id in _friend_user_ids(me)
             else:
                 allowed = SnapAudience.objects.filter(snap=snap, viewer=me).exists()
+            # A block in either direction overrides any otherwise-allowed access.
+            if allowed and _is_blocked_between(me, snap.uploader):
+                allowed = False
             if not allowed:
                 return Response({"error": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -1105,10 +1115,72 @@ class NotificationsView(APIView):
                             ],
                         })
 
+        # 4. Reports against me that are still appealable, plus a short summary
+        # of reports I've filed so the user can track the moderation flow from
+        # the bell. We import here so this stays optional — pre-Phase-7 deploys
+        # that don't have the moderation tables would still serve a payload.
+        reports_received_data = []
+        reports_filed_data = []
+        try:
+            from .models import Report as _Report, Appeal as _Appeal
+            received_qs = (
+                _Report.objects
+                .filter(reported_user=me)
+                .exclude(status__in=[
+                    _Report.STATUS_ENFORCED,
+                    _Report.STATUS_APPEAL_UPHELD,
+                    _Report.STATUS_ADMIN_REMOVED,
+                    _Report.STATUS_ADMIN_DISMISSED,
+                ])
+                .prefetch_related('ai_reports', 'appeal')
+                .order_by('-created_at')[:10]
+            )
+            for rep in received_qs:
+                latest_ai = max(rep.ai_reports.all(), key=lambda a: a.version, default=None)
+                has_appeal = bool(getattr(rep, 'appeal', None))
+                can_appeal = (
+                    rep.status == _Report.STATUS_AI_REPORTED
+                    and rep.appeal_deadline is not None
+                    and now < rep.appeal_deadline
+                    and not has_appeal
+                )
+                reports_received_data.append({
+                    "id": rep.id,
+                    "content_type": rep.content_type,
+                    "status": rep.status,
+                    "appeal_deadline": rep.appeal_deadline.isoformat() if rep.appeal_deadline else None,
+                    "created_at": rep.created_at.isoformat(),
+                    "report_document": latest_ai.report_document if latest_ai else None,
+                    "recommended_action": latest_ai.recommended_action if latest_ai else None,
+                    "can_appeal": can_appeal,
+                })
+
+            filed_qs = (
+                _Report.objects
+                .filter(reporter=me)
+                .prefetch_related('ai_reports')
+                .order_by('-created_at')[:10]
+            )
+            for rep in filed_qs:
+                latest_ai = max(rep.ai_reports.all(), key=lambda a: a.version, default=None)
+                reports_filed_data.append({
+                    "id": rep.id,
+                    "content_type": rep.content_type,
+                    "status": rep.status,
+                    "created_at": rep.created_at.isoformat(),
+                    "report_document": latest_ai.report_document if latest_ai else None,
+                })
+        except Exception:
+            # Moderation tables not present (pre-Phase-7 deploys) — silently skip
+            # so the rest of the panel still renders.
+            logger.exception("notifications: moderation summary failed")
+
         return Response({
             "friend_requests": friend_requests_data,
             "new_snaps": new_snaps_data,
             "live_class_alerts": live_class_alerts,
+            "reports_received": reports_received_data,
+            "reports_filed": reports_filed_data,
         })
 
 
@@ -1174,6 +1246,21 @@ class ChatListCreateView(APIView):
         for mr in member_rows:
             other_user_by_room[mr.room_id] = mr.user
 
+        # Filter out rooms whose only-other peer (DM) is blocked in either direction.
+        blocked_ids = _blocked_user_ids(me)
+        if blocked_ids:
+            keep_room_ids = {
+                rid for rid, other in other_user_by_room.items()
+                if other.id not in blocked_ids
+            }
+            room_ids = [r for r in room_ids if r in keep_room_ids]
+            rooms = [r for r in rooms if r.id in keep_room_ids]
+            other_user_by_room = {
+                rid: u for rid, u in other_user_by_room.items() if rid in keep_room_ids
+            }
+            if not room_ids:
+                return Response({"chats": []})
+
         # Last message per room (one extra query; small N).
         last_message_by_room = {}
         for room_id in room_ids:
@@ -1225,6 +1312,8 @@ class ChatListCreateView(APIView):
             return Response({"detail": "cannot DM yourself"}, status=status.HTTP_400_BAD_REQUEST)
         if not _are_friends(me, other):
             return Response({"detail": "not_friends"}, status=status.HTTP_403_FORBIDDEN)
+        if _is_blocked_between(me, other):
+            return Response({"detail": "blocked"}, status=status.HTTP_403_FORBIDDEN)
 
         existing = _find_existing_dm(me, other)
         if existing:
@@ -1311,6 +1400,25 @@ class MessageListCreateView(APIView):
         if not _user_membership(room, me):
             return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
 
+        # FunctionRestriction: chat_messaging / both → 403 with payload.
+        restriction = _active_restriction(me, 'chat_messaging')
+        if restriction:
+            return Response(_restriction_403_payload(restriction), status=status.HTTP_403_FORBIDDEN)
+
+        # UserBlock: if either direction blocks any other member, refuse to send.
+        # For DMs this is just the single peer; the loop is forward-compatible
+        # with groups landing later.
+        other_member_ids = list(
+            ChatRoomMember.objects.filter(room=room).exclude(user=me).values_list('user_id', flat=True)
+        )
+        if other_member_ids:
+            blocked = UserBlock.objects.filter(
+                Q(blocker=me, blocked_id__in=other_member_ids)
+                | Q(blocked=me, blocker_id__in=other_member_ids)
+            ).exists()
+            if blocked:
+                return Response({'detail': 'blocked'}, status=status.HTTP_403_FORBIDDEN)
+
         content = (request.data.get('content') or '').strip()
         if not content:
             return Response({"detail": "content required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1382,3 +1490,276 @@ class UnreadCountView(APIView):
                 qs = qs.filter(created_at__gt=lr)
             total += qs.count()
         return Response({"total": total})
+
+
+# ---------------------------------------------------------------------------
+# Moderation: Report, Appeal, UserBlock, FunctionRestriction
+# ---------------------------------------------------------------------------
+from .models import (
+    Report, AiReport, Appeal, FunctionRestriction, UserBlock,
+)
+from .serializers import (
+    ReportSerializer, ReportCreateSerializer,
+    AppealCreateSerializer, AppealSerializer,
+    UserBlockSerializer, FunctionRestrictionSerializer,
+)
+
+
+def _active_restriction(user, kind):
+    """Return the first active restriction blocking `kind` for `user`, else None.
+    `kind` is 'snap_posting' or 'chat_messaging'. A 'both' restriction blocks
+    either kind. Restrictions auto-deactivate when expires_at < now (the cron
+    is the canonical lifter, but we treat expired rows as inactive here too)."""
+    now = timezone.now()
+    qs = FunctionRestriction.objects.filter(
+        user=user,
+        is_active=True,
+        restriction_type__in=[kind, FunctionRestriction.TYPE_BOTH],
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    return qs.order_by('-created_at').first()
+
+
+def _restriction_403_payload(restriction):
+    return {
+        'detail': 'restricted',
+        'restriction_type': restriction.restriction_type,
+        'expires_at': restriction.expires_at.isoformat() if restriction.expires_at else None,
+        'offense_count': restriction.offense_count,
+    }
+
+
+def _is_blocked_between(user_a, user_b):
+    """True iff either direction of UserBlock exists between two users."""
+    return UserBlock.objects.filter(
+        Q(blocker=user_a, blocked=user_b) | Q(blocker=user_b, blocked=user_a)
+    ).exists()
+
+
+def _blocked_user_ids(me):
+    """All user_ids that have a block in either direction with `me`. Used to
+    filter SnapFeedView so blocked uploaders disappear and `me` doesn't
+    appear in their feed either."""
+    rows = UserBlock.objects.filter(Q(blocker=me) | Q(blocked=me)).values_list(
+        'blocker_id', 'blocked_id'
+    )
+    ids = set()
+    for blocker_id, blocked_id in rows:
+        ids.add(blocker_id if blocker_id != me.id else blocked_id)
+    return ids
+
+
+class ReportCreateView(APIView):
+    """POST /api/reports/ — user files a report.
+       Body: { content_type, snap?, chat_message?, template_reasons[], free_text }"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        me = request.user
+        ser = ReportCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        ct = data['content_type']
+
+        # Resolve the reported user from the target content, and reject self-reports.
+        if ct == Report.CONTENT_SNAP:
+            target = data['snap']
+            reported_user = target.uploader
+        else:
+            target = data['chat_message']
+            reported_user = target.sender
+        if reported_user.id == me.id:
+            return Response({'detail': 'cannot_report_self'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Dedup: same reporter on the same content with an in-flight report.
+        in_flight_statuses = [
+            Report.STATUS_PENDING, Report.STATUS_AI_REPORTED,
+            Report.STATUS_APPEAL_PENDING, Report.STATUS_APPEAL_ANALYZED,
+            Report.STATUS_THIRD_LOOP,
+        ]
+        dedup_q = Report.objects.filter(reporter=me, content_type=ct, status__in=in_flight_statuses)
+        if ct == Report.CONTENT_SNAP:
+            dedup_q = dedup_q.filter(snap=target)
+        else:
+            dedup_q = dedup_q.filter(chat_message=target)
+        existing = dedup_q.first()
+        if existing:
+            return Response(
+                {'detail': 'duplicate', 'report_id': existing.id},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report = Report.objects.create(
+            reporter=me,
+            reported_user=reported_user,
+            content_type=ct,
+            snap=target if ct == Report.CONTENT_SNAP else None,
+            chat_message=target if ct == Report.CONTENT_CHAT else None,
+            template_reasons=data.get('template_reasons', []),
+            free_text=(data.get('free_text') or '').strip(),
+        )
+        return Response(
+            ReportSerializer(report, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ReportMyListView(APIView):
+    """GET /api/reports/my/ — reports I filed, with all AI reports + appeal status."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = (
+            Report.objects.filter(reporter=request.user)
+            .prefetch_related('ai_reports', 'appeal')
+        )
+        data = ReportSerializer(qs, many=True, context={'request': request}).data
+        return Response({'reports': data})
+
+
+class ReportReceivedListView(APIView):
+    """GET /api/reports/received/ — reports filed against me; the reported user's
+    view, used by the notification center to surface appeal buttons."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = (
+            Report.objects.filter(reported_user=request.user)
+            .prefetch_related('ai_reports', 'appeal')
+        )
+        data = ReportSerializer(qs, many=True, context={'request': request}).data
+        return Response({'reports': data})
+
+
+class AppealCreateView(APIView):
+    """POST /api/appeals/ — the reported user contests an AI report. Allowed
+    only while `status='ai_reported'` and `now < appeal_deadline`."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        ser = AppealCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        report = ser.validated_data['report']
+        reason = ser.validated_data['reason']
+        me = request.user
+
+        if report.reported_user_id != me.id:
+            return Response({'detail': 'not_your_report'}, status=status.HTTP_403_FORBIDDEN)
+        if report.status != Report.STATUS_AI_REPORTED:
+            return Response({'detail': 'appeal_not_allowed'}, status=status.HTTP_400_BAD_REQUEST)
+        if not report.appeal_deadline or timezone.now() >= report.appeal_deadline:
+            return Response({'detail': 'appeal_window_closed'}, status=status.HTTP_400_BAD_REQUEST)
+        if Appeal.objects.filter(report=report).exists():
+            return Response({'detail': 'already_appealed'}, status=status.HTTP_409_CONFLICT)
+
+        with transaction.atomic():
+            appeal = Appeal.objects.create(report=report, reported_user=me, reason=reason)
+            report.status = Report.STATUS_APPEAL_PENDING
+            report.save(update_fields=['status', 'updated_at'])
+
+        return Response(AppealSerializer(appeal).data, status=status.HTTP_201_CREATED)
+
+
+class AppealMyListView(APIView):
+    """GET /api/appeals/my/ — appeals I have filed."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = Appeal.objects.filter(reported_user=request.user).select_related('report')
+        return Response({'appeals': AppealSerializer(qs, many=True).data})
+
+
+class BlockListView(APIView):
+    """GET /api/blocks/ — the users I have blocked (one row per outbound block;
+    appeal_upheld() creates rows in both directions and they all surface here)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = UserBlock.objects.filter(blocker=request.user).select_related('blocked')
+        return Response({'blocks': UserBlockSerializer(qs, many=True).data})
+
+
+class BlockDeleteView(APIView):
+    """DELETE /api/blocks/<id>/ — manual unblock. `reason='appeal_auto'` rows
+    can also be lifted manually; the partner row (other direction) stays unless
+    they unblock too. Symmetric appeal-block lift is a manual choice per user."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            block = UserBlock.objects.get(pk=pk, blocker=request.user)
+        except UserBlock.DoesNotExist:
+            return Response({'detail': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        block.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MyRestrictionsView(APIView):
+    """GET /api/restrictions/my/ — my active restrictions. Used by the frontend
+    to pre-disable snap capture / chat input without waiting for the 403."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        now = timezone.now()
+        qs = FunctionRestriction.objects.filter(
+            user=request.user, is_active=True
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).order_by('-created_at')
+        return Response({'restrictions': FunctionRestrictionSerializer(qs, many=True).data})
+
+
+# --- Admin / cron endpoints ---------------------------------------------------
+
+class AdminReportListView(APIView):
+    """GET /api/admin/reports/ — staff-only list of all reports."""
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        qs = Report.objects.all().prefetch_related('ai_reports', 'appeal')
+        data = ReportSerializer(qs, many=True, context={'request': request}).data
+        return Response({'reports': data})
+
+
+class AdminReportActView(APIView):
+    """POST /api/admin/reports/<id>/act/ — staff override. Body: { action }.
+       action: 'remove' soft-deletes the content + restricts the reported user
+               (using the same offense ladder as the AI pipeline);
+               'dismiss' marks the report as admin_dismissed with no effects."""
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        try:
+            report = Report.objects.get(pk=pk)
+        except Report.DoesNotExist:
+            return Response({'detail': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        action = (request.data.get('action') or '').strip().lower()
+        if action not in ('remove', 'dismiss'):
+            return Response({'detail': 'action must be remove|dismiss'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Reuse the cron pipeline's helpers so admin actions and AI outcomes share
+        # logic: soft-delete + restriction + emails.
+        from .moderation_pipeline import admin_remove, admin_dismiss
+        if action == 'remove':
+            admin_remove(report)
+        else:
+            admin_dismiss(report)
+        report.refresh_from_db()
+        return Response(ReportSerializer(report, context={'request': request}).data)
+
+
+class AdminRunModerationView(APIView):
+    """POST /api/admin/run-moderation/ — Cloud Scheduler trigger.
+       Authenticates via the `X-Moderation-Secret` header against
+       settings.MODERATION_RUN_SECRET. The endpoint runs the same code as the
+       `run_moderation` management command so it can be invoked either way."""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        expected = getattr(settings, 'MODERATION_RUN_SECRET', None)
+        if not expected:
+            return Response({'detail': 'moderation_disabled'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        got = request.headers.get('X-Moderation-Secret') or ''
+        if got != expected:
+            return Response({'detail': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .moderation_pipeline import run_moderation_tick
+        summary = run_moderation_tick()
+        return Response(summary)

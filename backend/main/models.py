@@ -224,3 +224,163 @@ class Message(models.Model):
     def __str__(self):
         preview = (self.content or '')[:30]
         return f"Msg #{self.pk} by {self.sender.username}: {preview}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Moderation: Report / AiReport / SimilarityCheck / Appeal / FunctionRestriction
+# / UserBlock.  Pipeline lives in main/management/commands/run_moderation.py.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class Report(models.Model):
+    CONTENT_SNAP = 'snap'
+    CONTENT_CHAT = 'chat_message'
+    CONTENT_CHOICES = [(CONTENT_SNAP, 'Snap'), (CONTENT_CHAT, 'Chat message')]
+
+    STATUS_PENDING = 'pending'
+    STATUS_AI_REPORTED = 'ai_reported'
+    STATUS_APPEAL_PENDING = 'appeal_pending'
+    STATUS_APPEAL_ANALYZED = 'appeal_analyzed'
+    STATUS_THIRD_LOOP = 'third_loop'
+    STATUS_ENFORCED = 'enforced'
+    STATUS_APPEAL_UPHELD = 'appeal_upheld'
+    STATUS_WARNED = 'warned'
+    STATUS_ADMIN_REMOVED = 'admin_removed'
+    STATUS_ADMIN_DISMISSED = 'admin_dismissed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_AI_REPORTED, 'AI reported'),
+        (STATUS_APPEAL_PENDING, 'Appeal pending'),
+        (STATUS_APPEAL_ANALYZED, 'Appeal analyzed'),
+        (STATUS_THIRD_LOOP, 'Third loop'),
+        (STATUS_ENFORCED, 'Enforced'),
+        (STATUS_APPEAL_UPHELD, 'Appeal upheld'),
+        (STATUS_WARNED, 'Warned'),
+        (STATUS_ADMIN_REMOVED, 'Admin removed'),
+        (STATUS_ADMIN_DISMISSED, 'Admin dismissed'),
+    ]
+
+    reporter = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='reports_filed')
+    reported_user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='reports_received')
+    content_type = models.CharField(max_length=16, choices=CONTENT_CHOICES)
+    snap = models.ForeignKey(Snap, on_delete=models.SET_NULL, null=True, blank=True, related_name='reports')
+    chat_message = models.ForeignKey(Message, on_delete=models.SET_NULL, null=True, blank=True, related_name='reports')
+    template_reasons = models.JSONField(default=list)
+    free_text = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    appeal_deadline = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['reported_user', 'status']),
+            models.Index(fields=['reporter', 'created_at']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Report #{self.pk} {self.reporter.username}→{self.reported_user.username} [{self.status}]"
+
+
+class AiReport(models.Model):
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='ai_reports')
+    version = models.PositiveSmallIntegerField()
+    provider = models.CharField(max_length=40)
+    raw_response = models.JSONField(default=dict)
+    report_document = models.TextField()
+    violation_likelihood = models.FloatField()
+    violation_categories = models.JSONField(default=dict)
+    recommended_action = models.CharField(max_length=12)  # remove | warn | dismiss
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('report', 'version')
+        ordering = ['report_id', 'version']
+
+    def __str__(self):
+        return f"AiReport v{self.version} for Report #{self.report_id}"
+
+
+class SimilarityCheck(models.Model):
+    report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name='similarity_check')
+    ai_report_v1 = models.ForeignKey(AiReport, on_delete=models.CASCADE, related_name='similarity_as_v1')
+    ai_report_v2 = models.ForeignKey(AiReport, on_delete=models.CASCADE, related_name='similarity_as_v2')
+    similarity_score = models.FloatField()
+    provider = models.CharField(max_length=40, default='text-embedding-3-small')
+    raw_response = models.JSONField(default=dict, blank=True)
+    checked_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Similarity {self.similarity_score:.3f} on Report #{self.report_id}"
+
+
+class Appeal(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_ENFORCED = 'enforced'
+    STATUS_UPHELD = 'upheld'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ENFORCED, 'Enforced'),
+        (STATUS_UPHELD, 'Upheld'),
+    ]
+
+    report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name='appeal')
+    reported_user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='appeals')
+    reason = models.TextField()
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Appeal on Report #{self.report_id} [{self.status}]"
+
+
+class FunctionRestriction(models.Model):
+    """A user's posting privileges are revoked for a window. Read by
+    SnapUploadView (snap_posting/both) and MessageCreateView
+    (chat_messaging/both); rows from `enforce()` set is_active=True and
+    a duration based on prior offense count."""
+    TYPE_SNAP = 'snap_posting'
+    TYPE_CHAT = 'chat_messaging'
+    TYPE_BOTH = 'both'
+    TYPE_CHOICES = [
+        (TYPE_SNAP, 'Snap posting'),
+        (TYPE_CHAT, 'Chat messaging'),
+        (TYPE_BOTH, 'Both'),
+    ]
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='restrictions')
+    restriction_type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    report = models.ForeignKey(Report, on_delete=models.SET_NULL, null=True, blank=True, related_name='restrictions')
+    offense_count = models.PositiveSmallIntegerField()
+    expires_at = models.DateTimeField(null=True, blank=True)  # null = permanent until lifted
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'is_active', 'expires_at'])]
+
+    def __str__(self):
+        return f"Restriction {self.user.username} {self.restriction_type} offense#{self.offense_count}"
+
+
+class UserBlock(models.Model):
+    REASON_APPEAL = 'appeal_auto'
+    REASON_MANUAL = 'manual'
+    REASON_CHOICES = [
+        (REASON_APPEAL, 'Appeal auto-block'),
+        (REASON_MANUAL, 'Manual'),
+    ]
+
+    blocker = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='blocks_made')
+    blocked = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='blocks_received')
+    reason = models.CharField(max_length=16, choices=REASON_CHOICES, default=REASON_MANUAL)
+    report = models.ForeignKey(Report, on_delete=models.SET_NULL, null=True, blank=True, related_name='blocks')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('blocker', 'blocked')
+        indexes = [models.Index(fields=['blocker', 'blocked'])]
+
+    def __str__(self):
+        return f"{self.blocker.username} ⛔ {self.blocked.username}"

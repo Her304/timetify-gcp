@@ -73,9 +73,15 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unread
     fetchNotifications();
   };
 
+  // Bell badge counts actionable items the user can still act on:
+  // friend requests + unseen snaps + reports against me that are still
+  // appealable. Filed-report status updates are passive (read-only summary).
+  const actionableReports =
+    (notifications?.reports_received || []).filter((r) => r.can_appeal).length;
   const unreadCount =
     (notifications?.friend_requests?.length ?? 0) +
-    (notifications?.new_snaps?.length ?? 0);
+    (notifications?.new_snaps?.length ?? 0) +
+    actionableReports;
 
   return (
     <div className="hidden md:flex items-center gap-4 bg-cream border-b border-ink-8 px-6 h-16 flex-shrink-0 sticky top-0 z-30">
@@ -130,6 +136,7 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unread
               notifications={notifications}
               loading={notifLoading}
               onRespondToRequest={handleRespondToRequest}
+              onRefresh={fetchNotifications}
               onClose={() => setPanelOpen(false)}
             />
           )}

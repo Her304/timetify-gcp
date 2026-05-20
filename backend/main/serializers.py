@@ -1,7 +1,11 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message
+from .models import (
+    Course, Week, Exam, Assignment, Friend, Snap, SnapAudience,
+    ChatRoom, ChatRoomMember, Message,
+    Report, AiReport, Appeal, UserBlock, FunctionRestriction,
+)
 
 User = get_user_model()
 
@@ -285,3 +289,126 @@ class ChatRoomDetailSerializer(serializers.ModelSerializer):
     def get_messages(self, obj):
         msgs = self.context.get('initial_messages') or []
         return MessageSerializer(msgs, many=True, context=self.context).data
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Moderation serializers
+# `AiReportSerializer` exposes `report_document` (the user-facing assessment)
+# but never `raw_response` or `reasoning` — those are admin/internal-only and
+# stay behind the staff endpoints.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class AiReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AiReport
+        fields = [
+            'id', 'version', 'report_document',
+            'violation_likelihood', 'violation_categories',
+            'recommended_action', 'generated_at',
+        ]
+        read_only_fields = fields
+
+
+class AppealSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Appeal
+        fields = ['id', 'report', 'reason', 'status', 'created_at']
+        read_only_fields = ['id', 'status', 'created_at']
+
+
+class ReportSerializer(serializers.ModelSerializer):
+    """Used by `/api/reports/my/` and `/api/reports/received/`. Both
+    parties see the same `report_document` from each AiReport. The
+    `appeal` block is exposed so the reported user knows whether
+    they've already filed."""
+    reporter_username = serializers.CharField(source='reporter.username', read_only=True)
+    reported_username = serializers.CharField(source='reported_user.username', read_only=True)
+    ai_reports = AiReportSerializer(many=True, read_only=True)
+    appeal = AppealSerializer(read_only=True)
+    can_appeal = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Report
+        fields = [
+            'id', 'reporter', 'reporter_username',
+            'reported_user', 'reported_username',
+            'content_type', 'snap', 'chat_message',
+            'template_reasons', 'free_text',
+            'status', 'appeal_deadline',
+            'ai_reports', 'appeal', 'can_appeal',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+    def get_can_appeal(self, obj):
+        # The reported user can file an appeal exactly once, while the
+        # report is still in 'ai_reported' and we're inside the deadline.
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        if request.user.id != obj.reported_user_id:
+            return False
+        if obj.status != Report.STATUS_AI_REPORTED:
+            return False
+        if not obj.appeal_deadline:
+            return False
+        from django.utils import timezone as _tz
+        if _tz.now() >= obj.appeal_deadline:
+            return False
+        return not Appeal.objects.filter(report=obj).exists()
+
+
+class ReportCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Report
+        fields = ['content_type', 'snap', 'chat_message', 'template_reasons', 'free_text']
+
+    def validate(self, attrs):
+        ct = attrs.get('content_type')
+        snap = attrs.get('snap')
+        chat_message = attrs.get('chat_message')
+        if ct == Report.CONTENT_SNAP:
+            if not snap or chat_message:
+                raise serializers.ValidationError("Snap report requires `snap` and no chat_message.")
+        elif ct == Report.CONTENT_CHAT:
+            if not chat_message or snap:
+                raise serializers.ValidationError("Chat report requires `chat_message` and no snap.")
+        else:
+            raise serializers.ValidationError("content_type must be 'snap' or 'chat_message'.")
+        reasons = attrs.get('template_reasons') or []
+        if not isinstance(reasons, list):
+            raise serializers.ValidationError("template_reasons must be a list.")
+        return attrs
+
+
+class AppealCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Appeal
+        fields = ['report', 'reason']
+
+    def validate_reason(self, value):
+        v = (value or '').strip()
+        if not v:
+            raise serializers.ValidationError("Appeal reason is required.")
+        if len(v) > 4000:
+            raise serializers.ValidationError("Appeal reason must be ≤ 4000 chars.")
+        return v
+
+
+class UserBlockSerializer(serializers.ModelSerializer):
+    blocked_username = serializers.CharField(source='blocked.username', read_only=True)
+
+    class Meta:
+        model = UserBlock
+        fields = ['id', 'blocked', 'blocked_username', 'reason', 'created_at']
+        read_only_fields = fields
+
+
+class FunctionRestrictionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FunctionRestriction
+        fields = [
+            'id', 'restriction_type', 'offense_count',
+            'expires_at', 'is_active', 'created_at',
+        ]
+        read_only_fields = fields
