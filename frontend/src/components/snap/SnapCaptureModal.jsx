@@ -77,8 +77,11 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   const [previewBlob, setPreviewBlob] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [caption, setCaption] = useState("");
+  // Audience type: "all" | "selected" | "group".
   const [audienceType, setAudienceType] = useState("all");
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [groups, setGroups] = useState([]);
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   // Restriction state: set proactively from GET /api/restrictions/my/ on mount,
@@ -91,6 +94,49 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
   const tickRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Library-upload fallback. Plan spec: "camera + library fallback"; especially
+  // important when getUserMedia is blocked / unavailable. The file is fed into
+  // the existing preview → details flow unchanged. Server still magic-byte
+  // checks, mime-checks, and caps at 20MB, so a basic client-side validate is
+  // enough.
+  const SNAP_MIME_PHOTO = ["image/jpeg", "image/png"];
+  const SNAP_MIME_VIDEO = ["video/mp4", "video/quicktime", "video/webm"];
+  const SNAP_MAX_BYTES = 20 * 1024 * 1024;
+
+  const onPickFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // reset so picking the same file twice still fires
+    if (!file) return;
+    if (file.size > SNAP_MAX_BYTES) {
+      setErrorMsg("file too large — max 20 MB");
+      return;
+    }
+    const mime = (file.type || "").split(";")[0].trim();
+    let nextMode;
+    if (SNAP_MIME_PHOTO.includes(mime)) nextMode = "photo";
+    else if (SNAP_MIME_VIDEO.includes(mime)) nextMode = "video";
+    else {
+      setErrorMsg("unsupported file type — pick a jpg/png or mp4/mov/webm");
+      return;
+    }
+    setErrorMsg(null);
+    // Tear down the camera stream — we don't need it now that we have a blob.
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      setStream(null);
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setMode(nextMode);
+    setPreviewBlob(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setStep("preview");
+  };
+
+  const openLibrary = () => {
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
 
   const startStream = async (nextMode) => {
     setStreamError(null);
@@ -114,6 +160,20 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
       setStreamError(err.message || "Could not access camera.");
     }
   };
+
+  // Fetch caller's saved snap groups so the audience picker can offer them.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snap-groups/`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        setGroups(data.groups || []);
+      } catch { /* fail-soft — the picker just shows an empty state. */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     // Proactive restriction check — avoids spinning up the camera at all if
@@ -254,9 +314,17 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
       form.append("media_type", mode);
       form.append("course_pk", String(course.id));
       form.append("caption", caption);
-      form.append("visibility", audienceType === "selected" ? "selected" : "all_friends");
+      // Visibility maps 1:1 to the backend's three modes. 'group' resolves
+      // server-side to the group's current member set (friend-gated).
+      const visibilityValue =
+        audienceType === "selected" ? "selected"
+        : audienceType === "group" ? "group"
+        : "all_friends";
+      form.append("visibility", visibilityValue);
       if (audienceType === "selected") {
         for (const id of selectedIds) form.append("audience_user_ids", String(id));
+      } else if (audienceType === "group" && selectedGroupId != null) {
+        form.append("group_id", String(selectedGroupId));
       }
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       form.append("timezone", tz);
@@ -306,6 +374,16 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
           maxHeight: "95vh",
         }}
       >
+        {/* Hidden file input fed by the "upload from library" affordances —
+            both the prominent button shown during streamError and the small
+            secondary link below the capture row click into this one input. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,video/mp4,video/quicktime,video/webm"
+          onChange={onPickFile}
+          style={{ display: 'none' }}
+        />
         {/* header */}
         <div className="flex items-center justify-between px-5 py-4">
           <button
@@ -336,9 +414,17 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
               <div className="relative px-3">
                 <div className="aspect-[4/5] rounded-2xl relative flex items-center justify-center overflow-hidden" style={{ background: '#2a2226' }}>
                   {streamError ? (
-                    <div className="text-white text-sm text-center px-6">
+                    <div className="text-white text-sm text-center px-6 flex flex-col items-center gap-3">
                       <p>camera blocked: {streamError}</p>
-                      <p className="text-white/60 text-xs mt-2">allow camera access in browser settings, then retry.</p>
+                      <p className="text-white/60 text-xs">allow camera access in browser settings, then retry — or pick a file from your library.</p>
+                      <button
+                        type="button"
+                        onClick={openLibrary}
+                        className="mt-2 px-4 py-2 rounded-full text-xs font-bold lowercase"
+                        style={{ background: T.coral, color: '#fff' }}
+                      >
+                        upload from library
+                      </button>
                     </div>
                   ) : (
                     <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
@@ -438,6 +524,37 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                   </button>
                 )}
               </div>
+
+              {/* Secondary library affordance — always visible (not only when
+                  camera errors) so users can choose their own file even when
+                  the camera is happily streaming. */}
+              {!recording && (
+                <div className="flex items-center justify-center pb-4">
+                  <button
+                    type="button"
+                    onClick={openLibrary}
+                    className="text-[11px] lowercase hover:opacity-90"
+                    style={{
+                      fontFamily: FF.mono,
+                      letterSpacing: 1,
+                      color: 'rgba(255,255,255,.55)',
+                      textDecoration: 'underline',
+                      textUnderlineOffset: 3,
+                    }}
+                  >
+                    or upload from library
+                  </button>
+                </div>
+              )}
+
+              {errorMsg && step === "capture" && (
+                <div
+                  className="mx-5 mb-4 text-xs p-3 rounded-2xl lowercase"
+                  style={{ background: 'rgba(237,106,74,.18)', color: '#fff', border: `1px solid ${T.coral}` }}
+                >
+                  {errorMsg}
+                </div>
+              )}
             </div>
           )}
 
@@ -493,7 +610,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
 
               <div>
                 <MonoLabel color="rgba(255,255,255,.6)">audience</MonoLabel>
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex gap-2 flex-wrap">
                   <button
                     onClick={() => setAudienceType("all")}
                     className="px-3 py-1.5 rounded-full text-xs font-medium"
@@ -514,7 +631,47 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                   >
                     selected
                   </button>
+                  <button
+                    onClick={() => setAudienceType("group")}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium"
+                    style={{
+                      background: audienceType === "group" ? T.coral : 'rgba(255,255,255,.08)',
+                      color: '#fff',
+                    }}
+                  >
+                    group
+                  </button>
                 </div>
+                {audienceType === "group" && (
+                  <div
+                    className="mt-2 rounded-2xl p-2 flex flex-wrap gap-1.5"
+                    style={{ background: 'rgba(255,255,255,.06)' }}
+                  >
+                    {groups.length === 0 ? (
+                      <p className="text-xs p-2" style={{ color: 'rgba(255,255,255,.55)' }}>
+                        no groups yet — create one in /profile to use this option.
+                      </p>
+                    ) : (
+                      groups.map((g) => {
+                        const picked = selectedGroupId === g.id;
+                        return (
+                          <button
+                            key={g.id}
+                            onClick={() => setSelectedGroupId(picked ? null : g.id)}
+                            className="px-2.5 py-1.5 rounded-full text-xs font-medium"
+                            style={{
+                              background: picked ? T.coral : 'rgba(255,255,255,.08)',
+                              color: '#fff',
+                              border: picked ? 'none' : '1px solid rgba(255,255,255,.15)',
+                            }}
+                          >
+                            {g.name} · {g.member_count}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
                 {audienceType === "selected" && (
                   <div
                     className="mt-2 max-h-40 overflow-y-auto rounded-2xl p-2 flex flex-col gap-1"
@@ -564,7 +721,11 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                 </button>
                 <button
                   onClick={submit}
-                  disabled={submitting || (audienceType === "selected" && selectedIds.size === 0)}
+                  disabled={
+                    submitting
+                    || (audienceType === "selected" && selectedIds.size === 0)
+                    || (audienceType === "group" && selectedGroupId == null)
+                  }
                   className="px-5 py-2 rounded-full text-sm font-bold disabled:opacity-50"
                   style={{ background: T.coral, color: '#fff' }}
                 >

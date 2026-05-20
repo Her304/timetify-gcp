@@ -869,7 +869,7 @@ class SnapUploadView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         visibility = (request.data.get("visibility") or Snap.VIS_ALL_FRIENDS).strip().lower()
-        if visibility not in (Snap.VIS_ALL_FRIENDS, Snap.VIS_SELECTED):
+        if visibility not in (Snap.VIS_ALL_FRIENDS, Snap.VIS_SELECTED, Snap.VIS_GROUP):
             return Response({"error": "Invalid visibility."}, status=status.HTTP_400_BAD_REQUEST)
 
         audience_ids = []
@@ -887,6 +887,27 @@ class SnapUploadView(APIView):
             if not set(audience_ids).issubset(my_friends):
                 return Response({"error": "Audience must contain only your friends."},
                                 status=status.HTTP_403_FORBIDDEN)
+        elif visibility == Snap.VIS_GROUP:
+            # Resolve the saved group → current member ids, intersected with the
+            # caller's current friend set. Non-friends at send time are silently
+            # dropped so a stale group doesn't leak content to ex-friends.
+            from .models import SnapGroup as _SG
+            group_id_raw = request.data.get("group_id")
+            try:
+                group_id = int(group_id_raw)
+            except (TypeError, ValueError):
+                return Response({"error": "group_id is required for visibility='group'."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            try:
+                group = _SG.objects.prefetch_related('members').get(pk=group_id, owner=request.user)
+            except _SG.DoesNotExist:
+                return Response({"error": "Snap group not found."},
+                                status=status.HTTP_404_NOT_FOUND)
+            my_friends = _friend_user_ids(request.user)
+            audience_ids = [m.user_id for m in group.members.all() if m.user_id in my_friends]
+            if not audience_ids:
+                return Response({"error": "This group has no current friends to share with."},
+                                status=status.HTTP_400_BAD_REQUEST)
 
         raw_caption = (request.data.get("caption") or "").strip()
         caption_words = raw_caption.split()
@@ -907,7 +928,7 @@ class SnapUploadView(APIView):
                     visibility=visibility,
                     expires_at=expires_at,
                 )
-                if visibility == Snap.VIS_SELECTED:
+                if visibility in (Snap.VIS_SELECTED, Snap.VIS_GROUP):
                     SnapAudience.objects.bulk_create([
                         SnapAudience(snap=snap, viewer_id=uid, has_viewed=False)
                         for uid in audience_ids
@@ -938,7 +959,7 @@ class SnapFeedView(APIView):
         qs = Snap.objects.filter(is_removed=False, expires_at__gt=now).filter(
             Q(uploader=me)
             | (Q(visibility=Snap.VIS_ALL_FRIENDS) & Q(uploader_id__in=friend_ids))
-            | (Q(visibility=Snap.VIS_SELECTED) & Q(id__in=selected_snap_ids))
+            | (Q(visibility__in=[Snap.VIS_SELECTED, Snap.VIS_GROUP]) & Q(id__in=selected_snap_ids))
         ).select_related("uploader", "course").order_by("course_id", "-created_at")
         if blocked_ids:
             qs = qs.exclude(uploader_id__in=blocked_ids)
@@ -981,7 +1002,7 @@ class SnapViewView(APIView):
         except Snap.DoesNotExist:
             return Response({"error": "Snap not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Authorization: uploader, allowlisted (selected), or a current friend (all_friends).
+        # Authorization: uploader, allowlisted (selected/group), or current friend (all_friends).
         if snap.uploader_id != me.id:
             allowed = False
             if snap.visibility == Snap.VIS_ALL_FRIENDS:
@@ -1020,6 +1041,13 @@ class NotificationsView(APIView):
 
     def get(self, request):
         me = request.user
+        # Per-user preferences gate which sections we surface. The row is
+        # auto-created with defaults on first read so existing users still
+        # get the usual payload until they explicitly opt out.
+        # NOTE: weekly_recap and quiet_hours_* persist only — no push/email
+        # pipeline yet, so they don't influence what comes back here.
+        from .models import NotificationPreference as _NP
+        prefs, _ = _NP.objects.get_or_create(user=me)
         now = timezone.now()
         today = now.date()
         day_map = {0: "MON", 1: "TUE", 2: "WED", 3: "THU", 4: "FRI", 5: "SAT", 6: "SUN"}
@@ -1041,41 +1069,45 @@ class NotificationsView(APIView):
             for req in pending
         ]
 
-        # 2. Unseen snaps from friends (not viewed by me, not expired)
+        # 2. Unseen snaps from friends (not viewed by me, not expired).
+        # Gate: prefs.snaps_from_friends=False → return [] without querying.
         friend_ids = _friend_user_ids(me)
-        selected_snap_ids = list(
-            SnapAudience.objects.filter(viewer=me).values_list("snap_id", flat=True)
-        )
-        feed_snaps = list(
-            Snap.objects.filter(is_removed=False, expires_at__gt=now)
-            .filter(
-                (Q(visibility=Snap.VIS_ALL_FRIENDS) & Q(uploader_id__in=friend_ids))
-                | (Q(visibility=Snap.VIS_SELECTED) & Q(id__in=selected_snap_ids))
+        new_snaps_data = []
+        if prefs.snaps_from_friends:
+            selected_snap_ids = list(
+                SnapAudience.objects.filter(viewer=me).values_list("snap_id", flat=True)
             )
-            .select_related("uploader", "course")
-        )
-        viewed_ids = set(
-            SnapAudience.objects.filter(
-                viewer=me, has_viewed=True, snap_id__in=[s.id for s in feed_snaps]
-            ).values_list("snap_id", flat=True)
-        )
-        new_snaps_data = [
-            {
-                "id": snap.id,
-                "uploader_id": snap.uploader_id,
-                "uploader_username": snap.uploader.username,
-                "course_code": snap.course.course_id,
-                "course_name": snap.course.course_name,
-                "media_type": snap.media_type,
-                "created_at": snap.created_at.isoformat(),
-            }
-            for snap in feed_snaps
-            if snap.id not in viewed_ids
-        ]
+            feed_snaps = list(
+                Snap.objects.filter(is_removed=False, expires_at__gt=now)
+                .filter(
+                    (Q(visibility=Snap.VIS_ALL_FRIENDS) & Q(uploader_id__in=friend_ids))
+                    | (Q(visibility__in=[Snap.VIS_SELECTED, Snap.VIS_GROUP]) & Q(id__in=selected_snap_ids))
+                )
+                .select_related("uploader", "course")
+            )
+            viewed_ids = set(
+                SnapAudience.objects.filter(
+                    viewer=me, has_viewed=True, snap_id__in=[s.id for s in feed_snaps]
+                ).values_list("snap_id", flat=True)
+            )
+            new_snaps_data = [
+                {
+                    "id": snap.id,
+                    "uploader_id": snap.uploader_id,
+                    "uploader_username": snap.uploader.username,
+                    "course_code": snap.course.course_id,
+                    "course_name": snap.course.course_name,
+                    "media_type": snap.media_type,
+                    "created_at": snap.created_at.isoformat(),
+                }
+                for snap in feed_snaps
+                if snap.id not in viewed_ids
+            ]
 
-        # 3. Live class alerts — courses happening right now with 3+ friends enrolled
+        # 3. Live class alerts — courses happening right now with 3+ friends enrolled.
+        # Gate: prefs.class_is_live=False → return [].
         live_class_alerts = []
-        if friend_ids:
+        if friend_ids and prefs.class_is_live:
             my_courses_today = list(
                 Course.objects.filter(user=me, start_date__lte=today, end_date__gte=today)
             )
@@ -1428,7 +1460,37 @@ class MessageListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        msg = Message.objects.create(room=room, sender=me, content=content)
+        # IG-style snap-reply: optional FK that the recipient sees as a
+        # thumbnail card above the bubble. We accept the snap_id if the caller
+        # can actually view the snap — re-uses the same authorization the
+        # SnapViewView already enforces (uploader / all_friends-via-friendship
+        # / explicit audience). Invalid/forbidden snaps silently drop the
+        # reference rather than 400ing the send.
+        replied_snap = None
+        snap_id_raw = request.data.get('replied_snap_id')
+        if snap_id_raw not in (None, '', 'null'):
+            try:
+                snap_id = int(snap_id_raw)
+            except (TypeError, ValueError):
+                snap_id = None
+            if snap_id:
+                try:
+                    candidate = Snap.objects.select_related('uploader').get(pk=snap_id)
+                except Snap.DoesNotExist:
+                    candidate = None
+                if candidate:
+                    is_uploader = candidate.uploader_id == me.id
+                    in_audience = SnapAudience.objects.filter(snap=candidate, viewer=me).exists()
+                    is_friend_all = (
+                        candidate.visibility == Snap.VIS_ALL_FRIENDS
+                        and candidate.uploader_id in _friend_user_ids(me)
+                    )
+                    if is_uploader or in_audience or is_friend_all:
+                        replied_snap = candidate
+
+        msg = Message.objects.create(
+            room=room, sender=me, content=content, replied_snap=replied_snap,
+        )
         return Response(
             MessageSerializer(msg, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
@@ -1763,3 +1825,156 @@ class AdminRunModerationView(APIView):
         from .moderation_pipeline import run_moderation_tick
         summary = run_moderation_tick()
         return Response(summary)
+
+
+# ---------------------------------------------------------------------------
+# Notification preferences + Snap groups
+# Read by /api/notifications/ (gating) and SnapUploadView (group expansion).
+# ---------------------------------------------------------------------------
+from .models import NotificationPreference, SnapGroup, SnapGroupMember
+from .serializers import (
+    NotificationPreferenceSerializer, SnapGroupSerializer,
+)
+
+
+class NotificationPreferenceView(APIView):
+    """GET / PATCH /api/notifications/preferences/.
+       Auto-creates the row with defaults on first read."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        return Response(NotificationPreferenceSerializer(prefs).data)
+
+    def patch(self, request):
+        prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        ser = NotificationPreferenceSerializer(prefs, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(ser.data)
+
+
+class SnapGroupListCreateView(APIView):
+    """GET /api/snap-groups/ — caller's groups (with members).
+       POST {name, member_ids[]} — friend-gated, dedups members."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        groups = (
+            SnapGroup.objects.filter(owner=request.user)
+            .prefetch_related('members__user')
+        )
+        return Response({"groups": SnapGroupSerializer(groups, many=True).data})
+
+    def post(self, request):
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            return Response({"error": "Group name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(name) > 50:
+            return Response({"error": "Group name must be ≤ 50 chars."}, status=status.HTTP_400_BAD_REQUEST)
+
+        raw_ids = request.data.get('member_ids') or []
+        if hasattr(request.data, 'getlist') and not raw_ids:
+            raw_ids = request.data.getlist('member_ids')
+        try:
+            member_ids = list({int(x) for x in raw_ids if str(x).strip()})
+        except (TypeError, ValueError):
+            return Response({"error": "member_ids must be integers."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Friend-gate every member up-front so a malformed payload can't seed
+        # the group with strangers.
+        if member_ids:
+            my_friends = _friend_user_ids(request.user)
+            stranger_ids = [uid for uid in member_ids if uid not in my_friends]
+            if stranger_ids:
+                return Response(
+                    {"error": "Members must be your friends.", "stranger_ids": stranger_ids},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        with transaction.atomic():
+            group = SnapGroup.objects.create(owner=request.user, name=name)
+            if member_ids:
+                SnapGroupMember.objects.bulk_create([
+                    SnapGroupMember(group=group, user_id=uid) for uid in member_ids
+                ])
+        group = SnapGroup.objects.prefetch_related('members__user').get(pk=group.pk)
+        return Response(SnapGroupSerializer(group).data, status=status.HTTP_201_CREATED)
+
+
+class SnapGroupDetailView(APIView):
+    """GET / PATCH / DELETE /api/snap-groups/<id>/.
+       PATCH currently only renames. Membership lives on its own endpoint."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get(self, request, pk):
+        try:
+            return SnapGroup.objects.prefetch_related('members__user').get(pk=pk, owner=request.user)
+        except SnapGroup.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        group = self._get(request, pk)
+        if not group:
+            return Response({"error": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(SnapGroupSerializer(group).data)
+
+    def patch(self, request, pk):
+        group = self._get(request, pk)
+        if not group:
+            return Response({"error": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        name = request.data.get('name')
+        if name is None:
+            return Response({"error": "Nothing to update."}, status=status.HTTP_400_BAD_REQUEST)
+        name = name.strip()
+        if not name:
+            return Response({"error": "Group name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(name) > 50:
+            return Response({"error": "Group name must be ≤ 50 chars."}, status=status.HTTP_400_BAD_REQUEST)
+        group.name = name
+        group.save(update_fields=['name', 'updated_at'])
+        return Response(SnapGroupSerializer(group).data)
+
+    def delete(self, request, pk):
+        group = self._get(request, pk)
+        if not group:
+            return Response({"error": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        group.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SnapGroupMemberAddView(APIView):
+    """POST /api/snap-groups/<id>/members/ — body {user_id}.
+       Idempotent: re-adding an existing member is a no-op."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            group = SnapGroup.objects.get(pk=pk, owner=request.user)
+        except SnapGroup.DoesNotExist:
+            return Response({"error": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            user_id = int(request.data.get('user_id'))
+        except (TypeError, ValueError):
+            return Response({"error": "user_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if user_id not in _friend_user_ids(request.user):
+            return Response({"error": "Member must be a friend."}, status=status.HTTP_403_FORBIDDEN)
+        SnapGroupMember.objects.get_or_create(group=group, user_id=user_id)
+        # Touch updated_at so the group sorts to the top of the list.
+        group.save(update_fields=['updated_at'])
+        group = SnapGroup.objects.prefetch_related('members__user').get(pk=group.pk)
+        return Response(SnapGroupSerializer(group).data, status=status.HTTP_200_OK)
+
+
+class SnapGroupMemberRemoveView(APIView):
+    """DELETE /api/snap-groups/<id>/members/<user_id>/."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk, user_id):
+        try:
+            group = SnapGroup.objects.get(pk=pk, owner=request.user)
+        except SnapGroup.DoesNotExist:
+            return Response({"error": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        SnapGroupMember.objects.filter(group=group, user_id=user_id).delete()
+        group.save(update_fields=['updated_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)

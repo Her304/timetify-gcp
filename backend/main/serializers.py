@@ -5,6 +5,7 @@ from .models import (
     Course, Week, Exam, Assignment, Friend, Snap, SnapAudience,
     ChatRoom, ChatRoomMember, Message,
     Report, AiReport, Appeal, UserBlock, FunctionRestriction,
+    NotificationPreference, SnapGroup, SnapGroupMember,
 )
 
 User = get_user_model()
@@ -197,19 +198,45 @@ class MessageSerializer(serializers.ModelSerializer):
     """One message row. `content` blanks out when soft-deleted so the
     frontend renders a `[message removed]` placeholder without leaking
     the original text (the column itself stays populated for future
-    moderation use)."""
+    moderation use). `replied_snap` is the IG-style story-reply reference;
+    once the snap is removed/expired/purged, the FK clears (SET_NULL) and
+    the block becomes None — the frontend then renders a muted placeholder."""
     sender_id = serializers.IntegerField(read_only=True)
     sender_username = serializers.CharField(source='sender.username', read_only=True)
     content = serializers.SerializerMethodField()
+    replied_snap = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = ['id', 'room', 'sender_id', 'sender_username', 'content',
-                  'is_removed', 'created_at']
+                  'replied_snap', 'is_removed', 'created_at']
         read_only_fields = fields
 
     def get_content(self, obj):
         return '' if obj.is_removed else obj.content
+
+    def get_replied_snap(self, obj):
+        snap = obj.replied_snap
+        if not snap:
+            # FK is null → either bare message or the snap row itself was hard-
+            # deleted (only happens manually; soft-delete keeps the row). Either
+            # way, render as a normal bubble.
+            return None
+        try:
+            thumb = snap.media_file.url if snap.media_file else None
+        except Exception:
+            thumb = None
+        caption = (snap.caption or '')[:80]
+        return {
+            "id": snap.id,
+            "uploader_username": snap.uploader.username,
+            "course_code": snap.course.course_id if snap.course_id else None,
+            "media_type": snap.media_type,
+            "thumbnail_url": thumb,
+            "caption_preview": caption,
+            "is_expired": (snap.media_file is None) or snap.is_removed,
+            "is_removed": snap.is_removed,
+        }
 
 
 class ChatRoomListSerializer(serializers.ModelSerializer):
@@ -412,3 +439,40 @@ class FunctionRestrictionSerializer(serializers.ModelSerializer):
             'expires_at', 'is_active', 'created_at',
         ]
         read_only_fields = fields
+
+
+class NotificationPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationPreference
+        fields = [
+            'snaps_from_friends', 'class_is_live', 'weekly_recap',
+            'quiet_hours_enabled', 'quiet_hours_start', 'quiet_hours_end',
+            'updated_at',
+        ]
+        read_only_fields = ['updated_at']
+
+
+class SnapGroupMemberSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='user.id', read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+    major = serializers.CharField(source='user.major', read_only=True)
+    grad_year = serializers.IntegerField(source='user.grad_year', read_only=True)
+
+    class Meta:
+        model = SnapGroupMember
+        fields = ['id', 'username', 'major', 'grad_year', 'added_at']
+        read_only_fields = fields
+
+
+class SnapGroupSerializer(serializers.ModelSerializer):
+    members = SnapGroupMemberSerializer(many=True, read_only=True)
+    member_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SnapGroup
+        fields = ['id', 'name', 'members', 'member_count', 'created_at', 'updated_at']
+        read_only_fields = fields
+
+    def get_member_count(self, obj):
+        # Cheap: members were prefetched by the view.
+        return len(obj.members.all())

@@ -1,6 +1,54 @@
 import { useState, useEffect, useCallback } from "react";
 import { authenticatedFetch } from "../../utils/api";
-import { T, FF, MonoLabel, Avatar, PillBtn, Blob, Star, Icon } from "@/components/shared/brand";
+import { T, FF, MonoLabel, Avatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
+
+// One toggle row inside the notifications section.
+function NotiRow({ title, hint, checked, onChange, busy }) {
+  return (
+    <div className="py-3 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-ink lowercase">{title}</div>
+        <div className="text-xs text-ink-60 mt-0.5 lowercase">{hint}</div>
+      </div>
+      <Toggle checked={checked} onChange={onChange} disabled={busy} />
+    </div>
+  );
+}
+
+// "22:00:00" → "10pm" — lowercase 12h with no minutes when :00.
+function formatHM(t) {
+  if (!t) return "";
+  const [hStr, mStr] = t.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  const ampm = h >= 12 ? "pm" : "am";
+  const h12 = ((h + 11) % 12) + 1;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2, "0")}${ampm}`;
+}
+
+// Accordion section: cream header w/ chevron, body fades in when open.
+function SettingsSection({ title, hint, open, onToggle, children }) {
+  return (
+    <div className="bg-white rounded-2xl border border-ink-8 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full px-5 py-4 flex items-center justify-between gap-3 text-left hover:bg-cream/40 transition-colors"
+      >
+        <div className="min-w-0">
+          <div className="text-lg leading-none lowercase" style={{ fontFamily: FF.serif, color: T.ink, letterSpacing: -0.3 }}>
+            {title}
+          </div>
+          {hint && (
+            <div className="text-xs text-ink-60 mt-1 lowercase">{hint}</div>
+          )}
+        </div>
+        <Icon name={open ? "chevU" : "chevD"} size={18} color={T.ink60} />
+      </button>
+      {open && <div className="px-5 pb-5 border-t border-ink-8 pt-4">{children}</div>}
+    </div>
+  );
+}
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -22,6 +70,25 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const [blocksLoading, setBlocksLoading] = useState(false);
   const [unblockingId, setUnblockingId] = useState(null);
 
+  // Which accordion section is open. Only one at a time keeps the page calm;
+  // the screenshot shows notifications expanded by default — matching that.
+  const [openSection, setOpenSection] = useState("notifications");
+
+  // Notification preferences — single row per user, auto-created server-side.
+  const [prefs, setPrefs] = useState(null);
+  const [prefsBusy, setPrefsBusy] = useState(false);
+
+  // Snap groups + friend list (for the create-group multi-select).
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupMembers, setNewGroupMembers] = useState(new Set());
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
+
   const fetchBlocks = useCallback(async () => {
     setBlocksLoading(true);
     try {
@@ -36,6 +103,151 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   }, []);
 
   useEffect(() => { fetchBlocks(); }, [fetchBlocks]);
+
+  // ── Notification preferences ──────────────────────────────────────────────
+  useEffect(() => {
+    const fetchPrefs = async () => {
+      try {
+        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/notifications/preferences/`);
+        if (res.ok) setPrefs(await res.json());
+      } catch (err) { console.error("Failed to fetch prefs", err); }
+    };
+    fetchPrefs();
+  }, []);
+
+  const patchPrefs = async (patch) => {
+    if (!prefs) return;
+    // Optimistic — flip the switch immediately, revert on server error.
+    const prev = prefs;
+    setPrefs({ ...prefs, ...patch });
+    setPrefsBusy(true);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/notifications/preferences/`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) setPrefs(await res.json());
+      else setPrefs(prev);
+    } catch {
+      setPrefs(prev);
+    } finally {
+      setPrefsBusy(false);
+    }
+  };
+
+  // ── Snap groups + friend list ────────────────────────────────────────────
+  const fetchGroups = useCallback(async () => {
+    setGroupsLoading(true);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snap-groups/`);
+      if (res.ok) {
+        const data = await res.json();
+        setGroups(data.groups || []);
+      }
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchGroups(); }, [fetchGroups]);
+
+  useEffect(() => {
+    const fetchFriends = async () => {
+      try {
+        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friends/`);
+        if (res.ok) {
+          const data = await res.json();
+          const flat = (data || [])
+            .map((row) => row.friend_details)
+            .filter(Boolean);
+          setFriends(flat);
+        }
+      } catch (err) { console.error("Failed to fetch friends", err); }
+    };
+    fetchFriends();
+  }, []);
+
+  const toggleNewGroupMember = (id) => {
+    setNewGroupMembers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleCreateGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    setCreatingGroup(true);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snap-groups/`, {
+        method: "POST",
+        body: JSON.stringify({ name, member_ids: Array.from(newGroupMembers) }),
+      });
+      if (res.ok) {
+        const newGroup = await res.json();
+        setGroups((prev) => [newGroup, ...prev]);
+        setNewGroupName("");
+        setNewGroupMembers(new Set());
+        setShowNewGroup(false);
+      }
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
+  const handleRenameGroup = async (groupId) => {
+    const name = editingGroupName.trim();
+    if (!name) return;
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snap-groups/${groupId}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setGroups((prev) => prev.map((g) => (g.id === groupId ? updated : g)));
+        setEditingGroupId(null);
+        setEditingGroupName("");
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    if (!window.confirm("delete this group?")) return;
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snap-groups/${groupId}/`, {
+        method: "DELETE",
+      });
+      if (res.ok) setGroups((prev) => prev.filter((g) => g.id !== groupId));
+    } catch (err) { console.error(err); }
+  };
+
+  const handleToggleMember = async (group, friendId) => {
+    const isMember = group.members.some((m) => m.id === friendId);
+    try {
+      const res = await authenticatedFetch(
+        `${import.meta.env.VITE_API_URL}/api/snap-groups/${group.id}/members/${isMember ? friendId + "/" : ""}`,
+        isMember
+          ? { method: "DELETE" }
+          : { method: "POST", body: JSON.stringify({ user_id: friendId }) },
+      );
+      if (res.ok) {
+        if (isMember) {
+          setGroups((prev) =>
+            prev.map((g) =>
+              g.id === group.id
+                ? { ...g, members: g.members.filter((m) => m.id !== friendId), member_count: g.member_count - 1 }
+                : g,
+            ),
+          );
+        } else {
+          const updated = await res.json();
+          setGroups((prev) => prev.map((g) => (g.id === group.id ? updated : g)));
+        }
+      }
+    } catch (err) { console.error(err); }
+  };
 
   const handleUnblock = async (blockId) => {
     setUnblockingId(blockId);
@@ -182,9 +394,9 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
           </div>
         </div>
 
-        {/* Edit form column / details */}
-        <div className="bg-white rounded-3xl border border-ink-8 p-6">
-          {isEditing ? (
+        {/* Edit form column / accordion settings */}
+        {isEditing ? (
+          <div className="bg-white rounded-3xl border border-ink-8 p-6">
             <div className="space-y-4">
               <MonoLabel>edit details</MonoLabel>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -223,9 +435,16 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                 </PillBtn>
               </div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <MonoLabel>profile details</MonoLabel>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Profile details (collapsed by default) */}
+            <SettingsSection
+              title="profile details"
+              hint="username, email, school"
+              open={openSection === "profile"}
+              onToggle={() => setOpenSection(openSection === "profile" ? null : "profile")}
+            >
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <div>
                   <MonoLabel fs={10}>username</MonoLabel>
@@ -247,14 +466,244 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                   <MonoLabel fs={10}>grad year</MonoLabel>
                   <p className="text-sm text-ink mt-1" style={{ fontFamily: FF.mono }}>{currentUser.grad_year || '—'}</p>
                 </div>
-                <div>
-                  <MonoLabel fs={10}>member since</MonoLabel>
-                  <p className="text-sm text-ink mt-1" style={{ fontFamily: FF.mono }}>—</p>
-                </div>
               </div>
-            </div>
-          )}
-        </div>
+              <div className="mt-4">
+                <PillBtn onClick={handleEdit} bg={T.ink} fg="#fff" size="sm">edit profile</PillBtn>
+              </div>
+            </SettingsSection>
+
+            {/* Notifications */}
+            <SettingsSection
+              title="notifications"
+              hint="push, email, quiet hours"
+              open={openSection === "notifications"}
+              onToggle={() => setOpenSection(openSection === "notifications" ? null : "notifications")}
+            >
+              {!prefs ? (
+                <div className="space-y-3">
+                  <div className="h-12 bg-ink-8 animate-pulse rounded-xl" />
+                  <div className="h-12 bg-ink-8 animate-pulse rounded-xl" />
+                </div>
+              ) : (
+                <div className="divide-y divide-ink-8">
+                  <NotiRow
+                    title="snaps from friends"
+                    hint="ping me whenever a friend snaps"
+                    checked={prefs.snaps_from_friends}
+                    onChange={(v) => patchPrefs({ snaps_from_friends: v })}
+                    busy={prefsBusy}
+                  />
+                  <NotiRow
+                    title="class is live"
+                    hint="when 3+ friends are in a class u're in"
+                    checked={prefs.class_is_live}
+                    onChange={(v) => patchPrefs({ class_is_live: v })}
+                    busy={prefsBusy}
+                  />
+                  <NotiRow
+                    title="weekly recap"
+                    hint="every sunday, ur week in numbers"
+                    checked={prefs.weekly_recap}
+                    onChange={(v) => patchPrefs({ weekly_recap: v })}
+                    busy={prefsBusy}
+                  />
+                  <div className="py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-ink lowercase">quiet hours</div>
+                        <div className="text-xs text-ink-60 mt-0.5 lowercase">
+                          {prefs.quiet_hours_enabled
+                            ? `${formatHM(prefs.quiet_hours_start)} – ${formatHM(prefs.quiet_hours_end)} · no pings except direct replies`
+                            : "off"}
+                        </div>
+                      </div>
+                      <Toggle
+                        checked={prefs.quiet_hours_enabled}
+                        onChange={(v) => patchPrefs({ quiet_hours_enabled: v })}
+                        disabled={prefsBusy}
+                      />
+                    </div>
+                    {prefs.quiet_hours_enabled && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <label className="text-xs text-ink-60 lowercase" style={{ fontFamily: FF.mono }}>
+                          from
+                          <input
+                            type="time"
+                            value={prefs.quiet_hours_start?.slice(0, 5) || "22:00"}
+                            onChange={(e) => patchPrefs({ quiet_hours_start: `${e.target.value}:00` })}
+                            className="ml-2 px-2 py-1 border border-ink-15 rounded-full text-xs outline-none focus:border-coral"
+                          />
+                        </label>
+                        <label className="text-xs text-ink-60 lowercase" style={{ fontFamily: FF.mono }}>
+                          to
+                          <input
+                            type="time"
+                            value={prefs.quiet_hours_end?.slice(0, 5) || "08:00"}
+                            onChange={(e) => patchPrefs({ quiet_hours_end: `${e.target.value}:00` })}
+                            className="ml-2 px-2 py-1 border border-ink-15 rounded-full text-xs outline-none focus:border-coral"
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </SettingsSection>
+
+            {/* Snap groups */}
+            <SettingsSection
+              title="snap groups"
+              hint="share snaps with a saved crew"
+              open={openSection === "groups"}
+              onToggle={() => setOpenSection(openSection === "groups" ? null : "groups")}
+            >
+              {groupsLoading ? (
+                <div className="space-y-3">
+                  <div className="h-12 bg-ink-8 animate-pulse rounded-xl" />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groups.length === 0 && !showNewGroup && (
+                    <p className="text-sm text-ink-60 lowercase">no groups yet — make one to share snaps with just a crew.</p>
+                  )}
+                  {groups.map((g) => (
+                    <div key={g.id} className="bg-cream rounded-xl border border-ink-8 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        {editingGroupId === g.id ? (
+                          <input
+                            value={editingGroupName}
+                            onChange={(e) => setEditingGroupName(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleRenameGroup(g.id)}
+                            autoFocus
+                            className={inputClasses}
+                            style={{ maxWidth: 220 }}
+                          />
+                        ) : (
+                          <div className="min-w-0">
+                            <div className="text-base lowercase" style={{ fontFamily: FF.serif, color: T.ink, letterSpacing: -0.3 }}>{g.name}</div>
+                            <div className="text-[10px] text-ink-60 mt-0.5" style={{ fontFamily: FF.mono, letterSpacing: 0.4 }}>
+                              {g.member_count} {g.member_count === 1 ? "member" : "members"}
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          {editingGroupId === g.id ? (
+                            <>
+                              <button
+                                onClick={() => handleRenameGroup(g.id)}
+                                className="px-2.5 py-1 rounded-full text-xs font-semibold lowercase"
+                                style={{ background: T.coral, color: "#fff" }}
+                              >save</button>
+                              <button
+                                onClick={() => { setEditingGroupId(null); setEditingGroupName(""); }}
+                                className="px-2.5 py-1 rounded-full text-xs lowercase"
+                                style={{ background: "#fff", color: T.ink, border: `1px solid ${T.ink15}` }}
+                              >cancel</button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => { setEditingGroupId(g.id); setEditingGroupName(g.name); }}
+                                className="p-1.5 rounded-full hover:bg-ink-8 transition-colors"
+                                aria-label="rename"
+                              ><Icon name="edit" size={14} color={T.ink60} /></button>
+                              <button
+                                onClick={() => handleDeleteGroup(g.id)}
+                                className="p-1.5 rounded-full hover:bg-ink-8 transition-colors"
+                                aria-label="delete"
+                              ><Icon name="trash" size={14} color={T.ink60} /></button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {/* Member chips with toggle behavior */}
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {friends.map((f) => {
+                          const inGroup = g.members.some((m) => m.id === f.id);
+                          return (
+                            <button
+                              key={f.id}
+                              onClick={() => handleToggleMember(g, f.id)}
+                              className="px-2.5 py-1 rounded-full text-xs lowercase transition-colors"
+                              style={{
+                                background: inGroup ? T.coral : "#fff",
+                                color: inGroup ? "#fff" : T.ink60,
+                                border: `1px solid ${inGroup ? T.coral : T.ink15}`,
+                              }}
+                            >
+                              {f.username}
+                            </button>
+                          );
+                        })}
+                        {friends.length === 0 && (
+                          <p className="text-xs text-ink-40 lowercase">add friends first.</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {showNewGroup ? (
+                    <div className="bg-cream rounded-xl border border-ink-8 p-3 space-y-3">
+                      <input
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        placeholder="group name (e.g. study buddies)"
+                        className={inputClasses}
+                        maxLength={50}
+                      />
+                      {friends.length === 0 ? (
+                        <p className="text-xs text-ink-40 lowercase">add friends first.</p>
+                      ) : (
+                        <div>
+                          <div className="text-xs text-ink-60 lowercase mb-2" style={{ fontFamily: FF.mono, letterSpacing: 0.4 }}>
+                            pick members ({newGroupMembers.size})
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {friends.map((f) => {
+                              const picked = newGroupMembers.has(f.id);
+                              return (
+                                <button
+                                  key={f.id}
+                                  onClick={() => toggleNewGroupMember(f.id)}
+                                  className="px-2.5 py-1 rounded-full text-xs lowercase transition-colors"
+                                  style={{
+                                    background: picked ? T.coral : "#fff",
+                                    color: picked ? "#fff" : T.ink60,
+                                    border: `1px solid ${picked ? T.coral : T.ink15}`,
+                                  }}
+                                >
+                                  {f.username}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <PillBtn onClick={handleCreateGroup} disabled={creatingGroup || !newGroupName.trim()} bg={T.coral} fg="#fff" size="sm">
+                          {creatingGroup ? "creating…" : "create group"}
+                        </PillBtn>
+                        <PillBtn
+                          onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupMembers(new Set()); }}
+                          bg="#fff" fg={T.ink} size="sm"
+                          style={{ border: `1px solid ${T.ink15}` }}
+                        >cancel</PillBtn>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowNewGroup(true)}
+                      className="w-full py-2.5 rounded-full text-sm font-semibold lowercase hover:bg-ink-8 transition-colors"
+                      style={{ background: "#fff", color: T.ink, border: `1px dashed ${T.ink15}` }}
+                    >
+                      + new group
+                    </button>
+                  )}
+                </div>
+              )}
+            </SettingsSection>
+          </div>
+        )}
       </div>
 
       {/* My Weekly Schedule */}

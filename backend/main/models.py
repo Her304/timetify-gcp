@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 
@@ -128,7 +130,12 @@ class Snap(models.Model):
 
     VIS_ALL_FRIENDS = 'all_friends'
     VIS_SELECTED = 'selected'
-    VIS_CHOICES = [(VIS_ALL_FRIENDS, 'All friends'), (VIS_SELECTED, 'Selected friends')]
+    VIS_GROUP = 'group'
+    VIS_CHOICES = [
+        (VIS_ALL_FRIENDS, 'All friends'),
+        (VIS_SELECTED, 'Selected friends'),
+        (VIS_GROUP, 'Snap group'),
+    ]
 
     uploader = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='snaps')
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='snaps')
@@ -213,6 +220,11 @@ class Message(models.Model):
     sender = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='messages_sent')
     content = models.TextField()
     reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
+    # IG-style snap-reply. When set, the chat bubble renders a snap thumbnail
+    # card above the text. SET_NULL so the message survives the snap's lifecycle
+    # (uploader delete, expiry purge, moderation removal); the UI degrades to a
+    # 'snap expired' placeholder once the FK clears.
+    replied_snap = models.ForeignKey(Snap, on_delete=models.SET_NULL, null=True, blank=True, related_name='replies_in_chat')
     is_removed = models.BooleanField(default=False)
     removed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -384,3 +396,59 @@ class UserBlock(models.Model):
 
     def __str__(self):
         return f"{self.blocker.username} ⛔ {self.blocked.username}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Settings & sharing: NotificationPreference + SnapGroup.
+# NotificationPreference is read by NotificationsView to filter sections;
+# weekly_recap and quiet_hours_* are stored only — gated push/email isn't wired
+# yet, see views.py and CLAUDE.md for the current behavior.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class NotificationPreference(models.Model):
+    user = models.OneToOneField(
+        CustomUser, on_delete=models.CASCADE, related_name='noti_prefs'
+    )
+    snaps_from_friends = models.BooleanField(default=True)
+    class_is_live = models.BooleanField(default=True)
+    weekly_recap = models.BooleanField(default=False)
+    quiet_hours_enabled = models.BooleanField(default=False)
+    quiet_hours_start = models.TimeField(default=time(22, 0))
+    quiet_hours_end = models.TimeField(default=time(8, 0))
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"NotiPrefs({self.user.username})"
+
+
+class SnapGroup(models.Model):
+    owner = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='snap_groups'
+    )
+    name = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        indexes = [models.Index(fields=['owner', '-updated_at'])]
+
+    def __str__(self):
+        return f"SnapGroup #{self.pk} {self.owner.username}:{self.name}"
+
+
+class SnapGroupMember(models.Model):
+    group = models.ForeignKey(
+        SnapGroup, on_delete=models.CASCADE, related_name='members'
+    )
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='snap_group_memberships'
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('group', 'user')
+        indexes = [models.Index(fields=['group', 'user'])]
+
+    def __str__(self):
+        return f"{self.user.username} ∈ group #{self.group_id}"
