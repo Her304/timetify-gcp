@@ -7,6 +7,58 @@ import ReportModal from "@/components/shared/ReportModal";
 
 const MAX_LEN = 2000;
 const COUNTER_THRESHOLD = 1800;
+
+// Resolve relative /media/... URLs the same way SnapViewerModal does, so
+// thumbnails work in local dev and pass through in prod.
+const resolveSnapUrl = (url) => {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${import.meta.env.VITE_API_URL}${url}`;
+};
+
+// IG-style reply preview shown above a message bubble whose `replied_snap`
+// is set. Compact 4:5 thumb + course chip + 50-char caption snippet. When the
+// snap is gone (media purged or is_removed), the thumb slot is a muted "snap
+// expired" placeholder so the reply still has context.
+function SnapReplyCard({ snap, mine }) {
+  if (!snap) return null;
+  const expired = !!(snap.is_expired || snap.is_removed);
+  const thumbUrl = expired ? null : resolveSnapUrl(snap.thumbnail_url);
+  return (
+    <div
+      className="mb-1 flex items-stretch gap-2 rounded-xl overflow-hidden max-w-[240px]"
+      style={{
+        background: mine ? 'rgba(237,106,74,.12)' : T.ink08,
+        border: `1px solid ${mine ? 'rgba(237,106,74,.35)' : T.ink15}`,
+      }}
+    >
+      <div
+        className="flex-shrink-0 flex items-center justify-center"
+        style={{ width: 44, height: 56, background: '#000' }}
+      >
+        {thumbUrl && snap.media_type === 'photo' && (
+          <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
+        )}
+        {thumbUrl && snap.media_type === 'video' && (
+          <video src={thumbUrl} muted preload="metadata" className="w-full h-full object-cover" />
+        )}
+        {!thumbUrl && (
+          <span className="text-[8px] uppercase tracking-widest text-white/60" style={{ fontFamily: FF.mono }}>
+            ×
+          </span>
+        )}
+      </div>
+      <div className="flex-1 py-1.5 pr-2 min-w-0">
+        <div className="text-[9px] uppercase tracking-widest leading-none" style={{ color: T.ink60, fontFamily: FF.mono }}>
+          {expired ? 'snap · expired' : `snap · ${snap.course_code || ''}`.trim()}
+        </div>
+        <div className="text-[11px] mt-0.5 lowercase truncate" style={{ color: T.ink, fontFamily: FF.sans }}>
+          {expired ? 'this snap is no longer available' : (snap.caption_preview || `@${snap.uploader_username}`)}
+        </div>
+      </div>
+    </div>
+  );
+}
 const POLL_INTERVAL = 5000;
 const TIMESTAMP_GAP_MS = 5 * 60 * 1000;
 const TEXTAREA_LINE_PX = 22;
@@ -76,7 +128,8 @@ const Bubble = ({ msg, mine, showTime, onRetry, onReport }) => {
 
   if (msg.is_removed) {
     return (
-      <div className={`flex ${mine ? "justify-end" : "justify-start"} px-1`}>
+      <div className={`flex flex-col ${mine ? "items-end" : "items-start"} px-1`}>
+        {msg.replied_snap && <SnapReplyCard snap={msg.replied_snap} mine={mine} />}
         <div
           className="px-3 py-2 rounded-2xl max-w-[78%] italic text-sm leading-snug"
           style={{ color: T.ink40, background: T.ink08, fontFamily: FF.sans }}
@@ -89,6 +142,7 @@ const Bubble = ({ msg, mine, showTime, onRetry, onReport }) => {
 
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"} px-1 group`}>
+      {msg.replied_snap && <SnapReplyCard snap={msg.replied_snap} mine={mine} />}
       <div className={`flex items-end gap-1.5 max-w-[88%] ${mine ? "flex-row-reverse" : ""}`}>
         <div
           className="px-3.5 py-2 rounded-2xl whitespace-pre-wrap break-words text-[15px] leading-snug"

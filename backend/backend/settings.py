@@ -292,8 +292,9 @@ ANYMAIL = {
     "RESEND_API_KEY": os.environ.get("Resend_API_KEY") or os.environ.get("RESEND_API_KEY"),
     "IGNORE_RECIPIENT_STATUS": False,
 }
-# Use onboarding@resend.dev for testing if you haven't verified a domain yet
-DEFAULT_FROM_EMAIL = "onboarding@resend.dev" 
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "onboarding@resend.dev")
+MODERATION_FROM_EMAIL = os.environ.get("MODERATION_FROM_EMAIL") or DEFAULT_FROM_EMAIL
+MODERATION_ADMIN_EMAIL = os.environ.get("MODERATION_ADMIN_EMAIL")
 PASSWORD_RESET_TIMEOUT = 86400
 
 CSRF_TRUSTED_ORIGINS = [

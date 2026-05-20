@@ -119,6 +119,49 @@ export function Chip({ children, active = false, color = T.ink, bg = '#fff', dot
   );
 }
 
+// iOS-style toggle. Coral when on, ink-15 when off. Sliding white knob.
+export function Toggle({ checked = false, onChange, disabled = false, size = 'md', ariaLabel }) {
+  const w = size === 'sm' ? 36 : 44;
+  const h = size === 'sm' ? 20 : 24;
+  const knob = h - 4;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={() => !disabled && onChange?.(!checked)}
+      style={{
+        width: w,
+        height: h,
+        borderRadius: 9999,
+        background: checked ? T.coral : T.ink15,
+        position: 'relative',
+        transition: 'background 0.18s ease',
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          width: knob,
+          height: knob,
+          borderRadius: 9999,
+          background: '#fff',
+          boxShadow: '0 1px 2px rgba(0,0,0,.15)',
+          position: 'absolute',
+          top: 2,
+          left: checked ? w - knob - 2 : 2,
+          transition: 'left 0.18s ease',
+        }}
+      />
+    </button>
+  );
+}
+
 // Single-stroke lucide-ish icon set
 export const Icon = ({ name, size = 20, color = 'currentColor', stroke = 1.8, style = {} }) => {
   const p = {
@@ -171,7 +214,7 @@ export function AppMark({ size = 64, decor, shadow = false, style = {} }) {
   const tSize  = size * (110 / 132);
   const tMt    = size * (-6 / 132);
   const tMl    = size * (-2 / 132);
-  const showDecor = decor === undefined ? size >= 36 : decor;
+  const showDecor = decor === undefined ? size >= 20 : decor;
   const limeS  = size * (80 / 132);
   const lilacS = size * (64 / 132);
   return (

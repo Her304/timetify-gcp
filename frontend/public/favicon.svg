@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 132">
+  <defs>
+    <clipPath id="c">
+      <rect width="132" height="132" rx="34" ry="34"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#c)">
+    <rect width="132" height="132" fill="#ED6A4A"/>
+    <!-- lime blob bottom-right: seed=2, size=80, position bottom:-22 right:-18 -->
+    <path d="M45 0 Q92 8 96 48 T58 97 Q8 92 3 52 T45 0"
+          fill="#C9EE6F" opacity="0.9"
+          transform="translate(70,74) scale(0.8)"/>
+    <!-- lilac blob top-left: seed=1, size=64, position top:-17.92 left:-16 -->
+    <path d="M50 2 Q95 12 90 55 T48 96 Q4 88 8 48 T50 2"
+          fill="#C8B0DF" opacity="0.95"
+          transform="translate(-16,-18) scale(0.64)"/>
+    <!-- t — baseline at y=105 for visual centering of the ascender-heavy glyph -->
+    <text x="64" y="105"
+          text-anchor="middle"
+          font-family="Bricolage Grotesque, Georgia, serif"
+          font-weight="400"
+          font-size="110"
+          fill="white">t</text>
+  </g>
+</svg>

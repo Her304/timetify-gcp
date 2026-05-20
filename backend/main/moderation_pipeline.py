@@ -528,13 +528,45 @@ def _process_third_loop(report: Report) -> str:
     return 'v3_appeal_upheld'
 
 
-def cleanup_expired_snaps() -> int:
-    """Phase 9: same cron sweeps expired snaps. Soft-deletes any non-removed
-    snap whose `expires_at` is in the past. GCS object purge is intentionally
-    NOT done here — the storage class lifecycle policy handles bulk cleanup."""
-    now = timezone.now()
-    expired = Snap.objects.filter(is_removed=False, expires_at__lt=now)
-    count = expired.update(is_removed=True)
+SNAP_MEDIA_RETENTION_DAYS = 30
+
+
+def purge_snap_media() -> int:
+    """Phase 9: hard-delete snap media (GCS blob) for any snap created more
+    than `SNAP_MEDIA_RETENTION_DAYS` ago, EXCEPT for snaps tied to an
+    in-flight moderation case — those keep their evidence intact until the
+    case terminates and the next sweep can purge.
+
+    The DB row stays as a tombstone (caption + audience + Report FKs intact);
+    only `media_file` is cleared. Naturally-expired snaps are already invisible
+    via `SnapFeedView`'s `expires_at__gt=now` filter, so we deliberately do
+    NOT flip `is_removed` here — that flag is reserved for user/moderation
+    removals (semantic clarity for admins reading the SnapAdmin list filter).
+    """
+    cutoff = timezone.now() - timedelta(days=SNAP_MEDIA_RETENTION_DAYS)
+    in_flight_statuses = [
+        Report.STATUS_PENDING, Report.STATUS_AI_REPORTED,
+        Report.STATUS_APPEAL_PENDING, Report.STATUS_APPEAL_ANALYZED,
+        Report.STATUS_THIRD_LOOP,
+    ]
+    candidates = (
+        Snap.objects
+        .filter(created_at__lt=cutoff)
+        .exclude(media_file='')
+        .exclude(reports__status__in=in_flight_statuses)
+    )
+    count = 0
+    for snap in candidates.iterator():
+        try:
+            snap.media_file.delete(save=False)
+        except Exception:
+            logger.exception("snap blob delete failed pk=%s", snap.pk)
+            continue
+        # `media_file.delete(save=False)` only clears the bound name on the
+        # field instance; persist that to the DB explicitly.
+        snap.media_file = ''
+        snap.save(update_fields=['media_file'])
+        count += 1
     return count
 
 
@@ -555,7 +587,7 @@ def run_moderation_tick() -> dict:
     single bad row can't block the rest of the queue."""
     summary = {
         'pending': 0, 'appeal_pending': 0, 'third_loop': 0,
-        'snaps_expired': 0, 'restrictions_expired': 0,
+        'snap_media_purged': 0, 'restrictions_expired': 0,
         'errors': 0,
     }
 
@@ -586,6 +618,6 @@ def run_moderation_tick() -> dict:
             logger.exception("moderation: third_loop #%s failed", r.pk)
             summary['errors'] += 1
 
-    summary['snaps_expired'] = cleanup_expired_snaps()
+    summary['snap_media_purged'] = purge_snap_media()
     summary['restrictions_expired'] = deactivate_expired_restrictions()
     return summary

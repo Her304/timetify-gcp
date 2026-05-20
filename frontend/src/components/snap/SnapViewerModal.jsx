@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { authenticatedFetch } from "@/utils/api";
 import { T, FF, Icon, Avatar } from "@/components/shared/brand";
 import ReportModal from "@/components/shared/ReportModal";
@@ -8,6 +9,10 @@ const resolveMediaUrl = (url) => {
   if (/^https?:\/\//i.test(url)) return url;
   return `${import.meta.env.VITE_API_URL}${url}`;
 };
+
+// Mirrors the backend MESSAGE_MAX_LEN cap. Server already enforces; we soft-
+// cap at the textarea so the user gets a hint at ~1800 chars instead of a 400.
+const MESSAGE_MAX_LEN = 2000;
 
 const timeAgo = (iso) => {
   if (!iso) return "";
@@ -61,9 +66,30 @@ export default function SnapViewerModal({
   const [idx, setIdx] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState(null);
+  // Inline IG-story reply state. `replyOpen` slides the input panel up over
+  // the footer; `replyText` is the buffer; `sending` blocks double-submits;
+  // `sentToast` triggers the fade-in 'sent ✓' chip for ~1.4s after success.
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sentToast, setSentToast] = useState(false);
+  const [sentRoomId, setSentRoomId] = useState(null);
   const touchStartX = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => { setIdx(0); }, [snaps]);
+
+  // Reset the inline reply panel when the user pages to a different snap or
+  // the modal is reopened. Stops a half-typed reply from leaking across snaps.
+  useEffect(() => {
+    setReplyOpen(false);
+    setReplyText("");
+    setSentToast(false);
+    setSentRoomId(null);
+    setChatError(null);
+  }, [idx, snaps]);
 
   const current = ordered[idx];
   const currentId = current ? current.id : null;
@@ -97,6 +123,106 @@ export default function SnapViewerModal({
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
     touchStartX.current = null;
+  };
+
+  // Reveal the inline reply input over the footer. Open-or-get the DM up
+  // front so we can show a friend-gated error early and have the room id
+  // ready when the user hits send.
+  const openReplyPanel = async () => {
+    if (!current || current.is_mine || chatLoading) return;
+    setReplyOpen(true);
+    setChatError(null);
+    // Skip the lookup if we already resolved the DM for this snap session.
+    if (sentRoomId) return;
+    setChatLoading(true);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/chats/`, {
+        method: "POST",
+        body: JSON.stringify({ friend_id: current.uploader }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.detail === "not_friends") setChatError("can't reply — not friends");
+        else if (data.detail === "blocked") setChatError("messaging blocked");
+        else setChatError("couldn't open chat");
+        setReplyOpen(false);
+        return;
+      }
+      setSentRoomId(data.id);
+    } catch {
+      setChatError("network error");
+      setReplyOpen(false);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // Send the reply: POST to /api/chats/<roomId>/messages/ with the snap's
+  // id as replied_snap_id so the recipient sees a thumbnail card above the
+  // bubble. On success: collapse the input, brief 'sent ✓' toast, keep the
+  // viewer open. Errors surface inline.
+  const sendReply = async () => {
+    const text = replyText.trim();
+    if (!text || sending || !sentRoomId) return;
+    setSending(true);
+    setChatError(null);
+    try {
+      const res = await authenticatedFetch(
+        `${import.meta.env.VITE_API_URL}/api/chats/${sentRoomId}/messages/`,
+        {
+          method: "POST",
+          body: JSON.stringify({ content: text, replied_snap_id: current.id }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.detail === "blocked") setChatError("messaging blocked");
+        else if (data.detail === "restricted") setChatError("messaging restricted");
+        else setChatError(data.detail || "send failed");
+        setSending(false);
+        return;
+      }
+      setReplyText("");
+      setReplyOpen(false);
+      setSentToast(true);
+      window.setTimeout(() => setSentToast(false), 1400);
+    } catch {
+      setChatError("network error");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Escape hatch — same shape as the previous flow, kept so a user who really
+  // wants the thread can still get there from the small 'view chat →' link.
+  const openChatWithUploader = async () => {
+    if (!current || current.is_mine) return;
+    if (sentRoomId) {
+      onClose();
+      navigate(`/chat/${sentRoomId}`);
+      return;
+    }
+    setChatLoading(true);
+    setChatError(null);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/chats/`, {
+        method: "POST",
+        body: JSON.stringify({ friend_id: current.uploader }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.detail === "not_friends") setChatError("can't chat — not friends");
+        else if (data.detail === "blocked") setChatError("messaging blocked");
+        else setChatError("couldn't open chat");
+        setChatLoading(false);
+        return;
+      }
+      onClose();
+      navigate(`/chat/${data.id}`);
+    } catch {
+      setChatError("network error");
+      setChatLoading(false);
+    }
   };
 
   const deleteSnap = async () => {
@@ -175,7 +301,7 @@ export default function SnapViewerModal({
       )}
 
       <div
-        className="w-full flex flex-col overflow-hidden rounded-3xl"
+        className="w-full flex flex-col overflow-hidden rounded-3xl relative"
         style={{
           background: T.ink, color: '#fff',
           maxWidth: "min(95vw, calc((100vh - 12rem) * 4 / 5))",
@@ -270,13 +396,22 @@ export default function SnapViewerModal({
           ) : (
             <>
               <button
-                disabled
-                title="Coming soon"
-                className="px-3 py-2 rounded-full text-xs font-medium cursor-not-allowed lowercase"
-                style={{ background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.55)' }}
+                onClick={openReplyPanel}
+                disabled={chatLoading}
+                className="px-3 py-2 rounded-full text-xs font-medium lowercase flex items-center gap-1.5 disabled:opacity-60 hover:opacity-90 transition-opacity"
+                style={{ background: 'rgba(255,255,255,.08)', color: '#fff', border: '1px solid rgba(255,255,255,.16)' }}
               >
-                chat w/ @{current.uploader_username}
+                <Icon name="msg" size={11} color="#fff" />
+                {chatLoading ? "opening…" : `reply to @${current.uploader_username}`}
               </button>
+              {chatError && (
+                <span
+                  className="text-[10px] lowercase px-2 py-1 rounded-full self-center"
+                  style={{ background: 'rgba(237,106,74,.18)', color: '#fff', border: `1px solid ${T.coral}`, fontFamily: FF.mono, letterSpacing: 0.4 }}
+                >
+                  {chatError}
+                </span>
+              )}
               <button
                 onClick={() => setReportOpen(true)}
                 className="px-3 py-2 rounded-full text-xs font-medium lowercase flex items-center gap-1.5 hover:opacity-90 transition-opacity"
@@ -287,6 +422,84 @@ export default function SnapViewerModal({
               </button>
             </>
           )}
+        </div>
+
+        {/* IG-style reply panel: slides up over the footer when openReplyPanel
+            is invoked. Stays inside the dark shell so it inherits backdrop
+            click-to-close from outer overlay. */}
+        {!current.is_mine && replyOpen && (
+          <div
+            className="px-4 pt-3 pb-4 border-t"
+            style={{ borderColor: 'rgba(255,255,255,.1)', background: 'rgba(0,0,0,.35)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-end gap-2">
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value.slice(0, MESSAGE_MAX_LEN))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); }
+                  if (e.key === "Escape") setReplyOpen(false);
+                }}
+                placeholder={`reply to @${current.uploader_username}…`}
+                autoFocus
+                rows={1}
+                className="flex-1 px-4 py-2.5 rounded-2xl text-sm outline-none resize-none"
+                style={{
+                  background: 'rgba(255,255,255,.10)', color: '#fff',
+                  border: '1px solid rgba(255,255,255,.18)', fontFamily: FF.sans,
+                  maxHeight: 100,
+                }}
+              />
+              <button
+                onClick={sendReply}
+                disabled={sending || !replyText.trim() || !sentRoomId}
+                className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40"
+                style={{ background: T.coral, color: '#fff' }}
+                aria-label="send reply"
+              >
+                {sending ? (
+                  <span style={{ fontSize: 11, fontFamily: FF.mono }}>…</span>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={() => { setReplyOpen(false); setChatError(null); }}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,.08)', color: '#fff', border: '1px solid rgba(255,255,255,.16)' }}
+                aria-label="close reply"
+              >
+                <Icon name="x" size={14} color="#fff" />
+              </button>
+            </div>
+            {chatError && (
+              <div className="mt-2 text-[10px] lowercase" style={{ color: T.coral, fontFamily: FF.mono, letterSpacing: 0.4 }}>
+                {chatError}
+              </div>
+            )}
+            {replyText.length > MESSAGE_MAX_LEN - 200 && (
+              <div className="mt-1.5 text-[10px] lowercase text-right" style={{ color: 'rgba(255,255,255,.5)', fontFamily: FF.mono }}>
+                {MESSAGE_MAX_LEN - replyText.length} chars left
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 'sent ✓' toast after a successful reply. Auto-dismisses via the
+            timeout in sendReply(). Opacity transition fades it out smoothly
+            when sentToast flips back to false. */}
+        <div
+          className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-xs lowercase pointer-events-none transition-opacity duration-500"
+          style={{
+            background: 'rgba(0,0,0,.6)', color: '#fff',
+            border: `1px solid ${T.coral}`, fontFamily: FF.mono, letterSpacing: 0.6,
+            opacity: sentToast ? 1 : 0,
+          }}
+        >
+          sent ✓
         </div>
       </div>
       {reportOpen && (
