@@ -1,64 +1,52 @@
-# Timetify
+# Timetify 📅
 
-Timetify is a modern web application designed to help students manage their course schedules, extract course details from syllabi using AI, and share their timetables with friends.
+**Your schedule, simplified.** Stop juggling syllabi. Snap a syllabus photo or upload a PDF, let AI extract the details, and instantly see everyone's schedules side-by-side.
 
-## Features
+## What You Get
 
-- **Personal Timetable**: A clean, interactive weekly schedule view.
-- **AI Course Extraction**: Upload your course outline (PDF or DOCX), and Timetify will automatically extract class times, locations, weekly topics, exams, and assignments using OpenAI's GPT-4o-mini.
-- **Friend System**: Connect with classmates, view their schedules, and see shared classes in a combined view.
-- **Notifications**: Stay updated with email alerts for password resets and error reports.
-- **Error Reporting**: Integrated frontend and backend log collection for easy debugging and support.
+- 📱 **Your Week at a Glance** — Clean, color-coded schedule view that actually makes sense
+- 🤖 **One-Click Syllabus Parsing** — Upload a PDF/DOCX and our AI extracts all the dates, times, rooms, and deadlines automatically
+- 👥 **See Your Friends' Schedules** — Find shared classes, spot who's free, coordinate study sessions
+- 📸 **Snap & Share** — Quick photo sharing that disappears in 24 hours
+- 💬 **DM Your Classmates** — Chat directly with friends in your classes
+- 🚨 **Smart Notifications** — Stay on top of exams, assignments, and who's in your lectures
 
-## Project Structure
+## Getting Started (30 seconds)
 
-- `frontend/`: React + Vite application with a modern, responsive UI.
-- `backend/`: Django REST Framework API handling data persistence, authentication, and AI processing.
+**Backend:**
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+# Add OPENAI_API_KEY, RESEND_API_KEY, SECRET_KEY to .env
+python manage.py migrate
+python manage.py runserver
+```
 
-## Getting Started
+**Frontend:**
+```bash
+cd frontend
+npm install && npm run dev
+```
 
-### Backend Setup
+Open `http://localhost:5173` and start adding classes.
 
-1. Navigate to the `backend/` directory.
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Mac/Linux
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Set up your `.env` file with necessary API keys (OPENAI_API_KEY, RESEND_API_KEY, SECRET_KEY from django).
-5. Run migrations:
-   ```bash
-   python manage.py migrate
-   ```
-6. Start the development server:
-   ```bash
-   python manage.py runserver
-   ```
+## How It's Built
 
-### Frontend Setup
+| Layer | Stack |
+|-------|-------|
+| **Frontend** | React + Vite + Tailwind (gorgeous UX, mobile-first) |
+| **Backend** | Django + DRF (fast, battle-tested, scalable) |
+| **AI** | OpenAI GPT-4o-mini (extracts syllabus chaos into structured data) |
+| **Email** | Resend (clean, reliable notifications) |
+| **DB** | PostgreSQL (Prod), SQLite (Dev) |
 
-1. Navigate to the `frontend/` directory.
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
+## Roadmap
 
-## Technology Stack
-
-- **Frontend**: React, Vite, Vanilla CSS.
-- **Backend**: Django, Django REST Framework, SQLite (Dev).
-- **AI**: OpenAI API (Structured Outputs).
-- **Email**: Anymail with Resend.
-- **Parsing**: PyPDF2, python-docx.
+- Group chats & study spaces
+- Calendar sync (Google, Apple)
+- TA/prof integrations
 
 ## License
 
-This project is for educational purposes.
+Educational use. Built by students, for students.
