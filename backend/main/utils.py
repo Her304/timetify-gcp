@@ -15,7 +15,7 @@ class DatabaseLogHandler(logging.Handler):
                 message=message
             )
         except Exception:
-            self.handleError(record)
+            pass
 
 def send_email(to_email, subject, message):
     """Send email using configured backend"""

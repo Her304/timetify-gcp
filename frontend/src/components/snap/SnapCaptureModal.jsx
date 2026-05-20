@@ -308,16 +308,18 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                   <FocusBracket position={{ bottom: 16, right: 16, rot: 180 }}/>
                   <FocusBracket position={{ bottom: 16, left: 16, rot: 270 }}/>
 
-                  {/* course pill on viewfinder */}
-                  <div
-                    className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs"
-                    style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)' }}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: T.coral }}/>
-                    <span style={{ fontFamily: FF.mono, letterSpacing: 1, textTransform: 'uppercase' }}>
-                      {course.course?.toLowerCase()} {liveNow && '· live'}
-                    </span>
-                  </div>
+                  {/* course pill on viewfinder — only when class is live */}
+                  {liveNow && (
+                    <div
+                      className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs"
+                      style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(8px)' }}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: T.coral }}/>
+                      <span style={{ fontFamily: FF.mono, letterSpacing: 1, textTransform: 'uppercase' }}>
+                        {course.course?.toLowerCase()} · live
+                      </span>
+                    </div>
+                  )}
 
                   {recording && (
                     <div

@@ -124,7 +124,7 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'db'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
@@ -166,6 +166,7 @@ if os.environ.get("INSTANCE_CONNECTION_NAME"):
             "USER": os.environ.get("DB_USER"),
             "PASSWORD": os.environ.get("DB_PASS"),
             "HOST": host,
+            "CONN_MAX_AGE": 60,
         }
     }
 else:
@@ -175,9 +176,10 @@ else:
             "ENGINE": "django.db.backends.postgresql",
             "NAME": os.environ.get("DB_NAME", "timetify_db"),
             "USER": os.environ.get("DB_USER", "postgres"),
-            "PASSWORD": os.environ.get("DB_PASS"), 
+            "PASSWORD": os.environ.get("DB_PASS"),
             "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
             "PORT": os.environ.get("DB_PORT", "5432"),
+            "CONN_MAX_AGE": 60,
         }
     }
 
