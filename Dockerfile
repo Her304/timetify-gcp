@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 RUN SECRET_KEY=build-time-placeholder-not-used-at-runtime python manage.py collectstatic --noinput
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn --bind :8080 --workers 2 --threads 8 --timeout 120 --graceful-timeout 30 backend.wsgi:application"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn --bind :8080 --workers 2 --threads 2 --timeout 120 --graceful-timeout 30 backend.wsgi:application"]
