@@ -39,5 +39,5 @@ class LastSeenMiddleware:
             now = timezone.now()
             prev = getattr(user, "last_seen", None)
             if prev is None or (now - prev).total_seconds() >= self.THROTTLE_SECONDS:
-                type(user).objects.filter(pk=user.pk).update(last_seen=now)
+                user.__class__.objects.filter(pk=user.pk).update(last_seen=now)
         return response
