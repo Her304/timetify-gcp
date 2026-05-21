@@ -345,7 +345,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const totalClasses = new Set(Class_details.map(c => c.base_course || c.course)).size;
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-8 pb-32 md:pb-12">
       <div>
         <MonoLabel>me</MonoLabel>
         <h1 className="text-4xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
