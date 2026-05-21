@@ -432,6 +432,7 @@ const AppShell = ({
                   <Feed
                     snapsByCourse={snapsByCourse}
                     personalSchedule={personalSchedule}
+                    allMyCourses={totalClasses}
                     friendsList={friendsList}
                     currentUser={currentUser}
                     onSnapsChanged={fetchSnapFeed}

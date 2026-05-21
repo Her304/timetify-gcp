@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { T, FF, MonoLabel, Avatar, Icon } from "@/components/shared/brand";
 import SnapCaptureModal from "@/components/snap/SnapCaptureModal";
 import SnapViewerModal from "@/components/snap/SnapViewerModal";
+import GroupCreateModal from "@/components/chat/GroupCreateModal";
 import { authenticatedFetch } from "@/utils/api";
 
 const timeAgo = (iso) => {
@@ -68,6 +69,7 @@ const seededShuffle = (arr, seed) => {
 export const Feed = ({
   snapsByCourse = {},
   personalSchedule = [],
+  allMyCourses = [],
   friendsList = [],
   currentUser,
   onSnapsChanged,
@@ -76,11 +78,14 @@ export const Feed = ({
   const [captureCourse, setCaptureCourse] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [viewerSnapIdx, setViewerSnapIdx] = useState(null);
-  // Inbox state: map keyed by other_user.id → { id, last_message, unread_count }.
-  // Friends without a DM row simply have no entry here (rendered with empty preview).
+  // Inbox state: DM rows keyed by other_user.id + a flat list of group rows.
+  // Friends without a DM row simply have no entry in dmsByFriendId (rendered
+  // with empty preview); group chats are rendered separately at the top.
   const [chatsByFriendId, setChatsByFriendId] = useState({});
+  const [groupChats, setGroupChats] = useState([]);
   // Username currently waiting on a create-or-get DM round-trip — used to show a row spinner.
   const [creatingDmFor, setCreatingDmFor] = useState(null);
+  const [groupCreateOpen, setGroupCreateOpen] = useState(false);
 
   const navigate = useNavigate();
 
@@ -94,11 +99,14 @@ export const Feed = ({
         if (cancelled || !res.ok) return;
         const data = await res.json();
         if (cancelled) return;
-        const next = {};
+        const dmMap = {};
+        const groups = [];
         (data.chats || []).forEach((c) => {
-          if (c.other_user) next[c.other_user.id] = c;
+          if (c.room_type === "group") groups.push(c);
+          else if (c.other_user) dmMap[c.other_user.id] = c;
         });
-        setChatsByFriendId(next);
+        setChatsByFriendId(dmMap);
+        setGroupChats(groups);
       } catch {
         // network blip — keep last good map; next focus/mount will retry
       }
@@ -137,10 +145,25 @@ export const Feed = ({
     }
   };
 
-  const myCourses = useMemo(
-    () => personalSchedule.map((c) => ({ ...c, owner: "Me" })),
-    [personalSchedule]
-  );
+  // For the snap-add flow we want every personal course (so the + tile still
+  // works on days the user has no class). `personalSchedule` is today-only, so
+  // fall back to `allMyCourses` (full week) when today is empty. When both
+  // sources are populated, prefer today's entries because they carry the
+  // live-now context handleAddClick keys off.
+  const myCourses = useMemo(() => {
+    if (personalSchedule.length > 0) {
+      return personalSchedule.map((c) => ({ ...c, owner: "Me" }));
+    }
+    // Dedupe by course id so a course that meets twice in the week shows once.
+    const seen = new Set();
+    const dedup = [];
+    for (const c of allMyCourses) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      dedup.push({ ...c, owner: "Me" });
+    }
+    return dedup;
+  }, [personalSchedule, allMyCourses]);
 
   // friendsList items are friendship rows: { id, user, friend, status, friend_details }
   // The server already filters to status=1 (accepted), so we just flatten to user objects.
@@ -251,25 +274,39 @@ export const Feed = ({
 
   const handleAddClick = () => {
     if (myCourses.length === 0) return;
+    if (myCourses.length === 1) {
+      setCaptureCourse(myCourses[0]);
+      return;
+    }
     const now = new Date();
     const mins = now.getHours() * 60 + now.getMinutes();
     const toMins = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
-    const liveNow = myCourses.filter(
-      (c) => toMins(c.start_time) <= mins && mins < toMins(c.end_time)
-    );
-    if (liveNow.length === 1) {
-      setCaptureCourse(liveNow[0]);
-      return;
+    // personalSchedule is today-only; only run live/upcoming logic when we
+    // actually have today's slots — otherwise the times belong to other days
+    // and "live now" / "upcoming today" don't apply.
+    if (personalSchedule.length > 0) {
+      const liveNow = myCourses.filter(
+        (c) => toMins(c.start_time) <= mins && mins < toMins(c.end_time)
+      );
+      if (liveNow.length === 1) {
+        setCaptureCourse(liveNow[0]);
+        return;
+      }
+      if (liveNow.length > 1) {
+        setPickerOpen(true);
+        return;
+      }
+      const upcoming = [...myCourses]
+        .filter((c) => toMins(c.start_time) > mins)
+        .sort((a, b) => toMins(a.start_time) - toMins(b.start_time))[0];
+      if (upcoming) {
+        setCaptureCourse(upcoming);
+        return;
+      }
     }
-    if (liveNow.length > 1) {
-      setPickerOpen(true);
-      return;
-    }
-    // No live class right now — open camera directly; title auto-says "snap now"
-    const upcoming = [...myCourses]
-      .filter((c) => toMins(c.start_time) > mins)
-      .sort((a, b) => toMins(a.start_time) - toMins(b.start_time))[0];
-    setCaptureCourse(upcoming || myCourses[0]);
+    // No class today (or none live / upcoming): let the user pick which course
+    // the snap belongs to instead of silently tying it to the first row.
+    setPickerOpen(true);
   };
 
   const handleTileClick = (tile) => {
@@ -433,6 +470,142 @@ export const Feed = ({
           ))}
         </div>
 
+        {/* Group chats */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <MonoLabel fs={11}>group chats</MonoLabel>
+            <button
+              type="button"
+              onClick={() => setGroupCreateOpen(true)}
+              className="text-[10px] lowercase px-2.5 py-1 rounded-full"
+              style={{
+                background: T.ink, color: T.cream,
+                fontFamily: FF.mono, letterSpacing: 0.4,
+              }}
+            >
+              + new group
+            </button>
+          </div>
+          {groupChats.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => setGroupCreateOpen(true)}
+              className="bg-white border border-dashed border-ink-15 rounded-2xl px-4 py-5 text-left hover:bg-cream transition-colors"
+            >
+              <div className="text-sm lowercase" style={{ color: T.ink60 }}>
+                start a group chat with friends →
+              </div>
+            </button>
+          ) : (
+            <div className="bg-white border border-ink-8 rounded-2xl overflow-hidden">
+              {groupChats.map((g, i) => {
+                const lm = g.last_message;
+                const unread = g.unread_count || 0;
+                const previewSender = lm?.sender_username
+                  ? `${lm.sender_username}: `
+                  : "";
+                const previewBody = lm
+                  ? lm.is_removed
+                    ? "[message removed]"
+                    : lm.content
+                  : "tap to chat";
+                const timeChip = lm ? timeAgo(lm.created_at) : null;
+                const preview3 = (g.members_preview || []).slice(0, 3);
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => navigate(`/chat/${g.id}`)}
+                    className={`w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-cream transition-colors ${
+                      i > 0 ? "border-t border-ink-8" : ""
+                    }`}
+                  >
+                    {/* Avatar cluster */}
+                    <div className="relative w-12 h-12 flex-shrink-0">
+                      {preview3.map((u, j) => (
+                        <div
+                          key={u.id}
+                          className="absolute"
+                          style={{
+                            left: j === 0 ? 0 : j === 1 ? 14 : 7,
+                            top: j === 2 ? 18 : 0,
+                            zIndex: 3 - j,
+                          }}
+                        >
+                          <Avatar
+                            name={u.username.slice(0, 2).toLowerCase()}
+                            bg={colorForUser(u.username)}
+                            fg={colorForUser(u.username) === T.coral ? "#fff" : T.ink}
+                            size={28}
+                            ring="#fff"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="text-base text-ink leading-tight lowercase truncate"
+                          style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}
+                        >
+                          {g.name}
+                        </div>
+                        <span
+                          className="text-[10px] uppercase px-1.5 py-0.5 rounded-full"
+                          style={{
+                            background: T.ink8, color: T.ink60,
+                            fontFamily: FF.mono, letterSpacing: 0.5,
+                          }}
+                        >
+                          {g.member_count}
+                        </span>
+                        {unread > 0 && (
+                          <span
+                            className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold leading-none"
+                            style={{
+                              background: T.coral, color: "#fff",
+                              fontFamily: FF.mono,
+                            }}
+                          >
+                            {unread > 9 ? "9+" : unread}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className="text-xs truncate mt-0.5"
+                        style={{
+                          fontFamily: FF.sans,
+                          fontWeight: unread > 0 ? 600 : 400,
+                          color: unread > 0 ? T.ink : T.ink60,
+                        }}
+                      >
+                        {previewSender}
+                        {lm?.is_removed ? (
+                          <span className="italic" style={{ color: T.ink40 }}>
+                            {previewBody}
+                          </span>
+                        ) : (
+                          previewBody
+                        )}
+                      </div>
+                    </div>
+                    {timeChip && (
+                      <span
+                        className="text-[10px] font-semibold uppercase whitespace-nowrap"
+                        style={{
+                          color: T.ink60, fontFamily: FF.mono, letterSpacing: 0.8,
+                        }}
+                      >
+                        {timeChip}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Chat inbox */}
         <div className="flex flex-col gap-2">
           <MonoLabel fs={11}>messages</MonoLabel>
@@ -577,6 +750,7 @@ export const Feed = ({
                     className="text-[11px] text-ink-60 mt-0.5"
                     style={{ fontFamily: FF.mono }}
                   >
+                    {personalSchedule.length === 0 && c.day ? `${c.day.toLowerCase()} · ` : ""}
                     {c.time} · {c.location}
                   </div>
                 </button>
@@ -603,6 +777,17 @@ export const Feed = ({
             window.location.reload();
           }}
           onUploaded={() => onSnapsChanged && onSnapsChanged()}
+        />
+      )}
+
+      {groupCreateOpen && (
+        <GroupCreateModal
+          friendsList={friendsList}
+          onClose={() => setGroupCreateOpen(false)}
+          onCreated={(roomId) => {
+            setGroupCreateOpen(false);
+            navigate(`/chat/${roomId}`);
+          }}
         />
       )}
 

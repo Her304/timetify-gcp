@@ -81,7 +81,10 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   const [audienceType, setAudienceType] = useState("all");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [groups, setGroups] = useState([]);
-  const [selectedGroupId, setSelectedGroupId] = useState(null);
+  const [chatGroups, setChatGroups] = useState([]);
+  // selectedGroup holds {kind: 'snap_group' | 'chat', id}; either source feeds
+  // into the same audience-resolution flow on the server.
+  const [selectedGroup, setSelectedGroup] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   // Restriction state: set proactively from GET /api/restrictions/my/ on mount,
@@ -161,15 +164,25 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
     }
   };
 
-  // Fetch caller's saved snap groups so the audience picker can offer them.
+  // Audience picker pulls from two sources: caller's saved SnapGroups and
+  // their group chats. Both render together in the `group` tab; the snap-send
+  // API accepts either group_id (SnapGroup) or chat_room_id (ChatRoom).
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snap-groups/`);
-        if (cancelled || !res.ok) return;
-        const data = await res.json();
-        setGroups(data.groups || []);
+        const [gRes, cRes] = await Promise.all([
+          authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/snap-groups/`),
+          authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/chats/`),
+        ]);
+        if (!cancelled && gRes.ok) {
+          const data = await gRes.json();
+          setGroups(data.groups || []);
+        }
+        if (!cancelled && cRes.ok) {
+          const data = await cRes.json();
+          setChatGroups((data.chats || []).filter((c) => c.room_type === "group"));
+        }
       } catch { /* fail-soft — the picker just shows an empty state. */ }
     })();
     return () => { cancelled = true; };
@@ -323,8 +336,12 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
       form.append("visibility", visibilityValue);
       if (audienceType === "selected") {
         for (const id of selectedIds) form.append("audience_user_ids", String(id));
-      } else if (audienceType === "group" && selectedGroupId != null) {
-        form.append("group_id", String(selectedGroupId));
+      } else if (audienceType === "group" && selectedGroup) {
+        if (selectedGroup.kind === "chat") {
+          form.append("chat_room_id", String(selectedGroup.id));
+        } else {
+          form.append("group_id", String(selectedGroup.id));
+        }
       }
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       form.append("timezone", tz);
@@ -647,28 +664,55 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                     className="mt-2 rounded-2xl p-2 flex flex-wrap gap-1.5"
                     style={{ background: 'rgba(255,255,255,.06)' }}
                   >
-                    {groups.length === 0 ? (
+                    {chatGroups.length === 0 && groups.length === 0 ? (
                       <p className="text-xs p-2" style={{ color: 'rgba(255,255,255,.55)' }}>
-                        no groups yet — create one in /profile to use this option.
+                        no groups yet — start a group chat from /feed or create a snap group in /profile.
                       </p>
                     ) : (
-                      groups.map((g) => {
-                        const picked = selectedGroupId === g.id;
-                        return (
-                          <button
-                            key={g.id}
-                            onClick={() => setSelectedGroupId(picked ? null : g.id)}
-                            className="px-2.5 py-1.5 rounded-full text-xs font-medium"
-                            style={{
-                              background: picked ? T.coral : 'rgba(255,255,255,.08)',
-                              color: '#fff',
-                              border: picked ? 'none' : '1px solid rgba(255,255,255,.15)',
-                            }}
-                          >
-                            {g.name} · {g.member_count}
-                          </button>
-                        );
-                      })
+                      <>
+                        {chatGroups.map((c) => {
+                          const picked = selectedGroup?.kind === "chat" && selectedGroup.id === c.id;
+                          return (
+                            <button
+                              key={`c-${c.id}`}
+                              onClick={() => setSelectedGroup(
+                                picked ? null : { kind: "chat", id: c.id }
+                              )}
+                              className="px-2.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5"
+                              style={{
+                                background: picked ? T.coral : 'rgba(255,255,255,.08)',
+                                color: '#fff',
+                                border: picked ? 'none' : '1px solid rgba(255,255,255,.15)',
+                              }}
+                              title="chat group"
+                            >
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                              </svg>
+                              {c.name} · {c.member_count}
+                            </button>
+                          );
+                        })}
+                        {groups.map((g) => {
+                          const picked = selectedGroup?.kind === "snap_group" && selectedGroup.id === g.id;
+                          return (
+                            <button
+                              key={`g-${g.id}`}
+                              onClick={() => setSelectedGroup(
+                                picked ? null : { kind: "snap_group", id: g.id }
+                              )}
+                              className="px-2.5 py-1.5 rounded-full text-xs font-medium"
+                              style={{
+                                background: picked ? T.coral : 'rgba(255,255,255,.08)',
+                                color: '#fff',
+                                border: picked ? 'none' : '1px solid rgba(255,255,255,.15)',
+                              }}
+                            >
+                              {g.name} · {g.member_count}
+                            </button>
+                          );
+                        })}
+                      </>
                     )}
                   </div>
                 )}
@@ -724,7 +768,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                   disabled={
                     submitting
                     || (audienceType === "selected" && selectedIds.size === 0)
-                    || (audienceType === "group" && selectedGroupId == null)
+                    || (audienceType === "group" && !selectedGroup)
                   }
                   className="px-5 py-2 rounded-full text-sm font-bold disabled:opacity-50"
                   style={{ background: T.coral, color: '#fff' }}

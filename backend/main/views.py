@@ -402,6 +402,30 @@ class CourseAnalyzeView(APIView):
                 except OSError:
                     pass
 
+def _slot_to_minutes(t):
+    if not t:
+        return None
+    s = str(t).strip()
+    try:
+        parts = s.split(':')
+        return int(parts[0]) * 60 + (int(parts[1]) if len(parts) > 1 else 0)
+    except (ValueError, IndexError):
+        return None
+
+
+def _parse_rep_days(rep):
+    if not rep:
+        return set()
+    return {d.strip().capitalize() for d in str(rep).split(',') if d.strip()}
+
+
+def _find_overlap_day(days_a, sa, ea, days_b, sb, eb):
+    shared = days_a & days_b
+    if shared and sa < eb and sb < ea:
+        return sorted(shared)[0]
+    return None
+
+
 class CourseFinalizeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -409,7 +433,44 @@ class CourseFinalizeView(APIView):
         courses_data = request.data.get('courses', [])
         if not courses_data:
             return Response({"error": "No course data provided"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        incoming_slots = []
+        for cd in courses_data:
+            s = _slot_to_minutes(cd.get('start_time'))
+            e = _slot_to_minutes(cd.get('end_time'))
+            days = _parse_rep_days(cd.get('rep_date'))
+            if s is None or e is None or s >= e or not days:
+                continue
+            incoming_slots.append({
+                'course_id': cd.get('course_id') or '(unnamed)',
+                'days': days, 's': s, 'e': e,
+            })
+
+        for i, a in enumerate(incoming_slots):
+            for b in incoming_slots[i + 1:]:
+                day = _find_overlap_day(a['days'], a['s'], a['e'], b['days'], b['s'], b['e'])
+                if day:
+                    return Response({
+                        'error': 'overlap',
+                        'detail': f"{a['course_id']} and {b['course_id']} overlap on {day}.",
+                        'a': a['course_id'], 'b': b['course_id'], 'day': day,
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+        for ex in Course.objects.filter(user=request.user):
+            ex_s = (ex.start_time.hour * 60 + ex.start_time.minute) if ex.start_time else None
+            ex_e = (ex.end_time.hour * 60 + ex.end_time.minute) if ex.end_time else None
+            ex_days = _parse_rep_days(ex.rep_date)
+            if ex_s is None or ex_e is None or ex_s >= ex_e or not ex_days:
+                continue
+            for inc in incoming_slots:
+                day = _find_overlap_day(inc['days'], inc['s'], inc['e'], ex_days, ex_s, ex_e)
+                if day:
+                    return Response({
+                        'error': 'overlap',
+                        'detail': f"{inc['course_id']} overlaps with your existing course {ex.course_id} on {day}.",
+                        'a': inc['course_id'], 'b': ex.course_id, 'day': day,
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
         main_course = None
         created_courses = []
 
@@ -1295,28 +1356,46 @@ class ChatListCreateView(APIView):
 
         rooms = list(
             ChatRoom.objects
-            .filter(id__in=room_ids, is_active=True, room_type=ChatRoom.ROOM_DM)
+            .filter(id__in=room_ids, is_active=True)
             .order_by('-created_at')
         )
 
-        # Resolve the "other user" per room in a single query.
-        other_user_by_room = {}
-        member_rows = (
+        # Group all member rows once; reused for DM peer resolution and group
+        # preview avatars.
+        member_rows = list(
             ChatRoomMember.objects
             .filter(room_id__in=room_ids)
-            .exclude(user=me)
             .select_related('user')
         )
+        members_by_room = {}
         for mr in member_rows:
-            other_user_by_room[mr.room_id] = mr.user
+            members_by_room.setdefault(mr.room_id, []).append(mr.user)
 
-        # Filter out rooms whose only-other peer (DM) is blocked in either direction.
+        # DM peers (single other user per DM room).
+        other_user_by_room = {}
+        for r in rooms:
+            if r.room_type != ChatRoom.ROOM_DM:
+                continue
+            peer = next(
+                (u for u in members_by_room.get(r.id, []) if u.id != me.id),
+                None,
+            )
+            if peer:
+                other_user_by_room[r.id] = peer
+
+        # Block filtering:
+        #   DMs   → drop the room outright if the peer is blocked either way.
+        #   Group → keep the room; block-side filtering happens per-message.
         blocked_ids = _blocked_user_ids(me)
         if blocked_ids:
-            keep_room_ids = {
-                rid for rid, other in other_user_by_room.items()
-                if other.id not in blocked_ids
-            }
+            keep_room_ids = set()
+            for r in rooms:
+                if r.room_type == ChatRoom.ROOM_DM:
+                    peer = other_user_by_room.get(r.id)
+                    if peer and peer.id not in blocked_ids:
+                        keep_room_ids.add(r.id)
+                else:
+                    keep_room_ids.add(r.id)
             room_ids = [r for r in room_ids if r in keep_room_ids]
             rooms = [r for r in rooms if r.id in keep_room_ids]
             other_user_by_room = {
@@ -1325,23 +1404,27 @@ class ChatListCreateView(APIView):
             if not room_ids:
                 return Response({"chats": []})
 
-        # Last message per room (one extra query; small N).
+        # Last message per room. Skip blocked senders in groups so the inbox
+        # preview doesn't show their text.
         last_message_by_room = {}
         for room_id in room_ids:
-            msg = (
-                Message.objects
-                .filter(room_id=room_id)
-                .order_by('-created_at')
-                .first()
-            )
+            qs = Message.objects.filter(room_id=room_id)
+            # Group rooms: blocked sender messages stay hidden.
+            room = next((r for r in rooms if r.id == room_id), None)
+            if room and room.room_type == ChatRoom.ROOM_GROUP and blocked_ids:
+                qs = qs.exclude(sender_id__in=blocked_ids)
+            msg = qs.order_by('-created_at').first()
             if msg:
                 last_message_by_room[room_id] = msg
 
-        # Unread per room: messages newer than my last_read_at and not from me.
+        # Unread per room: messages newer than my last_read_at and not from me
+        # (and not from a blocked user, mirrors the preview rule).
         unread_by_room = {}
         for room_id in room_ids:
             lr = last_read_by_room.get(room_id)
             qs = Message.objects.filter(room_id=room_id).exclude(sender=me).filter(is_removed=False)
+            if blocked_ids:
+                qs = qs.exclude(sender_id__in=blocked_ids)
             if lr:
                 qs = qs.filter(created_at__gt=lr)
             unread_by_room[room_id] = qs.count()
@@ -1357,6 +1440,7 @@ class ChatListCreateView(APIView):
         ctx = {
             'request': request,
             'other_user_by_room': other_user_by_room,
+            'members_by_room': members_by_room,
             'last_message_by_room': last_message_by_room,
             'unread_by_room': unread_by_room,
         }
@@ -1413,12 +1497,15 @@ class ChatDetailView(APIView):
         if not _user_membership(room, me):
             return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
 
-        msgs = list(
-            Message.objects
-            .filter(room=room)
-            .select_related('sender')
-            .order_by('-created_at')[:INITIAL_MESSAGE_PAGE]
-        )
+        msg_qs = Message.objects.filter(room=room).select_related('sender')
+        # Group rooms: hide messages from users on either side of a UserBlock
+        # so blocked-uploader messages don't render as ghost bubbles. DMs
+        # already short-circuit at list/send time, so no filter here.
+        if room.room_type == ChatRoom.ROOM_GROUP:
+            blocked_ids = _blocked_user_ids(me)
+            if blocked_ids:
+                msg_qs = msg_qs.exclude(sender_id__in=blocked_ids)
+        msgs = list(msg_qs.order_by('-created_at')[:INITIAL_MESSAGE_PAGE])
         ctx = {'request': request, 'initial_messages': msgs}
         return Response(ChatRoomDetailSerializer(room, context=ctx).data)
 
@@ -1444,6 +1531,11 @@ class MessageListCreateView(APIView):
         before = request.query_params.get('before')
 
         qs = Message.objects.filter(room=room).select_related('sender').order_by('-created_at')
+        # Group rooms: hide messages from blocked users (mirrors ChatDetailView).
+        if room.room_type == ChatRoom.ROOM_GROUP:
+            blocked_ids = _blocked_user_ids(me)
+            if blocked_ids:
+                qs = qs.exclude(sender_id__in=blocked_ids)
         if before:
             try:
                 anchor = Message.objects.get(pk=before, room=room)
@@ -1469,19 +1561,23 @@ class MessageListCreateView(APIView):
         if restriction:
             return Response(_restriction_403_payload(restriction), status=status.HTTP_403_FORBIDDEN)
 
-        # UserBlock: if either direction blocks any other member, refuse to send.
-        # For DMs this is just the single peer; the loop is forward-compatible
-        # with groups landing later.
-        other_member_ids = list(
-            ChatRoomMember.objects.filter(room=room).exclude(user=me).values_list('user_id', flat=True)
-        )
-        if other_member_ids:
-            blocked = UserBlock.objects.filter(
-                Q(blocker=me, blocked_id__in=other_member_ids)
-                | Q(blocked=me, blocker_id__in=other_member_ids)
-            ).exists()
-            if blocked:
-                return Response({'detail': 'blocked'}, status=status.HTTP_403_FORBIDDEN)
+        # UserBlock:
+        #   DM    → if either direction blocks the peer, refuse the send.
+        #   Group → membership already authorized the user; per-bubble filtering
+        #           happens on read so the block hides messages without
+        #           preventing the rest of the conversation from happening.
+        if room.room_type == ChatRoom.ROOM_DM:
+            other_member_ids = list(
+                ChatRoomMember.objects.filter(room=room).exclude(user=me)
+                .values_list('user_id', flat=True)
+            )
+            if other_member_ids:
+                blocked = UserBlock.objects.filter(
+                    Q(blocker=me, blocked_id__in=other_member_ids)
+                    | Q(blocked=me, blocker_id__in=other_member_ids)
+                ).exists()
+                if blocked:
+                    return Response({'detail': 'blocked'}, status=status.HTTP_403_FORBIDDEN)
 
         content = (request.data.get('content') or '').strip()
         if not content:
@@ -1570,20 +1666,264 @@ class ChatReadView(APIView):
 
 
 class UnreadCountView(APIView):
-    """GET /api/chats/unread/ — total unread messages across all my DM rooms.
-       Used by App.jsx's 30s global poll to drive nav badges."""
+    """GET /api/chats/unread/ — total unread messages across all my rooms (DM
+       + group). Used by App.jsx's 30s global poll to drive nav badges."""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         me = request.user
-        memberships = ChatRoomMember.objects.filter(user=me).values_list('room_id', 'last_read_at')
+        memberships = list(
+            ChatRoomMember.objects.filter(user=me).select_related('room')
+            .values('room_id', 'last_read_at', 'room__room_type', 'room__is_active')
+        )
+        blocked_ids = _blocked_user_ids(me)
         total = 0
-        for room_id, lr in memberships:
-            qs = Message.objects.filter(room_id=room_id, is_removed=False).exclude(sender=me)
-            if lr:
-                qs = qs.filter(created_at__gt=lr)
+        for m in memberships:
+            if not m['room__is_active']:
+                continue
+            qs = Message.objects.filter(room_id=m['room_id'], is_removed=False).exclude(sender=me)
+            # Group: blocked sender messages don't render → don't ring the badge.
+            # DM: rooms with blocked peers are already hidden from the inbox,
+            # but we still skip their counts here for parity.
+            if blocked_ids:
+                qs = qs.exclude(sender_id__in=blocked_ids)
+            if m['last_read_at']:
+                qs = qs.filter(created_at__gt=m['last_read_at'])
             total += qs.count()
         return Response({"total": total})
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 — Group chat
+# Endpoints live under /api/chats/groups/. Group rooms are the source of truth
+# for snap-audience too: snap upload accepts chat_room_id, see SnapUploadView.
+# ---------------------------------------------------------------------------
+
+GROUP_NAME_MAX_LEN = 80
+GROUP_MEMBER_MIN = 2  # creator + ≥2 others
+
+
+def _is_group_admin(room, user):
+    return ChatRoomMember.objects.filter(
+        room=room, user=user, is_admin=True
+    ).exists()
+
+
+def _group_room_payload(room, me):
+    """Shape returned by group-chat endpoints. Includes member list with
+    is_admin flags; mirrors what the chat thread UI needs to render header,
+    member list, and per-message sender attribution.
+    """
+    members = list(
+        room.members.select_related('user').order_by('joined_at')
+    )
+    member_data = [{
+        'id': m.user_id,
+        'username': m.user.username,
+        'is_admin': m.is_admin,
+        'joined_at': m.joined_at.isoformat(),
+    } for m in members]
+    return {
+        'id': room.id,
+        'room_type': room.room_type,
+        'name': room.name,
+        'created_by': room.created_by_id,
+        'created_at': room.created_at.isoformat(),
+        'is_active': room.is_active,
+        'members': member_data,
+        'member_count': len(member_data),
+        'is_admin': any(m.user_id == me.id and m.is_admin for m in members),
+    }
+
+
+class GroupChatListCreateView(APIView):
+    """POST /api/chats/groups/ — create a group chat.
+       Body: { name, member_ids: [int, ...] }
+       Creator becomes the first admin; member_ids are friend-gated."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        me = request.user
+
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            return Response({"detail": "name required"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(name) > GROUP_NAME_MAX_LEN:
+            return Response(
+                {"detail": f"name exceeds {GROUP_NAME_MAX_LEN} chars"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_ids = request.data.get('member_ids') or []
+        if hasattr(request.data, 'getlist') and not raw_ids:
+            raw_ids = request.data.getlist('member_ids')
+        try:
+            member_ids = list({int(x) for x in raw_ids if str(x).strip()})
+        except (TypeError, ValueError):
+            return Response({"detail": "member_ids must be integers"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        member_ids = [uid for uid in member_ids if uid != me.id]
+        if len(member_ids) < GROUP_MEMBER_MIN:
+            return Response(
+                {"detail": f"add at least {GROUP_MEMBER_MIN} friends"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Friend-gate every member up-front (no stranger seeding) and reject
+        # blocks against the creator (auto-blocks shouldn't get backdoored
+        # into a chat via a group invite).
+        my_friends = _friend_user_ids(me)
+        stranger_ids = [uid for uid in member_ids if uid not in my_friends]
+        if stranger_ids:
+            return Response(
+                {"detail": "not_friends", "stranger_ids": stranger_ids},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        blocked_ids = _blocked_user_ids(me)
+        blocked_in_group = [uid for uid in member_ids if uid in blocked_ids]
+        if blocked_in_group:
+            return Response(
+                {"detail": "blocked", "blocked_ids": blocked_in_group},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        with transaction.atomic():
+            room = ChatRoom.objects.create(
+                room_type=ChatRoom.ROOM_GROUP,
+                name=name,
+                created_by=me,
+            )
+            ChatRoomMember.objects.create(room=room, user=me, is_admin=True)
+            ChatRoomMember.objects.bulk_create([
+                ChatRoomMember(room=room, user_id=uid, is_admin=False)
+                for uid in member_ids
+            ])
+
+        room = ChatRoom.objects.prefetch_related('members__user').get(pk=room.pk)
+        return Response(_group_room_payload(room, me), status=status.HTTP_201_CREATED)
+
+
+class GroupChatDetailView(APIView):
+    """GET /api/chats/groups/<id>/ — group room + member list.
+       PATCH { name } — rename (admin-only).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get(self, request, pk):
+        try:
+            return ChatRoom.objects.prefetch_related('members__user').get(
+                pk=pk, is_active=True, room_type=ChatRoom.ROOM_GROUP,
+            )
+        except ChatRoom.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        room = self._get(request, pk)
+        if not room:
+            return Response({"detail": "group not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not _user_membership(room, request.user):
+            return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
+        return Response(_group_room_payload(room, request.user))
+
+    def patch(self, request, pk):
+        room = self._get(request, pk)
+        if not room:
+            return Response({"detail": "group not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not _is_group_admin(room, request.user):
+            return Response({"detail": "admin only"}, status=status.HTTP_403_FORBIDDEN)
+        if 'name' in request.data:
+            name = (request.data.get('name') or '').strip()
+            if not name:
+                return Response({"detail": "name required"}, status=status.HTTP_400_BAD_REQUEST)
+            if len(name) > GROUP_NAME_MAX_LEN:
+                return Response(
+                    {"detail": f"name exceeds {GROUP_NAME_MAX_LEN} chars"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            room.name = name
+            room.save(update_fields=['name'])
+        room = ChatRoom.objects.prefetch_related('members__user').get(pk=room.pk)
+        return Response(_group_room_payload(room, request.user))
+
+
+class GroupChatMemberAddView(APIView):
+    """POST /api/chats/groups/<id>/members/ — body { user_id }.
+       Admin-only. Friend-gated against the admin (not every existing member).
+       Idempotent."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            room = ChatRoom.objects.get(
+                pk=pk, is_active=True, room_type=ChatRoom.ROOM_GROUP,
+            )
+        except ChatRoom.DoesNotExist:
+            return Response({"detail": "group not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not _is_group_admin(room, request.user):
+            return Response({"detail": "admin only"}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            user_id = int(request.data.get('user_id'))
+        except (TypeError, ValueError):
+            return Response({"detail": "user_id required"}, status=status.HTTP_400_BAD_REQUEST)
+        if user_id == request.user.id:
+            return Response({"detail": "cannot add self"}, status=status.HTTP_400_BAD_REQUEST)
+        if user_id not in _friend_user_ids(request.user):
+            return Response({"detail": "not_friends"}, status=status.HTTP_403_FORBIDDEN)
+        if user_id in _blocked_user_ids(request.user):
+            return Response({"detail": "blocked"}, status=status.HTTP_403_FORBIDDEN)
+        ChatRoomMember.objects.get_or_create(
+            room=room, user_id=user_id, defaults={'is_admin': False},
+        )
+        room = ChatRoom.objects.prefetch_related('members__user').get(pk=room.pk)
+        return Response(_group_room_payload(room, request.user))
+
+
+class GroupChatMemberRemoveView(APIView):
+    """DELETE /api/chats/groups/<id>/members/<user_id>/ —
+       admin can remove anyone (including self → counts as leaving).
+       Non-admin members can only remove themselves (= leave).
+       If the last admin leaves and other members remain, the oldest member
+       is promoted. If the last member leaves, the room is soft-deleted."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk, user_id):
+        try:
+            room = ChatRoom.objects.get(
+                pk=pk, is_active=True, room_type=ChatRoom.ROOM_GROUP,
+            )
+        except ChatRoom.DoesNotExist:
+            return Response({"detail": "group not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        me = request.user
+        target_membership = ChatRoomMember.objects.filter(
+            room=room, user_id=user_id,
+        ).first()
+        if not target_membership:
+            return Response({"detail": "not a member"}, status=status.HTTP_404_NOT_FOUND)
+
+        is_self = (user_id == me.id)
+        if not is_self and not _is_group_admin(room, me):
+            return Response({"detail": "admin only"}, status=status.HTTP_403_FORBIDDEN)
+
+        with transaction.atomic():
+            target_membership.delete()
+            remaining = list(
+                ChatRoomMember.objects.filter(room=room).order_by('joined_at')
+            )
+            if not remaining:
+                room.is_active = False
+                room.save(update_fields=['is_active'])
+            elif not any(m.is_admin for m in remaining):
+                # Last admin left; promote the oldest member so the group
+                # doesn't get stuck without anyone able to rename/add.
+                oldest = remaining[0]
+                oldest.is_admin = True
+                oldest.save(update_fields=['is_admin'])
+
+        if not room.is_active:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        room = ChatRoom.objects.prefetch_related('members__user').get(pk=room.pk)
+        return Response(_group_room_payload(room, me))
 
 
 # ---------------------------------------------------------------------------

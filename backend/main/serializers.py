@@ -240,28 +240,28 @@ class MessageSerializer(serializers.ModelSerializer):
 
 
 class ChatRoomListSerializer(serializers.ModelSerializer):
-    """DM row for the inbox list. Flattens "other_user" so the client
-    doesn't have to filter members and bundles the last message preview
-    + my unread count (annotated upstream in the view via context)."""
+    """Inbox row. For DMs: flattens `other_user`. For groups: emits
+    `name`, `member_count`, and a 3-avatar `members_preview`. `last_message`
+    includes `sender_username` so the group inbox can show 'alice: hi'."""
     other_user = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    member_count = serializers.SerializerMethodField()
+    members_preview = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
-        fields = ['id', 'room_type', 'other_user', 'last_message',
-                  'unread_count', 'created_at']
+        fields = ['id', 'room_type', 'other_user', 'name', 'member_count',
+                  'members_preview', 'last_message', 'unread_count',
+                  'created_at']
         read_only_fields = fields
 
-    def _other_user(self, obj):
-        request = self.context.get('request')
-        if not request:
+    def get_other_user(self, obj):
+        if obj.room_type != ChatRoom.ROOM_DM:
             return None
         cache = self.context.get('other_user_by_room') or {}
-        return cache.get(obj.id)
-
-    def get_other_user(self, obj):
-        other = self._other_user(obj)
+        other = cache.get(obj.id)
         if not other:
             return None
         return {
@@ -269,6 +269,24 @@ class ChatRoomListSerializer(serializers.ModelSerializer):
             'username': other.username,
             'last_seen': other.last_seen.isoformat() if other.last_seen else None,
         }
+
+    def get_name(self, obj):
+        return obj.name if obj.room_type == ChatRoom.ROOM_GROUP else None
+
+    def _members(self, obj):
+        cache = self.context.get('members_by_room') or {}
+        return cache.get(obj.id, [])
+
+    def get_member_count(self, obj):
+        if obj.room_type != ChatRoom.ROOM_GROUP:
+            return None
+        return len(self._members(obj))
+
+    def get_members_preview(self, obj):
+        if obj.room_type != ChatRoom.ROOM_GROUP:
+            return None
+        # First 3 members; order is whatever the view passed in (joined order).
+        return [{'id': u.id, 'username': u.username} for u in self._members(obj)[:3]]
 
     def get_last_message(self, obj):
         last_by_room = self.context.get('last_message_by_room') or {}
@@ -278,6 +296,7 @@ class ChatRoomListSerializer(serializers.ModelSerializer):
         return {
             'id': msg.id,
             'sender_id': msg.sender_id,
+            'sender_username': msg.sender.username,
             'content': '' if msg.is_removed else msg.content,
             'is_removed': msg.is_removed,
             'created_at': msg.created_at.isoformat(),
@@ -289,17 +308,23 @@ class ChatRoomListSerializer(serializers.ModelSerializer):
 
 
 class ChatRoomDetailSerializer(serializers.ModelSerializer):
-    """Room detail with the latest 50 messages (descending). Client
-    reverses to render bottom-up."""
+    """Room detail with the latest 50 messages (descending). For DMs:
+    emits `other_user`. For groups: emits `name` + `members` + `is_admin`."""
     other_user = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    members = serializers.SerializerMethodField()
+    is_admin = serializers.SerializerMethodField()
     messages = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
-        fields = ['id', 'room_type', 'other_user', 'messages', 'created_at']
+        fields = ['id', 'room_type', 'other_user', 'name', 'members',
+                  'is_admin', 'messages', 'created_at']
         read_only_fields = fields
 
     def get_other_user(self, obj):
+        if obj.room_type != ChatRoom.ROOM_DM:
+            return None
         request = self.context.get('request')
         if not request:
             return None
@@ -312,6 +337,27 @@ class ChatRoomDetailSerializer(serializers.ModelSerializer):
             'username': other.username,
             'last_seen': other.last_seen.isoformat() if other.last_seen else None,
         }
+
+    def get_name(self, obj):
+        return obj.name if obj.room_type == ChatRoom.ROOM_GROUP else None
+
+    def get_members(self, obj):
+        if obj.room_type != ChatRoom.ROOM_GROUP:
+            return None
+        return [{
+            'id': m.user_id,
+            'username': m.user.username,
+            'is_admin': m.is_admin,
+            'last_seen': m.user.last_seen.isoformat() if m.user.last_seen else None,
+        } for m in obj.members.all()]
+
+    def get_is_admin(self, obj):
+        if obj.room_type != ChatRoom.ROOM_GROUP:
+            return None
+        request = self.context.get('request')
+        if not request:
+            return False
+        return any(m.user_id == request.user.id and m.is_admin for m in obj.members.all())
 
     def get_messages(self, obj):
         msgs = self.context.get('initial_messages') or []
