@@ -60,6 +60,37 @@ function SnapReplyCard({ snap, mine }) {
     </div>
   );
 }
+
+// Reply-to-message preview. Renders above the bubble whose `reply_to` is set.
+// Soft-deleted parents render with a [removed] placeholder so the conversation
+// still has context.
+function MessageReplyCard({ parent, mine }) {
+  if (!parent) return null;
+  const removed = !!parent.is_removed;
+  return (
+    <div
+      className="mb-1 px-2.5 py-1.5 rounded-xl max-w-[280px] flex items-center gap-1.5"
+      style={{
+        background: mine ? 'rgba(237,106,74,.10)' : T.ink08,
+        borderLeft: `2px solid ${mine ? T.coral : T.ink40}`,
+      }}
+    >
+      <span
+        className="text-[9px] uppercase tracking-widest flex-shrink-0"
+        style={{ color: T.ink60, fontFamily: FF.mono }}
+      >
+        ↩ @{parent.sender_username}
+      </span>
+      <span
+        className="text-[11px] truncate lowercase"
+        style={{ color: removed ? T.ink40 : T.ink, fontFamily: FF.sans, fontStyle: removed ? 'italic' : 'normal' }}
+      >
+        {removed ? '[message removed]' : parent.content_preview}
+      </span>
+    </div>
+  );
+}
+
 const POLL_INTERVAL = 5000;
 const TIMESTAMP_GAP_MS = 5 * 60 * 1000;
 const SENDER_RUN_GAP_MS = 2 * 60 * 1000;
@@ -122,7 +153,7 @@ const SenderLabel = ({ username }) => {
 // ⋮ overflow button (hover-revealed on desktop, always faintly visible on
 // touch) opens an inline popover with "report message". `showSender` is set in
 // group rooms to prepend a sender label above the first bubble of each run.
-const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport }) => {
+const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport, onReply }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const longPressTimer = useRef(null);
@@ -141,8 +172,9 @@ const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport }) => {
   }, [menuOpen]);
 
   // Long-press on mobile opens the menu; we cancel on touchend / move.
+  // Own bubbles get a menu too (reply only — no report yourself).
   const handleTouchStart = () => {
-    if (mine || msg.is_removed) return;
+    if (msg.is_removed) return;
     longPressTimer.current = setTimeout(() => setMenuOpen(true), 450);
   };
   const clearLongPress = () => {
@@ -158,6 +190,7 @@ const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport }) => {
         {showSender && !mine && (
           <SenderLabel username={msg.sender_username} />
         )}
+        {msg.reply_to && <MessageReplyCard parent={msg.reply_to} mine={mine} />}
         {msg.replied_snap && <SnapReplyCard snap={msg.replied_snap} mine={mine} />}
         <div
           className="px-3 py-2 rounded-2xl max-w-[78%] italic text-sm leading-snug"
@@ -174,6 +207,7 @@ const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport }) => {
       {showSender && !mine && (
         <SenderLabel username={msg.sender_username} />
       )}
+      {msg.reply_to && <MessageReplyCard parent={msg.reply_to} mine={mine} />}
       {msg.replied_snap && <SnapReplyCard snap={msg.replied_snap} mine={mine} />}
       <div className={`flex items-end gap-1.5 max-w-[88%] ${mine ? "flex-row-reverse" : ""}`}>
         <div
@@ -188,14 +222,13 @@ const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport }) => {
           onTouchEnd={clearLongPress}
           onTouchMove={clearLongPress}
           onContextMenu={(e) => {
-            if (mine) return;
             e.preventDefault();
             setMenuOpen(true);
           }}
         >
           {msg.content}
         </div>
-        {!mine && (
+        {!msg.__pending && (
           <div className="relative" ref={menuRef}>
             <button
               type="button"
@@ -208,21 +241,35 @@ const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport }) => {
             </button>
             {menuOpen && (
               <div
-                className="absolute z-20 left-0 top-full mt-1 min-w-[140px] rounded-xl shadow-lg overflow-hidden"
+                className={`absolute z-20 ${mine ? "right-0" : "left-0"} top-full mt-1 min-w-[140px] rounded-xl shadow-lg overflow-hidden`}
                 style={{ background: "#fff", border: `1px solid ${T.ink15}` }}
               >
                 <button
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
-                    onReport?.(msg);
+                    onReply?.(msg);
                   }}
                   className="w-full px-3 py-2 text-xs text-left lowercase flex items-center gap-2 hover:bg-ink-8"
-                  style={{ color: T.coralDk || T.coral, fontFamily: FF.sans }}
+                  style={{ color: T.ink, fontFamily: FF.sans }}
                 >
-                  <Icon name="flag" size={12} color={T.coralDk || T.coral} />
-                  report message
+                  <Icon name="chevL" size={12} color={T.ink} />
+                  reply
                 </button>
+                {!mine && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onReport?.(msg);
+                    }}
+                    className="w-full px-3 py-2 text-xs text-left lowercase flex items-center gap-2 hover:bg-ink-8"
+                    style={{ color: T.coralDk || T.coral, fontFamily: FF.sans }}
+                  >
+                    <Icon name="flag" size={12} color={T.coralDk || T.coral} />
+                    report message
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -279,6 +326,9 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
   const [error, setError] = useState(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // Reply draft: target message whose id we'll attach to the next send. Cleared
+  // after a successful (or attempted) send, or via the chip's × button.
+  const [replyDraft, setReplyDraft] = useState(null);
   const [olderLoading, setOlderLoading] = useState(false);
   const [olderExhausted, setOlderExhausted] = useState(false);
   // Restriction state: same shape as SnapCaptureModal's banner. Set
@@ -492,11 +542,13 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
     el.style.height = `${next}px`;
   }, [text]);
 
-  const doSend = async (content, tempId) => {
+  const doSend = async (content, tempId, replyToId) => {
     try {
+      const body = { content };
+      if (replyToId) body.reply_to_id = replyToId;
       const res = await authenticatedFetch(`${API}/api/chats/${roomId}/messages/`, {
         method: "POST",
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(body),
       });
       if (res.status === 403) {
         // Read the body once — if it's a restriction payload, flip the input
@@ -537,6 +589,7 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
     if (!content || content.length > MAX_LEN || sending) return;
     setSending(true);
     const tempId = `pending-${Date.now()}`;
+    const replySnapshot = replyDraft;
     const optimistic = {
       id: tempId,
       sender_id: currentUser?.id,
@@ -544,11 +597,20 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
       content,
       is_removed: false,
       created_at: new Date().toISOString(),
+      reply_to: replySnapshot
+        ? {
+            id: replySnapshot.id,
+            sender_username: replySnapshot.sender_username,
+            content_preview: (replySnapshot.content || "").slice(0, 80),
+            is_removed: !!replySnapshot.is_removed,
+          }
+        : null,
       __pending: true,
     };
     setMessages((prev) => [optimistic, ...prev]);
     setText("");
-    await doSend(content, tempId);
+    setReplyDraft(null);
+    await doSend(content, tempId, replySnapshot?.id);
     setSending(false);
   };
 
@@ -558,7 +620,12 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
         m.id === failedMsg.id ? { ...m, __pending: true, __failed: false } : m
       )
     );
-    await doSend(failedMsg.content, failedMsg.id);
+    await doSend(failedMsg.content, failedMsg.id, failedMsg.reply_to?.id);
+  };
+
+  const handleReply = (target) => {
+    setReplyDraft(target);
+    textareaRef.current?.focus();
   };
 
   const onKeyDown = (e) => {
@@ -825,6 +892,7 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
                 showSender={showSenderByIdx[idx]}
                 onRetry={handleRetry}
                 onReport={(target) => setReportingMsg(target)}
+                onReply={handleReply}
               />
             ))}
             {/* Sentinel sits at the *visual* top under flex-col-reverse (DOM-last). */}
@@ -850,6 +918,40 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
           className="border-t px-3 py-2"
           style={{ borderColor: T.ink08, background: "#fff" }}
         >
+          {replyDraft && (
+            <div
+              className="mb-1.5 px-2.5 py-1.5 rounded-xl flex items-center gap-2"
+              style={{ background: T.cream, borderLeft: `2px solid ${T.coral}` }}
+            >
+              <span
+                className="text-[9px] uppercase tracking-widest flex-shrink-0"
+                style={{ color: T.ink60, fontFamily: FF.mono }}
+              >
+                ↩ replying to @{replyDraft.sender_username}
+              </span>
+              <span
+                className="text-[11px] truncate lowercase flex-1 min-w-0"
+                style={{
+                  color: replyDraft.is_removed ? T.ink40 : T.ink,
+                  fontFamily: FF.sans,
+                  fontStyle: replyDraft.is_removed ? "italic" : "normal",
+                }}
+              >
+                {replyDraft.is_removed ? "[message removed]" : (replyDraft.content || "").slice(0, 60)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setReplyDraft(null)}
+                aria-label="cancel reply"
+                className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 hover:bg-ink-8"
+                style={{ color: T.ink60 }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.ink60} strokeWidth="2.4" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2">
             <textarea
               ref={textareaRef}

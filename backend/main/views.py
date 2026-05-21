@@ -18,7 +18,7 @@ from .serializers import (
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember
 from datetime import datetime, timedelta
 from django.contrib.auth import get_user_model
 from main.utils import send_email
@@ -1497,7 +1497,7 @@ class ChatDetailView(APIView):
         if not _user_membership(room, me):
             return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
 
-        msg_qs = Message.objects.filter(room=room).select_related('sender')
+        msg_qs = Message.objects.filter(room=room).select_related('sender', 'reply_to__sender')
         # Group rooms: hide messages from users on either side of a UserBlock
         # so blocked-uploader messages don't render as ghost bubbles. DMs
         # already short-circuit at list/send time, so no filter here.
@@ -1530,7 +1530,7 @@ class MessageListCreateView(APIView):
             limit = OLDER_MESSAGE_PAGE
         before = request.query_params.get('before')
 
-        qs = Message.objects.filter(room=room).select_related('sender').order_by('-created_at')
+        qs = Message.objects.filter(room=room).select_related('sender', 'reply_to__sender').order_by('-created_at')
         # Group rooms: hide messages from blocked users (mirrors ChatDetailView).
         if room.room_type == ChatRoom.ROOM_GROUP:
             blocked_ids = _blocked_user_ids(me)
@@ -1616,8 +1616,27 @@ class MessageListCreateView(APIView):
                     if is_uploader or in_audience or is_friend_all:
                         replied_snap = candidate
 
+        # Reply-to-message: same forgiveness pattern as replied_snap above.
+        # Only accept if the parent lives in the same room (cross-room targeting
+        # is silently dropped, not 400'd). Soft-deleted parents are still valid
+        # references — the serializer blanks their content_preview for the UI.
+        reply_to = None
+        reply_to_id_raw = request.data.get('reply_to_id')
+        if reply_to_id_raw not in (None, '', 'null'):
+            try:
+                reply_to_id = int(reply_to_id_raw)
+            except (TypeError, ValueError):
+                reply_to_id = None
+            if reply_to_id:
+                try:
+                    parent = Message.objects.get(pk=reply_to_id, room=room)
+                    reply_to = parent
+                except Message.DoesNotExist:
+                    pass
+
         msg = Message.objects.create(
-            room=room, sender=me, content=content, replied_snap=replied_snap,
+            room=room, sender=me, content=content,
+            replied_snap=replied_snap, reply_to=reply_to,
         )
         return Response(
             MessageSerializer(msg, context={'request': request}).data,
@@ -1798,6 +1817,11 @@ class GroupChatListCreateView(APIView):
                 ChatRoomMember(room=room, user_id=uid, is_admin=False)
                 for uid in member_ids
             ])
+            snap_group = SnapGroup.objects.create(owner=me, name=name, chat_room=room)
+            SnapGroupMember.objects.bulk_create([
+                SnapGroupMember(group=snap_group, user_id=uid)
+                for uid in member_ids
+            ])
 
         room = ChatRoom.objects.prefetch_related('members__user').get(pk=room.pk)
         return Response(_group_room_payload(room, me), status=status.HTTP_201_CREATED)
@@ -1842,6 +1866,7 @@ class GroupChatDetailView(APIView):
                 )
             room.name = name
             room.save(update_fields=['name'])
+            SnapGroup.objects.filter(chat_room=room).update(name=name)
         room = ChatRoom.objects.prefetch_related('members__user').get(pk=room.pk)
         return Response(_group_room_payload(room, request.user))
 
@@ -1874,6 +1899,9 @@ class GroupChatMemberAddView(APIView):
         ChatRoomMember.objects.get_or_create(
             room=room, user_id=user_id, defaults={'is_admin': False},
         )
+        snap_group = SnapGroup.objects.filter(chat_room=room).first()
+        if snap_group:
+            SnapGroupMember.objects.get_or_create(group=snap_group, user_id=user_id)
         room = ChatRoom.objects.prefetch_related('members__user').get(pk=room.pk)
         return Response(_group_room_payload(room, request.user))
 
@@ -1913,12 +1941,23 @@ class GroupChatMemberRemoveView(APIView):
             if not remaining:
                 room.is_active = False
                 room.save(update_fields=['is_active'])
-            elif not any(m.is_admin for m in remaining):
-                # Last admin left; promote the oldest member so the group
-                # doesn't get stuck without anyone able to rename/add.
-                oldest = remaining[0]
-                oldest.is_admin = True
-                oldest.save(update_fields=['is_admin'])
+                SnapGroup.objects.filter(chat_room=room).delete()
+            else:
+                if not any(m.is_admin for m in remaining):
+                    # Last admin left; promote the oldest member.
+                    oldest = remaining[0]
+                    oldest.is_admin = True
+                    oldest.save(update_fields=['is_admin'])
+                snap_group = SnapGroup.objects.filter(chat_room=room).first()
+                if snap_group:
+                    SnapGroupMember.objects.filter(
+                        group=snap_group, user_id=user_id
+                    ).delete()
+                    # If the removed user was the snap group owner, reassign.
+                    if snap_group.owner_id == user_id:
+                        new_owner = remaining[0].user
+                        snap_group.owner = new_owner
+                        snap_group.save(update_fields=['owner'])
 
         if not room.is_active:
             return Response(status=status.HTTP_204_NO_CONTENT)
