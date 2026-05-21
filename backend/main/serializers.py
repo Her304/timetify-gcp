@@ -205,15 +205,30 @@ class MessageSerializer(serializers.ModelSerializer):
     sender_username = serializers.CharField(source='sender.username', read_only=True)
     content = serializers.SerializerMethodField()
     replied_snap = serializers.SerializerMethodField()
+    reply_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = ['id', 'room', 'sender_id', 'sender_username', 'content',
-                  'replied_snap', 'is_removed', 'created_at']
+                  'replied_snap', 'reply_to', 'is_removed', 'created_at']
         read_only_fields = fields
 
     def get_content(self, obj):
         return '' if obj.is_removed else obj.content
+
+    def get_reply_to(self, obj):
+        parent = obj.reply_to
+        if not parent:
+            return None
+        # Soft-deleted parents still render as context, but content is blanked
+        # to avoid leaking moderated text (mirrors get_content's behavior).
+        preview = '' if parent.is_removed else (parent.content or '')[:80]
+        return {
+            "id": parent.id,
+            "sender_username": parent.sender.username,
+            "content_preview": preview,
+            "is_removed": parent.is_removed,
+        }
 
     def get_replied_snap(self, obj):
         snap = obj.replied_snap
@@ -516,9 +531,8 @@ class SnapGroupSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SnapGroup
-        fields = ['id', 'name', 'members', 'member_count', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'chat_room_id', 'members', 'member_count', 'created_at', 'updated_at']
         read_only_fields = fields
 
     def get_member_count(self, obj):
-        # Cheap: members were prefetched by the view.
         return len(obj.members.all())

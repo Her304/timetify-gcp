@@ -86,6 +86,9 @@ export const Feed = ({
   // Username currently waiting on a create-or-get DM round-trip — used to show a row spinner.
   const [creatingDmFor, setCreatingDmFor] = useState(null);
   const [groupCreateOpen, setGroupCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [groupsExpanded, setGroupsExpanded] = useState(false);
+  const [dmsExpanded, setDmsExpanded] = useState(false);
 
   const navigate = useNavigate();
 
@@ -345,6 +348,33 @@ export const Feed = ({
     return rows;
   }, [orderedTiles, chatsByFriendId]);
 
+  const q = search.trim().toLowerCase();
+
+  const filteredGroups = useMemo(() => {
+    if (!q) return groupChats;
+    return groupChats.filter((g) => {
+      if ((g.name || "").toLowerCase().includes(q)) return true;
+      if ((g.last_message?.content || "").toLowerCase().includes(q)) return true;
+      if (g.last_message?.sender_username?.toLowerCase().includes(q)) return true;
+      if ((g.members_preview || []).some((u) => (u.username || "").toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [groupChats, q]);
+
+  const filteredRows = useMemo(() => {
+    if (!q) return inboxRows;
+    return inboxRows.filter((t) => {
+      if ((t.username || "").toLowerCase().includes(q)) return true;
+      if ((t.chat?.last_message?.content || "").toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [inboxRows, q]);
+
+  const GROUP_CAP = 5;
+  const DM_CAP = 10;
+  const visibleGroups = q || groupsExpanded ? filteredGroups : filteredGroups.slice(0, GROUP_CAP);
+  const visibleRows = q || dmsExpanded ? filteredRows : filteredRows.slice(0, DM_CAP);
+
   const activeTile = viewerSnapIdx != null ? snapTiles[viewerSnapIdx] : null;
   const prevTile = viewerSnapIdx != null && viewerSnapIdx > 0 ? snapTiles[viewerSnapIdx - 1] : null;
   const nextTile =
@@ -470,6 +500,47 @@ export const Feed = ({
           ))}
         </div>
 
+        {/* Chat search */}
+        <div
+          className="flex items-center gap-2 bg-white border border-ink-8 rounded-full px-4 py-2.5"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ color: T.ink60, flexShrink: 0 }}
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="search groups & messages"
+            className="flex-1 bg-transparent outline-none text-sm lowercase min-w-0"
+            style={{ fontFamily: FF.sans, color: T.ink }}
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="text-[10px] lowercase px-2 py-0.5 rounded-full whitespace-nowrap"
+              style={{
+                background: T.ink8, color: T.ink60,
+                fontFamily: FF.mono, letterSpacing: 0.4,
+              }}
+            >
+              clear
+            </button>
+          )}
+        </div>
+
         {/* Group chats */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -496,9 +567,13 @@ export const Feed = ({
                 start a group chat with friends →
               </div>
             </button>
+          ) : visibleGroups.length === 0 ? (
+            <div className="bg-white border border-ink-8 rounded-2xl p-6 text-center">
+              <p className="text-ink-60 text-sm lowercase">no groups match "{search}"</p>
+            </div>
           ) : (
             <div className="bg-white border border-ink-8 rounded-2xl overflow-hidden">
-              {groupChats.map((g, i) => {
+              {visibleGroups.map((g, i) => {
                 const lm = g.last_message;
                 const unread = g.unread_count || 0;
                 const previewSender = lm?.sender_username
@@ -604,6 +679,21 @@ export const Feed = ({
               })}
             </div>
           )}
+          {!q && filteredGroups.length > GROUP_CAP && (
+            <button
+              type="button"
+              onClick={() => setGroupsExpanded((v) => !v)}
+              className="self-start text-[11px] lowercase px-3 py-1 rounded-full"
+              style={{
+                background: T.ink8, color: T.ink,
+                fontFamily: FF.mono, letterSpacing: 0.4,
+              }}
+            >
+              {groupsExpanded
+                ? "view less"
+                : `view ${filteredGroups.length - GROUP_CAP} more`}
+            </button>
+          )}
         </div>
 
         {/* Chat inbox */}
@@ -615,9 +705,13 @@ export const Feed = ({
                 no friends yet. add some on the friends page.
               </p>
             </div>
+          ) : visibleRows.length === 0 ? (
+            <div className="bg-white border border-ink-8 rounded-2xl p-6 text-center">
+              <p className="text-ink-60 text-sm lowercase">no chats match "{search}"</p>
+            </div>
           ) : (
             <div className="bg-white border border-ink-8 rounded-2xl overflow-hidden">
-              {inboxRows.map((t, i) => {
+              {visibleRows.map((t, i) => {
                 const lm = t.chat?.last_message;
                 const unread = t.chat?.unread_count || 0;
                 const busy = creatingDmFor === t.username;
@@ -711,6 +805,21 @@ export const Feed = ({
                 );
               })}
             </div>
+          )}
+          {!q && filteredRows.length > DM_CAP && (
+            <button
+              type="button"
+              onClick={() => setDmsExpanded((v) => !v)}
+              className="self-start text-[11px] lowercase px-3 py-1 rounded-full"
+              style={{
+                background: T.ink8, color: T.ink,
+                fontFamily: FF.mono, letterSpacing: 0.4,
+              }}
+            >
+              {dmsExpanded
+                ? "view less"
+                : `view ${filteredRows.length - DM_CAP} more`}
+            </button>
           )}
         </div>
       </div>

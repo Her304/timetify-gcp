@@ -426,6 +426,10 @@ class SnapGroup(models.Model):
         CustomUser, on_delete=models.CASCADE, related_name='snap_groups'
     )
     name = models.CharField(max_length=50)
+    chat_room = models.OneToOneField(
+        'ChatRoom', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='snap_group',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

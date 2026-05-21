@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
 import { T, FF, MonoLabel, Avatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
 
@@ -53,6 +54,7 @@ function SettingsSection({ title, hint, open, onToggle, children }) {
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLogout }) => {
+  const navigate = useNavigate();
   const [allCourses, setAllCourses] = useState([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -563,10 +565,37 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {groups.length === 0 && !showNewGroup && (
-                    <p className="text-sm text-ink-60 lowercase">no groups yet — make one to share snaps with just a crew.</p>
-                  )}
-                  {groups.map((g) => (
+                  {/* Chat-linked groups: read-only, managed from inside the chat */}
+                  {groups.filter((g) => g.chat_room_id).map((g) => (
+                    <div key={g.id} className="bg-cream rounded-xl border border-ink-8 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex items-center gap-2">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.ink60, flexShrink: 0 }}>
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                          </svg>
+                          <div>
+                            <div className="text-base lowercase" style={{ fontFamily: FF.serif, color: T.ink, letterSpacing: -0.3 }}>{g.name}</div>
+                            <div className="text-[10px] text-ink-60 mt-0.5" style={{ fontFamily: FF.mono, letterSpacing: 0.4 }}>
+                              {g.member_count} {g.member_count === 1 ? "member" : "members"}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => navigate(`/chat/${g.chat_room_id}`)}
+                          className="text-[11px] lowercase px-2.5 py-1 rounded-full whitespace-nowrap"
+                          style={{ background: T.ink8, color: T.ink, fontFamily: FF.mono, letterSpacing: 0.4 }}
+                        >
+                          open chat →
+                        </button>
+                      </div>
+                      <p className="text-[10px] mt-2 lowercase" style={{ color: T.ink40, fontFamily: FF.mono, letterSpacing: 0.3 }}>
+                        synced from chat — manage members in the chat
+                      </p>
+                    </div>
+                  ))}
+
+                  {/* Standalone groups: full CRUD */}
+                  {groups.filter((g) => !g.chat_room_id).map((g) => (
                     <div key={g.id} className="bg-cream rounded-xl border border-ink-8 p-3">
                       <div className="flex items-center justify-between gap-3">
                         {editingGroupId === g.id ? (
@@ -616,7 +645,6 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                           )}
                         </div>
                       </div>
-                      {/* Member chips with toggle behavior */}
                       <div className="mt-3 flex flex-wrap gap-1.5">
                         {friends.map((f) => {
                           const inGroup = g.members.some((m) => m.id === f.id);
@@ -641,6 +669,10 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                       </div>
                     </div>
                   ))}
+
+                  {groups.length === 0 && !showNewGroup && (
+                    <p className="text-sm text-ink-60 lowercase">no snap groups yet — make one below, or start a group chat from the feed.</p>
+                  )}
 
                   {showNewGroup ? (
                     <div className="bg-cream rounded-xl border border-ink-8 p-3 space-y-3">
@@ -691,13 +723,18 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                       </div>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => setShowNewGroup(true)}
-                      className="w-full py-2.5 rounded-full text-sm font-semibold lowercase hover:bg-ink-8 transition-colors"
-                      style={{ background: "#fff", color: T.ink, border: `1px dashed ${T.ink15}` }}
-                    >
-                      + new group
-                    </button>
+                    <div>
+                      <button
+                        onClick={() => setShowNewGroup(true)}
+                        className="w-full py-2.5 rounded-full text-sm font-semibold lowercase hover:bg-ink-8 transition-colors"
+                        style={{ background: "#fff", color: T.ink, border: `1px dashed ${T.ink15}` }}
+                      >
+                        + new snap group
+                      </button>
+                      <p className="text-[10px] text-center mt-1.5 lowercase" style={{ color: T.ink40, fontFamily: FF.mono, letterSpacing: 0.3 }}>
+                        for chat + snap groups, use new group chat from the feed
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
