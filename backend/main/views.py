@@ -888,23 +888,55 @@ class SnapUploadView(APIView):
                 return Response({"error": "Audience must contain only your friends."},
                                 status=status.HTTP_403_FORBIDDEN)
         elif visibility == Snap.VIS_GROUP:
-            # Resolve the saved group → current member ids, intersected with the
-            # caller's current friend set. Non-friends at send time are silently
-            # dropped so a stale group doesn't leak content to ex-friends.
+            # Two flavors of group: a saved SnapGroup (audience preset owned by
+            # the caller) OR a chat group (ChatRoom the caller is a member of).
+            # Frontend picks one or the other; we accept either field. In both
+            # cases the audience is intersected with the caller's current
+            # friend set so a stale roster never leaks content to ex-friends.
             from .models import SnapGroup as _SG
+            chat_room_id_raw = request.data.get("chat_room_id")
             group_id_raw = request.data.get("group_id")
-            try:
-                group_id = int(group_id_raw)
-            except (TypeError, ValueError):
-                return Response({"error": "group_id is required for visibility='group'."},
-                                status=status.HTTP_400_BAD_REQUEST)
-            try:
-                group = _SG.objects.prefetch_related('members').get(pk=group_id, owner=request.user)
-            except _SG.DoesNotExist:
-                return Response({"error": "Snap group not found."},
-                                status=status.HTTP_404_NOT_FOUND)
             my_friends = _friend_user_ids(request.user)
-            audience_ids = [m.user_id for m in group.members.all() if m.user_id in my_friends]
+            if chat_room_id_raw not in (None, "", "null"):
+                try:
+                    chat_room_id = int(chat_room_id_raw)
+                except (TypeError, ValueError):
+                    return Response({"error": "chat_room_id must be an integer."},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                try:
+                    chat = ChatRoom.objects.get(
+                        pk=chat_room_id, is_active=True,
+                        room_type=ChatRoom.ROOM_GROUP,
+                    )
+                except ChatRoom.DoesNotExist:
+                    return Response({"error": "Group chat not found."},
+                                    status=status.HTTP_404_NOT_FOUND)
+                if not ChatRoomMember.objects.filter(room=chat, user=request.user).exists():
+                    return Response({"error": "Not a member of this group."},
+                                    status=status.HTTP_403_FORBIDDEN)
+                member_ids = list(
+                    ChatRoomMember.objects.filter(room=chat)
+                    .exclude(user=request.user)
+                    .values_list('user_id', flat=True)
+                )
+                audience_ids = [uid for uid in member_ids if uid in my_friends]
+            elif group_id_raw not in (None, "", "null"):
+                try:
+                    group_id = int(group_id_raw)
+                except (TypeError, ValueError):
+                    return Response({"error": "group_id is required for visibility='group'."},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                try:
+                    group = _SG.objects.prefetch_related('members').get(pk=group_id, owner=request.user)
+                except _SG.DoesNotExist:
+                    return Response({"error": "Snap group not found."},
+                                    status=status.HTTP_404_NOT_FOUND)
+                audience_ids = [m.user_id for m in group.members.all() if m.user_id in my_friends]
+            else:
+                return Response(
+                    {"error": "group_id or chat_room_id is required for visibility='group'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if not audience_ids:
                 return Response({"error": "This group has no current friends to share with."},
                                 status=status.HTTP_400_BAD_REQUEST)
