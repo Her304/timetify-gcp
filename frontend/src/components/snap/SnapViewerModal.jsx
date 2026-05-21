@@ -77,9 +77,15 @@ export default function SnapViewerModal({
   const [sentToast, setSentToast] = useState(false);
   const [sentRoomId, setSentRoomId] = useState(null);
   const touchStartX = useRef(null);
+  const shellRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => { setIdx(0); }, [snaps]);
+
+  // Focus the shell once on mount so Arrow/Escape keys work. Doing this via
+  // an inline ref callback re-fires on every render and steals focus from the
+  // reply textarea after each keystroke.
+  useEffect(() => { shellRef.current?.focus(); }, []);
 
   // Reset the inline reply panel when the user pages to a different snap or
   // the modal is reopened. Stops a half-typed reply from leaking across snaps.
@@ -255,7 +261,7 @@ export default function SnapViewerModal({
       className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
       onKeyDown={onKey}
       tabIndex={-1}
-      ref={(el) => el && el.focus()}
+      ref={shellRef}
     >
       {prevTile ? (
         <button
