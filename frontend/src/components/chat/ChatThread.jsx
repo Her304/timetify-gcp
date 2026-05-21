@@ -4,6 +4,7 @@ import { T, FF, MonoLabel, Avatar, Icon } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 import SnapViewerModal from "@/components/snap/SnapViewerModal";
 import ReportModal from "@/components/shared/ReportModal";
+import GroupInfoModal from "@/components/chat/GroupInfoModal";
 
 const MAX_LEN = 2000;
 const COUNTER_THRESHOLD = 1800;
@@ -61,6 +62,7 @@ function SnapReplyCard({ snap, mine }) {
 }
 const POLL_INTERVAL = 5000;
 const TIMESTAMP_GAP_MS = 5 * 60 * 1000;
+const SENDER_RUN_GAP_MS = 2 * 60 * 1000;
 const TEXTAREA_LINE_PX = 22;
 const TEXTAREA_MAX_LINES = 5;
 
@@ -92,11 +94,35 @@ const formatLastSeen = (iso) => {
   return `last seen ${formatBubbleTime(iso)}`;
 };
 
+// In group chats only. Mono-styled `avatar · username` line above the first
+// bubble of a continuous run from the same sender, so a thread with multiple
+// participants is readable without coloring every author differently.
+const SenderLabel = ({ username }) => {
+  if (!username) return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1 mb-0.5 ml-1">
+      <Avatar
+        name={username.slice(0, 2).toLowerCase()}
+        bg={colorForUser(username)}
+        fg={colorForUser(username) === T.coral ? "#fff" : T.ink}
+        size={18}
+      />
+      <span
+        className="text-[10px] lowercase"
+        style={{ color: T.ink60, fontFamily: FF.mono, letterSpacing: 0.5 }}
+      >
+        {username}
+      </span>
+    </div>
+  );
+};
+
 // One chat bubble. `mine` flips alignment + color; `__pending` dims it, `__failed`
 // surfaces a retry control supplied by the parent.  For non-own bubbles, the
 // ⋮ overflow button (hover-revealed on desktop, always faintly visible on
-// touch) opens an inline popover with "report message".
-const Bubble = ({ msg, mine, showTime, onRetry, onReport }) => {
+// touch) opens an inline popover with "report message". `showSender` is set in
+// group rooms to prepend a sender label above the first bubble of each run.
+const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const longPressTimer = useRef(null);
@@ -129,6 +155,9 @@ const Bubble = ({ msg, mine, showTime, onRetry, onReport }) => {
   if (msg.is_removed) {
     return (
       <div className={`flex flex-col ${mine ? "items-end" : "items-start"} px-1`}>
+        {showSender && !mine && (
+          <SenderLabel username={msg.sender_username} />
+        )}
         {msg.replied_snap && <SnapReplyCard snap={msg.replied_snap} mine={mine} />}
         <div
           className="px-3 py-2 rounded-2xl max-w-[78%] italic text-sm leading-snug"
@@ -142,6 +171,9 @@ const Bubble = ({ msg, mine, showTime, onRetry, onReport }) => {
 
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"} px-1 group`}>
+      {showSender && !mine && (
+        <SenderLabel username={msg.sender_username} />
+      )}
       {msg.replied_snap && <SnapReplyCard snap={msg.replied_snap} mine={mine} />}
       <div className={`flex items-end gap-1.5 max-w-[88%] ${mine ? "flex-row-reverse" : ""}`}>
         <div
@@ -259,7 +291,25 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
   const scrollContainerRef = useRef(null);
 
   const API = import.meta.env.VITE_API_URL;
-  const otherUser = room?.other_user || null;
+  const isGroup = room?.room_type === "group";
+  const otherUser = !isGroup ? room?.other_user || null : null;
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  // Friend list for the GroupInfoModal's add-members picker. Lazy-loaded on
+  // open so we don't pay the fetch when the user is just chatting.
+  const [friendsForGroup, setFriendsForGroup] = useState([]);
+  useEffect(() => {
+    if (!groupInfoOpen || friendsForGroup.length > 0) return;
+    (async () => {
+      try {
+        const res = await authenticatedFetch(`${API}/api/friends/`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setFriendsForGroup(data || []);
+      } catch {
+        // network blip — modal still works without; user just sees "no more friends to add"
+      }
+    })();
+  }, [groupInfoOpen, API, friendsForGroup.length]);
 
   const markRead = useCallback(async () => {
     try {
@@ -539,6 +589,28 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
     return flags;
   }, [messages]);
 
+  // In group rooms only: which bubbles need a sender label above them. The
+  // array is DESC and rendered with flex-col-reverse, so the "previous bubble
+  // in visual order" is the next array index. Show the label on the first
+  // bubble of each continuous run (different sender OR > 2-min gap).
+  const showSenderByIdx = useMemo(() => {
+    if (!isGroup) return new Array(messages.length).fill(false);
+    const flags = new Array(messages.length).fill(false);
+    for (let j = 0; j < messages.length; j++) {
+      const msg = messages[j];
+      if (msg.sender_id === currentUser?.id) continue;
+      const prevInVisual = messages[j + 1];
+      if (!prevInVisual) {
+        flags[j] = true;
+        continue;
+      }
+      const sameSender = prevInVisual.sender_id === msg.sender_id;
+      const gap = new Date(msg.created_at).getTime() - new Date(prevInVisual.created_at).getTime();
+      if (!sameSender || gap > SENDER_RUN_GAP_MS) flags[j] = true;
+    }
+    return flags;
+  }, [messages, isGroup, currentUser?.id]);
+
   const charsLeft = MAX_LEN - text.length;
   const showCounter = text.length >= COUNTER_THRESHOLD;
   const canSend = text.trim().length > 0 && text.length <= MAX_LEN && !sending;
@@ -630,7 +702,47 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
         >
           <Icon name="chevL" size={20} color={T.ink} />
         </button>
-        {otherUser ? (
+        {isGroup ? (
+          <button
+            type="button"
+            onClick={() => setGroupInfoOpen(true)}
+            className="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+          >
+            {/* avatar cluster (up to 3) */}
+            <div className="relative w-10 h-10 flex-shrink-0">
+              {(room?.members || []).slice(0, 3).map((m, j) => (
+                <div
+                  key={m.id}
+                  className="absolute"
+                  style={{
+                    left: j === 0 ? 0 : j === 1 ? 12 : 6,
+                    top: j === 2 ? 14 : 0,
+                    zIndex: 3 - j,
+                  }}
+                >
+                  <Avatar
+                    name={m.username.slice(0, 2).toLowerCase()}
+                    bg={colorForUser(m.username)}
+                    fg={colorForUser(m.username) === T.coral ? "#fff" : T.ink}
+                    size={24}
+                    ring={T.cream}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div
+                className="text-lg leading-none lowercase truncate"
+                style={{ fontFamily: FF.serif, letterSpacing: -0.4, color: T.ink }}
+              >
+                {room?.name || "group"}
+              </div>
+              <MonoLabel fs={10} ls={0.8} style={{ marginTop: 4 }}>
+                {(room?.members || []).length} members · tap for info
+              </MonoLabel>
+            </div>
+          </button>
+        ) : otherUser ? (
           <>
             <Avatar
               name={otherUser.username.slice(0, 2).toLowerCase()}
@@ -696,7 +808,9 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
                 className="text-xl lowercase"
                 style={{ fontFamily: FF.serif, letterSpacing: -0.4, color: T.ink }}
               >
-                say hi to @{otherUser?.username}
+                {isGroup
+                  ? `say hi in ${room?.name || "this group"}`
+                  : `say hi to @${otherUser?.username}`}
               </div>
             </div>
           </div>
@@ -708,6 +822,7 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
                 msg={m}
                 mine={m.sender_id === currentUser?.id}
                 showTime={showTimeByIdx[idx]}
+                showSender={showSenderByIdx[idx]}
                 onRetry={handleRetry}
                 onReport={(target) => setReportingMsg(target)}
               />
@@ -741,7 +856,11 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, MAX_LEN))}
               onKeyDown={onKeyDown}
-              placeholder={`message @${otherUser?.username || ""}`}
+              placeholder={
+                isGroup
+                  ? `message ${room?.name || "the group"}`
+                  : `message @${otherUser?.username || ""}`
+              }
               rows={1}
               disabled={loading || error}
               className="flex-1 resize-none px-3 py-2 rounded-2xl outline-none text-[15px] leading-snug placeholder:text-ink-40 disabled:opacity-50"
@@ -792,16 +911,33 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
         className="flex flex-col gap-3 md:w-[320px] md:flex-shrink-0 md:overflow-y-auto"
         style={{ maxHeight: "calc(100dvh - 120px)" }}
       >
-        <SharedClassesCard
-          otherUser={otherUser}
-          classes={sharedClassesToday}
-          happeningNowKey={happeningNowKey}
-        />
-        <TheirSnapsCard
-          otherUser={otherUser}
-          snaps={theirSnapsToday}
-          onOpenViewer={(i) => setSnapViewerIdx(i)}
-        />
+        {isGroup ? (
+          <>
+            <GroupMembersCard
+              room={room}
+              currentUserId={currentUser?.id}
+              onOpenInfo={() => setGroupInfoOpen(true)}
+            />
+            <GroupSharedClassesCard
+              room={room}
+              allClasses={allClasses}
+              myUsername={currentUser?.username}
+            />
+          </>
+        ) : (
+          <>
+            <SharedClassesCard
+              otherUser={otherUser}
+              classes={sharedClassesToday}
+              happeningNowKey={happeningNowKey}
+            />
+            <TheirSnapsCard
+              otherUser={otherUser}
+              snaps={theirSnapsToday}
+              onOpenViewer={(i) => setSnapViewerIdx(i)}
+            />
+          </>
+        )}
       </aside>
       {snapViewerOpen && (
         <SnapViewerModal
@@ -817,6 +953,19 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
           targetId={reportingMsg.id}
           targetLabel={`message from @${reportingMsg.sender_username || otherUser?.username || ""}`}
           onClose={() => setReportingMsg(null)}
+        />
+      )}
+      {groupInfoOpen && isGroup && room && (
+        <GroupInfoModal
+          room={room}
+          friendsList={friendsForGroup}
+          currentUserId={currentUser?.id}
+          onClose={() => setGroupInfoOpen(false)}
+          onUpdated={(next) => setRoom((prev) => ({ ...prev, ...next }))}
+          onLeft={() => {
+            setGroupInfoOpen(false);
+            navigate("/feed");
+          }}
         />
       )}
     </div>
@@ -971,6 +1120,184 @@ const TheirSnapsCard = ({ otherUser, snaps, onOpenViewer }) => {
               )}
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const GroupMembersCard = ({ room, currentUserId, onOpenInfo }) => {
+  const members = room?.members || [];
+  return (
+    <div className={CARD_BASE}>
+      <div className="flex items-baseline justify-between">
+        <MonoLabel fs={10}>members</MonoLabel>
+        <span
+          className="text-[10px] uppercase"
+          style={{ fontFamily: FF.mono, color: T.ink40, letterSpacing: 0.6 }}
+        >
+          {members.length}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {members.map((m) => (
+          <div key={m.id} className="flex items-center gap-2">
+            <Avatar
+              name={m.username.slice(0, 2).toLowerCase()}
+              bg={colorForUser(m.username)}
+              fg={colorForUser(m.username) === T.coral ? "#fff" : T.ink}
+              size={26}
+            />
+            <span
+              className="text-sm lowercase truncate flex-1"
+              style={{ fontFamily: FF.sans, color: T.ink }}
+            >
+              {m.username}
+              {m.id === currentUserId && (
+                <span
+                  className="text-[10px] ml-1.5"
+                  style={{ color: T.ink40 }}
+                >
+                  (you)
+                </span>
+              )}
+            </span>
+            {m.is_admin && (
+              <span
+                className="text-[9px] uppercase px-1.5 py-0.5 rounded-full"
+                style={{
+                  background: T.lime, color: T.ink,
+                  fontFamily: FF.mono, letterSpacing: 0.6,
+                }}
+              >
+                admin
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={onOpenInfo}
+        className="text-[11px] lowercase mt-1 self-start"
+        style={{ color: T.coralDk || T.coral, fontFamily: FF.mono, letterSpacing: 0.4 }}
+      >
+        manage group →
+      </button>
+    </div>
+  );
+};
+
+const GroupSharedClassesCard = ({ room, allClasses, myUsername }) => {
+  // Show classes today that ≥2 group members are enrolled in. Uses the same
+  // allClasses shape WeekView feeds in (entries carry `day` MON..SUN and
+  // `owner` = username/Me).
+  const today = DAYS_SHORT[new Date().getDay()];
+  const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+  const memberUsernames = useMemo(() => {
+    const set = new Set((room?.members || []).map((m) => m.username));
+    return set;
+  }, [room]);
+
+  const sharedToday = useMemo(() => {
+    if (!Array.isArray(allClasses) || allClasses.length === 0 || memberUsernames.size === 0) return [];
+    const byCourse = new Map(); // key -> { cls, owners:Set, count }
+    for (const c of allClasses) {
+      if (c.day !== today) continue;
+      const owner = c.owner === "Me" ? myUsername : c.owner;
+      if (!owner || !memberUsernames.has(owner)) continue;
+      const key = c.base_course || c.course_id;
+      if (!key) continue;
+      const rec = byCourse.get(key) || { cls: c, owners: new Set(), count: 0 };
+      rec.owners.add(owner);
+      rec.count = rec.owners.size;
+      // Prefer the entry owned by me for display (so times line up with
+      // viewer's own schedule); fallback to the first one we saw.
+      if (owner === myUsername) rec.cls = c;
+      byCourse.set(key, rec);
+    }
+    return Array.from(byCourse.values())
+      .filter((r) => r.count >= 2)
+      .map((r) => ({ ...r.cls, _members: r.count }))
+      .sort((a, b) => toMins(a.start_time) - toMins(b.start_time));
+  }, [allClasses, today, memberUsernames, myUsername]);
+
+  return (
+    <div className={CARD_BASE}>
+      <div className="flex items-baseline justify-between">
+        <MonoLabel fs={10}>our class today</MonoLabel>
+        {sharedToday.length > 0 && (
+          <span
+            className="text-[10px] uppercase"
+            style={{ fontFamily: FF.mono, color: T.ink40, letterSpacing: 0.6 }}
+          >
+            {sharedToday.length}
+          </span>
+        )}
+      </div>
+      {sharedToday.length === 0 ? (
+        <p className="text-xs lowercase" style={{ color: T.ink40, fontFamily: FF.sans }}>
+          no shared class today
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {sharedToday.map((c) => {
+            const key = c.base_course || c.course_id;
+            const live = toMins(c.start_time) <= nowMins && nowMins < toMins(c.end_time);
+            return (
+              <div
+                key={`${key}-${c.start_time}`}
+                className="rounded-xl px-3 py-2.5 border"
+                style={{
+                  background: live ? T.coral : T.cream,
+                  color: live ? "#fff" : T.ink,
+                  borderColor: live ? T.coral : T.ink08,
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className="text-sm font-semibold lowercase truncate flex-1"
+                    style={{ fontFamily: FF.serif, letterSpacing: -0.2 }}
+                  >
+                    {c.course || c.course_id}
+                  </div>
+                  {live && (
+                    <span
+                      className="text-[9px] uppercase px-1.5 py-0.5 rounded-full"
+                      style={{
+                        background: "#fff",
+                        color: T.coralDk,
+                        fontFamily: FF.mono, letterSpacing: 0.8,
+                      }}
+                    >
+                      now
+                    </span>
+                  )}
+                  <span
+                    className="text-[9px] uppercase px-1.5 py-0.5 rounded-full"
+                    style={{
+                      background: live ? "rgba(255,255,255,0.2)" : T.ink08,
+                      color: live ? "#fff" : T.ink60,
+                      fontFamily: FF.mono, letterSpacing: 0.6,
+                    }}
+                  >
+                    {c._members} in
+                  </span>
+                </div>
+                <div
+                  className="text-[11px] mt-1"
+                  style={{
+                    fontFamily: FF.mono,
+                    color: live ? "rgba(255,255,255,0.85)" : T.ink60,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  {c.start_time}–{c.end_time}
+                  {c.location ? ` · ${c.location}` : ""}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
