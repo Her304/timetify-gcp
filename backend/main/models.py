@@ -13,6 +13,7 @@ class CustomUser(AbstractUser):
     # Throttled (~60s) on every authenticated request by LastSeenMiddleware.
     # Indexed so the friends page can sort/filter by recency cheaply.
     last_seen = models.DateTimeField(null=True, blank=True, db_index=True)
+    profile_picture = models.ImageField(upload_to='profile_pictures/', null=True, blank=True)
 
     REQUIRED_FIELDS = ['email', 'university', 'major', 'grad_year']
 

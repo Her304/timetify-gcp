@@ -69,6 +69,10 @@ export const authenticatedFetch = async (url, options = {}) => {
             ...headers,
             "Authorization": `Bearer ${newAccessToken}`,
           };
+          // Don't set Content-Type if we're sending FormData
+          if (options.body instanceof FormData) {
+            delete retryHeaders["Content-Type"];
+          }
           response = await fetch(cleanUrl, { ...options, headers: retryHeaders });
         } catch (err) {
           console.error("Token refresh failed:", err);

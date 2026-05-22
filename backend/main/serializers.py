@@ -16,16 +16,18 @@ class UserSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
     shared_courses = serializers.SerializerMethodField()
     last_snap_at = serializers.SerializerMethodField()
+    profile_picture_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'university', 'major', 'grad_year',
             'status', 'shared_courses', 'last_seen', 'last_snap_at',
+            'profile_picture', 'profile_picture_url',
         ]
         # username and email cannot be PATCHed via this serializer — they are identity
         # fields and require a dedicated flow (e.g. email verification) to change.
-        read_only_fields = ['id', 'username', 'email', 'status', 'shared_courses', 'last_seen', 'last_snap_at']
+        read_only_fields = ['id', 'username', 'email', 'status', 'shared_courses', 'last_seen', 'last_snap_at', 'profile_picture_url']
 
     def get_last_snap_at(self, obj):
         # Prefer the precomputed map FriendListView passes via context to avoid N+1s.
@@ -62,6 +64,12 @@ class UserSerializer(serializers.ModelSerializer):
             .distinct()
         )
         return their_ids
+
+    def get_profile_picture_url(self, obj):
+        try:
+            return obj.profile_picture.url if obj.profile_picture else None
+        except Exception:
+            return None
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
