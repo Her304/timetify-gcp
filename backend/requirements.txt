@@ -16,5 +16,6 @@ pg8000==1.31.2
 google-auth
 google-cloud-secret-manager
 django-storages[google]==1.14.4
+Pillow>=10.0.0
 
 sentry-sdk>=2.18.0

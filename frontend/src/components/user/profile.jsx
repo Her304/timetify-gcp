@@ -64,7 +64,9 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
     university: currentUser?.university || "",
     major: currentUser?.major || "",
     grad_year: currentUser?.grad_year || "",
+    profile_picture: null,
   });
+  const [profilePreview, setProfilePreview] = useState(currentUser?.profile_picture_url || null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [courseFilter, setCourseFilter] = useState("all");
@@ -286,21 +288,46 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
       university: currentUser.university || "",
       major: currentUser.major || "",
       grad_year: currentUser.grad_year || "",
+      profile_picture: null,
     });
+    setProfilePreview(currentUser?.profile_picture_url || null);
     setIsEditing(true);
     setError(null);
   };
 
-  const handleCancel = () => { setIsEditing(false); setError(null); };
-  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleCancel = () => { setIsEditing(false); setError(null); setProfilePreview(null); };
+  const handleChange = (e) => {
+    const { name, type, value, files } = e.target;
+    if (type === "file") {
+      const file = files?.[0];
+      setFormData({ ...formData, [name]: file || null });
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (evt) => setProfilePreview(evt.target.result);
+        reader.readAsDataURL(file);
+      }
+    } else {
+      setFormData({ ...formData, [name]: value });
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
+      const body = new FormData();
+      body.append("username", formData.username);
+      body.append("email", formData.email);
+      body.append("university", formData.university);
+      body.append("major", formData.major);
+      body.append("grad_year", formData.grad_year);
+      if (formData.profile_picture) {
+        body.append("profile_picture", formData.profile_picture);
+      }
+
       const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/user/`, {
         method: "PATCH",
-        body: JSON.stringify(formData),
+        body,
       });
       if (res.ok) {
         const data = await res.json();
@@ -362,10 +389,18 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
           <Star color={T.coral} size={24} style={{ position: 'absolute', top: 22, right: 28, transform: 'rotate(-10deg)' }}/>
 
           <div className="relative flex flex-col items-start gap-4">
-            <Avatar
-              name={currentUser.username?.charAt(0).toLowerCase()}
-              bg={T.coral} fg="#fff" size={72}
-            />
+            {currentUser.profile_picture_url ? (
+              <img
+                src={currentUser.profile_picture_url}
+                alt="Profile"
+                className="w-24 h-24 rounded-full object-cover"
+              />
+            ) : (
+              <Avatar
+                name={currentUser.username?.charAt(0).toLowerCase()}
+                bg={T.coral} fg="#fff" size={72}
+              />
+            )}
             <div>
               <MonoLabel color="rgba(248,244,237,.65)">@{currentUser.username}</MonoLabel>
               <div className="text-3xl leading-none mt-1.5 lowercase" style={{ fontFamily: FF.serif, letterSpacing: -0.8 }}>
@@ -423,6 +458,19 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                 <div>
                   <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>grad year</label>
                   <input name="grad_year" value={formData.grad_year} onChange={handleChange} placeholder="2027" className={inputClasses} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>profile picture</label>
+                  <input
+                    type="file"
+                    name="profile_picture"
+                    accept="image/*"
+                    onChange={handleChange}
+                    className={inputClasses}
+                  />
+                  {profilePreview && (
+                    <img src={profilePreview} alt="Preview" className="mt-3 w-20 h-20 rounded-full object-cover" />
+                  )}
                 </div>
               </div>
               {error?.non_field_errors && (
