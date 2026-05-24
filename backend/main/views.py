@@ -208,14 +208,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             if user:
                 attrs["username"] = user.username
         data = super().validate(attrs)
-        data['user'] = {
-            'id': self.user.id,
-            'username': self.user.username,
-            'email': self.user.email,
-            'university': self.user.university,
-            'major': self.user.major,
-            'grad_year': self.user.grad_year
-        }
+        data['user'] = UserSerializer(self.user, context={'request': self.context.get('request')}).data
         data['is_temp_password'] = self.user.is_temp_password
         return data
 

@@ -60,7 +60,7 @@ if not DEBUG and SECRET_KEY.startswith("django-insecure-"):
 
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,timetify.net,timetify-web-931972332433.us-central1.run.app,timetify-gcp-frontend-931972332433.us-central1.run.app",
+    "localhost,127.0.0.1,timetify.net,timetify-web-931972332433.us-central1.run.app,timetify-web-3n7rqcqraa-uc.a.run.app,timetify-gcp-frontend-931972332433.us-central1.run.app",
 ).split(",") if h.strip()]
 
 
