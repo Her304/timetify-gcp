@@ -1,25 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { InputFile } from "@/components/base/input/input-file";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { T, FF, MonoLabel, PillBtn, Icon, Star, Blob } from "@/components/shared/brand";
-
-const AnalyzingAd = () => {
-    useEffect(() => {
-        try {
-            (window.adsbygoogle = window.adsbygoogle || []).push({});
-        } catch (e) {}
-    }, []);
-    return (
-        <ins
-            className="adsbygoogle"
-            style={{ display: "block" }}
-            data-ad-client="ca-pub-9825491172037028"
-            data-ad-slot="5349227302"
-            data-ad-format="auto"
-            data-full-width-responsive="true"
-        />
-    );
-};
 
 // 4-step wizard indicator (drop / parsing / review / done)
 const StepIndicator = ({ step }) => {
@@ -244,8 +226,6 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                         <p className="text-ink-60 text-sm">reading text · extracting times…</p>
                     </div>
                 </div>
-
-                <AnalyzingAd />
             </div>
         );
     }
