@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { HeaderNavApp } from "@/components/application/app-navigation/header-nav-app.jsx";
 import { MobileBottomNav } from "@/components/application/app-navigation/mobile-bottom-nav.jsx";
@@ -346,6 +346,13 @@ const AppShell = ({
   // the chat's own chrome.
   const isChatThread = location.pathname.startsWith("/chat/");
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  // <main> is the scroll container (overflow-y-auto), so window.scrollTo is
+  // a no-op. Reset its scrollTop on every route change so footer links and
+  // other in-app navigation land at the top of the new page.
+  const mainRef = useRef(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
 
   // 30s poll for the global chat unread badge while authed. Also re-runs when
   // the user enters /chat/<id> so the per-room read state catches up quickly
@@ -396,7 +403,7 @@ const AppShell = ({
         />
       )}
 
-      <main className="flex-1 overflow-y-auto flex flex-col">
+      <main ref={mainRef} className="flex-1 overflow-y-auto flex flex-col">
         <div className={`flex-1 ${currentUser ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
           <Routes>
             <Route
