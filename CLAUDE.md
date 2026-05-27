@@ -19,9 +19,10 @@
 
 ## Brand
 
-- Atoms: `@/components/shared/brand` — `T` (tokens), `FF`, `AppMark`, `Avatar`, `PillBtn`, `MonoLabel`, `Chip`, `Toggle`, `Icon`.
+- Atoms: `@/components/shared/brand` — `T` (tokens), `FF`, `AppMark`, `Avatar`, `ProfileAvatar`, `PillBtn`, `MonoLabel`, `Chip`, `Toggle`, `Icon`.
 - **Colors:** coral `#ED6A4A` (CTAs/live), lilac `#C8B0DF`, lime `#C9EE6F`, ink `#1F1A22`, cream `#F8F4ED`.
 - **Fonts:** Bricolage Grotesque (`font-serif`, display), Geist (body), Geist Mono (`font-mono`, labels). Tone: low-caps, casual.
+- **ProfileAvatar:** Shows profile picture if available, falls back to Avatar initials. Used in profile card and all avatar displays.
 
 ---
 
@@ -42,6 +43,7 @@
 - **Snap `group` visibility:** accepts `group_id` (SnapGroup) **or** `chat_room_id` (ChatRoom members), intersected with accepted friends.
 - **Course overlap guard:** strict `<` overlap only; touching boundaries (10:00 end / 10:00 start) are allowed.
 - **Groups + UserBlock:** blocks do **not** prevent sends — blocked-user messages are filtered on every read path instead.
+- **Profile picture:** uploaded images are compressed to 70% JPEG quality. Frontend syncs via `ProfileAvatar` component. `profile_picture_url` returned from `GET /api/user/` and login uses `request.build_absolute_uri()` to generate absolute URLs for cross-origin dev/prod support.
 
 ---
 
@@ -51,6 +53,7 @@
 `ChatRoomMember` — `is_admin` gates group rename/add/remove; oldest member auto-promoted when last admin leaves.
 `Message` — `replied_snap` SET_NULL on Snap delete; soft-delete retains `content` for moderation.
 `FunctionRestriction` — `restriction_type` ∈ `snap_posting|chat_messaging|both`; `expires_at` null = permanent.
+`CustomUser` — `profile_picture` ImageField, optional, stored in `profile_pictures/` directory. Frontend gets URL via `profile_picture_url` (SerializerMethodField using `request.build_absolute_uri()`).
 
 ---
 
