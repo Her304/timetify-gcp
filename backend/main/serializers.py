@@ -116,16 +116,18 @@ class UserSerializer(serializers.ModelSerializer):
         return value
 
     def update(self, instance, validated_data):
-        # Capture the previous file so we can purge it after a successful swap —
-        # ImageField does not delete on overwrite, and GCS file_overwrite=False
-        # means each upload otherwise leaves an orphan in the bucket.
-        old_file = None
+        # Capture the previous file name as a plain string so we can purge it
+        # after a successful swap without touching the updated instance.
+        # (FieldFile.delete() calls setattr on its .instance, which would
+        # overwrite the newly saved profile_picture back to None.)
+        old_name = None
         if 'profile_picture' in validated_data and validated_data['profile_picture'] and instance.profile_picture:
-            old_file = instance.profile_picture
+            old_name = instance.profile_picture.name
         instance = super().update(instance, validated_data)
-        if old_file and (not instance.profile_picture or old_file.name != instance.profile_picture.name):
+        new_name = instance.profile_picture.name if instance.profile_picture else None
+        if old_name and old_name != new_name:
             try:
-                old_file.delete(save=False)
+                instance.profile_picture.storage.delete(old_name)
             except Exception:
                 logger.warning("Failed to delete previous profile picture for user_id=%s", instance.id, exc_info=True)
         return instance
