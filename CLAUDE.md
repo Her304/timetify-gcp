@@ -43,7 +43,7 @@
 - **Snap `group` visibility:** accepts `group_id` (SnapGroup) **or** `chat_room_id` (ChatRoom members), intersected with accepted friends.
 - **Course overlap guard:** strict `<` overlap only; touching boundaries (10:00 end / 10:00 start) are allowed.
 - **Groups + UserBlock:** blocks do **not** prevent sends — blocked-user messages are filtered on every read path instead.
-- **Profile picture:** uploaded images are compressed to 70% JPEG quality. Frontend syncs via `ProfileAvatar` component. `profile_picture_url` returned from `GET /api/user/` and login uses `request.build_absolute_uri()` to generate absolute URLs for cross-origin dev/prod support.
+- **Profile picture:** frontend downscales to ≤1024 px and re-encodes JPEG @ 0.7 before upload; backend re-validates ext + magic bytes + 5 MB cap and deletes the previous file on replacement (GCS `file_overwrite=False` would otherwise orphan it). The raw `profile_picture` field is `write_only`; clients read `profile_picture_url` (absolute URL via `request.build_absolute_uri()`). All avatar slots render through `ProfileAvatar` — falls back to `Avatar` initials when no picture is set.
 
 ---
 

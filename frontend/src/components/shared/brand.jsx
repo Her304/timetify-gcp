@@ -38,6 +38,25 @@ export function Avatar({ name = 'mm', bg = T.lilac, fg = T.ink, size = 36, ring,
   );
 }
 
+// ProfileAvatar — renders profilePictureUrl if present, else falls back to Avatar initials.
+export function ProfileAvatar({ profilePictureUrl, name = 'mm', bg = T.lilac, fg = T.ink, size = 36, ring, style = {} }) {
+  if (profilePictureUrl) {
+    return (
+      <img
+        src={profilePictureUrl}
+        alt=""
+        style={{
+          width: size, height: size, borderRadius: 999,
+          objectFit: 'cover', flexShrink: 0, display: 'block',
+          boxShadow: ring ? `0 0 0 2.5px ${ring}, 0 0 0 4.5px ${T.cream}` : 'none',
+          ...style,
+        }}
+      />
+    );
+  }
+  return <Avatar name={name} bg={bg} fg={fg} size={size} ring={ring} style={style} />;
+}
+
 // Sticker blob — wavy organic shape
 export function Blob({ color = T.lime, size = 120, seed = 0, style = {} }) {
   const paths = [

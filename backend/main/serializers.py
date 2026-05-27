@@ -1,3 +1,4 @@
+import logging
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -9,8 +10,16 @@ from .models import (
 )
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 from django.db.models import Q
+
+PROFILE_PICTURE_MAX_SIZE = 5 * 1024 * 1024  # 5 MB — matches DATA_UPLOAD_MAX_MEMORY_SIZE
+PROFILE_PICTURE_ALLOWED_EXT = {'.jpg', '.jpeg', '.png', '.webp'}
+_SIG_JPEG = b"\xff\xd8\xff"
+_SIG_PNG = b"\x89PNG\r\n\x1a\n"
+_SIG_RIFF = b"RIFF"
+_SIG_WEBP = b"WEBP"
 
 class UserSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
@@ -28,6 +37,10 @@ class UserSerializer(serializers.ModelSerializer):
         # username and email cannot be PATCHed via this serializer — they are identity
         # fields and require a dedicated flow (e.g. email verification) to change.
         read_only_fields = ['id', 'username', 'email', 'status', 'shared_courses', 'last_seen', 'last_snap_at', 'profile_picture_url']
+        extra_kwargs = {
+            # Raw field is upload-only; clients read profile_picture_url instead.
+            'profile_picture': {'write_only': True, 'required': False},
+        }
 
     def get_last_snap_at(self, obj):
         # Prefer the precomputed map FriendListView passes via context to avoid N+1s.
@@ -66,16 +79,56 @@ class UserSerializer(serializers.ModelSerializer):
         return their_ids
 
     def get_profile_picture_url(self, obj):
-        try:
-            if not obj.profile_picture:
-                return None
-            url = obj.profile_picture.url
-            request = self.context.get('request')
-            if request is not None:
-                return request.build_absolute_uri(url)
-            return url
-        except Exception:
+        if not obj.profile_picture:
             return None
+        try:
+            url = obj.profile_picture.url
+        except Exception:
+            # Storage backend missing the file, malformed name, etc.
+            logger.warning("profile_picture.url failed for user_id=%s", obj.id, exc_info=True)
+            return None
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
+
+    def validate_profile_picture(self, value):
+        if value is None:
+            return value
+        if value.size > PROFILE_PICTURE_MAX_SIZE:
+            raise serializers.ValidationError("Image must be 5 MB or smaller.")
+        name = (getattr(value, 'name', '') or '').lower()
+        ext = name[name.rfind('.'):] if '.' in name else ''
+        if ext not in PROFILE_PICTURE_ALLOWED_EXT:
+            raise serializers.ValidationError("Only JPG, PNG, or WebP images are allowed.")
+        head = value.read(16)
+        value.seek(0)
+        if ext in ('.jpg', '.jpeg'):
+            ok = head.startswith(_SIG_JPEG)
+        elif ext == '.png':
+            ok = head.startswith(_SIG_PNG)
+        elif ext == '.webp':
+            ok = len(head) >= 12 and head.startswith(_SIG_RIFF) and head[8:12] == _SIG_WEBP
+        else:
+            ok = False
+        if not ok:
+            raise serializers.ValidationError("Image content does not match its extension.")
+        return value
+
+    def update(self, instance, validated_data):
+        # Capture the previous file so we can purge it after a successful swap —
+        # ImageField does not delete on overwrite, and GCS file_overwrite=False
+        # means each upload otherwise leaves an orphan in the bucket.
+        old_file = None
+        if 'profile_picture' in validated_data and validated_data['profile_picture'] and instance.profile_picture:
+            old_file = instance.profile_picture
+        instance = super().update(instance, validated_data)
+        if old_file and (not instance.profile_picture or old_file.name != instance.profile_picture.name):
+            try:
+                old_file.delete(save=False)
+            except Exception:
+                logger.warning("Failed to delete previous profile picture for user_id=%s", instance.id, exc_info=True)
+        return instance
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])

@@ -1,7 +1,36 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
-import { T, FF, MonoLabel, Avatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
+import { T, FF, MonoLabel, Avatar, ProfileAvatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
+
+const PROFILE_PIC_MAX_BYTES = 5 * 1024 * 1024;
+
+// Downscale to ≤1024px on the long edge and re-encode as JPEG @ 0.7. Mirrors
+// the snap pipeline so phone-camera uploads don't ship 4 MB of raw selfie.
+async function compressProfileImage(file, { maxDim = 1024, quality = 0.7 } = {}) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("decode failed"));
+      im.src = url;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+    if (!blob) return file;
+    const base = (file.name || "profile").replace(/\.[^.]+$/, "");
+    return new File([blob], `${base}.jpg`, { type: "image/jpeg" });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 // One toggle row inside the notifications section.
 function NotiRow({ title, hint, checked, onChange, busy }) {
@@ -295,17 +324,35 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
     setError(null);
   };
 
-  const handleCancel = () => { setIsEditing(false); setError(null); setProfilePreview(null); };
-  const handleChange = (e) => {
+  const handleCancel = () => {
+    setIsEditing(false);
+    setError(null);
+    setProfilePreview(currentUser?.profile_picture_url || null);
+  };
+  const handleChange = async (e) => {
     const { name, type, value, files } = e.target;
     if (type === "file") {
-      const file = files?.[0];
-      setFormData({ ...formData, [name]: file || null });
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (evt) => setProfilePreview(evt.target.result);
-        reader.readAsDataURL(file);
+      const raw = files?.[0];
+      if (!raw) {
+        setFormData((prev) => ({ ...prev, [name]: null }));
+        return;
       }
+      if (raw.size > PROFILE_PIC_MAX_BYTES) {
+        setError({ profile_picture: ["image must be 5 mb or smaller."] });
+        e.target.value = "";
+        return;
+      }
+      setError(null);
+      let file = raw;
+      try {
+        file = await compressProfileImage(raw);
+      } catch (err) {
+        console.warn("profile pic compression failed; uploading original", err);
+      }
+      setFormData((prev) => ({ ...prev, [name]: file }));
+      const reader = new FileReader();
+      reader.onload = (evt) => setProfilePreview(evt.target.result);
+      reader.readAsDataURL(file);
     } else {
       setFormData({ ...formData, [name]: value });
     }
@@ -316,8 +363,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
     setError(null);
     try {
       const body = new FormData();
-      body.append("username", formData.username);
-      body.append("email", formData.email);
+      // username/email are read-only server-side; sending them would be silently dropped.
       body.append("university", formData.university);
       body.append("major", formData.major);
       body.append("grad_year", formData.grad_year);
@@ -389,18 +435,13 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
           <Star color={T.coral} size={24} style={{ position: 'absolute', top: 22, right: 28, transform: 'rotate(-10deg)' }}/>
 
           <div className="relative flex flex-col items-start gap-4">
-            {currentUser.profile_picture_url ? (
-              <img
-                src={currentUser.profile_picture_url}
-                alt="Profile"
-                className="w-24 h-24 rounded-full object-cover"
-              />
-            ) : (
-              <Avatar
-                name={currentUser.username?.charAt(0).toLowerCase()}
-                bg={T.coral} fg="#fff" size={72}
-              />
-            )}
+            <ProfileAvatar
+              profilePictureUrl={currentUser.profile_picture_url}
+              name={currentUser.username?.charAt(0).toLowerCase()}
+              bg={T.coral}
+              fg="#fff"
+              size={96}
+            />
             <div>
               <MonoLabel color="rgba(248,244,237,.65)">@{currentUser.username}</MonoLabel>
               <div className="text-3xl leading-none mt-1.5 lowercase" style={{ fontFamily: FF.serif, letterSpacing: -0.8 }}>
@@ -439,13 +480,13 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>username</label>
-                  <input name="username" value={formData.username} onChange={handleChange} className={inputClasses} />
-                  {error?.username && <p className="text-xs text-coral-dark mt-1">{error.username[0]}</p>}
+                  <input name="username" value={formData.username} disabled className={`${inputClasses} opacity-60 cursor-not-allowed`} />
+                  <p className="text-[10px] text-ink-40 mt-1 lowercase">contact support to change</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>email</label>
-                  <input name="email" type="email" value={formData.email} onChange={handleChange} className={inputClasses} />
-                  {error?.email && <p className="text-xs text-coral-dark mt-1">{error.email[0]}</p>}
+                  <input name="email" type="email" value={formData.email} disabled className={`${inputClasses} opacity-60 cursor-not-allowed`} />
+                  <p className="text-[10px] text-ink-40 mt-1 lowercase">contact support to change</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>university</label>
@@ -470,6 +511,9 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                   />
                   {profilePreview && (
                     <img src={profilePreview} alt="Preview" className="mt-3 w-20 h-20 rounded-full object-cover" />
+                  )}
+                  {error?.profile_picture && (
+                    <p className="text-xs text-coral-dark mt-1">{error.profile_picture[0]}</p>
                   )}
                 </div>
               </div>
