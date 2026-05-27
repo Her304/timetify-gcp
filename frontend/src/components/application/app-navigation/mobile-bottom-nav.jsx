@@ -1,5 +1,5 @@
 import { useLocation } from "react-router-dom";
-import { T, FF } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar } from "@/components/shared/brand";
 import { NavIcon } from "./nav-icons";
 
 // Reuse the same Material Design icon set the desktop nav pills use, so the
@@ -41,17 +41,14 @@ const AvatarTab = ({ active, currentUser }) => {
       aria-label="profile"
       className="flex items-center justify-center flex-1"
     >
-      <span
-        className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold transition-shadow"
-        style={{
-          background: T.lilac,
-          color: T.ink,
-          fontFamily: FF.serif,
-          boxShadow: active ? `0 0 0 2px ${T.cream}, 0 0 0 4px ${T.coral}` : "none",
-        }}
-      >
-        {letter}
-      </span>
+      <ProfileAvatar
+        profilePictureUrl={currentUser?.profile_picture_url}
+        name={letter}
+        bg={T.lilac}
+        fg={T.ink}
+        size={44}
+        ring={active ? T.coral : undefined}
+      />
     </a>
   );
 };

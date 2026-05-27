@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { AppMark, T, FF, Icon } from "@/components/shared/brand";
+import { AppMark, T, FF, Icon, ProfileAvatar } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { NavIcon } from "./nav-icons";
@@ -142,12 +142,14 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unread
           )}
         </div>
 
-        <a
-          href="/profile"
-          className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold hover:opacity-90 transition-opacity"
-          style={{ fontFamily: FF.serif, background: T.lilac, color: T.ink }}
-        >
-          {avatarLetter}
+        <a href="/profile" className="hover:opacity-90 transition-opacity">
+          <ProfileAvatar
+            profilePictureUrl={currentUser?.profile_picture_url}
+            name={avatarLetter}
+            bg={T.lilac}
+            fg={T.ink}
+            size={40}
+          />
         </a>
         {onLogout && (
           <button
