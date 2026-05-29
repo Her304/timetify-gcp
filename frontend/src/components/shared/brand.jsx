@@ -47,7 +47,8 @@ export function ProfileAvatar({ profilePictureUrl, name = 'mm', bg = T.lilac, fg
         alt=""
         style={{
           width: size, height: size, borderRadius: 999,
-          objectFit: 'cover', flexShrink: 0, display: 'block',
+          objectFit: 'cover', objectPosition: 'top',
+          flexShrink: 0, display: 'block',
           boxShadow: ring ? `0 0 0 2.5px ${ring}, 0 0 0 4.5px ${T.cream}` : 'none',
           ...style,
         }}
