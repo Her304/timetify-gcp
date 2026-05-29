@@ -18,7 +18,7 @@ from .serializers import (
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog
 from datetime import datetime, timedelta
 from django.contrib.auth import get_user_model
 from main.utils import send_email
@@ -240,10 +240,14 @@ class CourseListCreateView(generics.ListCreateAPIView):
                         logger.debug("Skipping course with invalid dates")
                         continue
                     
-                    classroom = course_data.get('classroom', 'TBD')
-                    start_time = course_data.get('start_time', '09:00')
-                    end_time = course_data.get('end_time', '17:00')
-                    rep_date = course_data.get('rep_date', 'Monday')
+                    # `or default` instead of `.get(key, default)` because pdf.py now
+                    # returns `None` for fields the syllabus omits (so the model isn't
+                    # forced to invent). `.get(key, default)` only fires the fallback
+                    # when the KEY is missing, not when its value is None.
+                    classroom = course_data.get('classroom') or 'TBD'
+                    start_time = course_data.get('start_time') or '09:00'
+                    end_time = course_data.get('end_time') or '17:00'
+                    rep_date = course_data.get('rep_date') or 'Monday'
                     is_main = course_data.get('is_main', False)
                     is_lab = course_data.get('is_lab', False)
                     
@@ -335,12 +339,37 @@ PDF_MAGIC = b"%PDF"
 DOCX_MAGIC = b"PK\x03\x04"
 
 
+REPARSE_DAILY_LIMIT = 3
+REPARSE_WINDOW = timedelta(hours=24)
+
+
+def _reparse_count_remaining(user):
+    cutoff = timezone.now() - REPARSE_WINDOW
+    used = ReparseLog.objects.filter(user=user, created_at__gte=cutoff).count()
+    return max(0, REPARSE_DAILY_LIMIT - used)
+
+
 class CourseAnalyzeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         if 'course_outline' not in request.FILES:
             return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # First analyze is free. "Reparse" (try again from the confirmation page)
+        # counts against the daily cap so users can't burn LLM budget infinitely.
+        is_reparse = str(request.data.get('is_reparse', '')).lower() in ('true', '1', 'yes')
+        if is_reparse:
+            remaining = _reparse_count_remaining(request.user)
+            if remaining <= 0:
+                return Response(
+                    {
+                        "error": "reparse_limit_reached",
+                        "details": f"You've used your {REPARSE_DAILY_LIMIT} AI reparses for today. Try again in 24 hours.",
+                        "reparse_remaining": 0,
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
 
         file_obj = request.FILES['course_outline']
 
@@ -382,6 +411,11 @@ class CourseAnalyzeView(APIView):
                     destination.write(chunk)
 
             result = process_course_outline(temp_path)
+            # Only log a reparse AFTER a successful analysis. Failed attempts
+            # shouldn't burn the user's daily quota.
+            if is_reparse:
+                ReparseLog.objects.create(user=request.user)
+            result['reparse_remaining'] = _reparse_count_remaining(request.user)
             return Response(result)
         except Exception as e:
             return Response(
@@ -427,6 +461,20 @@ class CourseFinalizeView(APIView):
         if not courses_data:
             return Response({"error": "No course data provided"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Build the slot view from incoming course data, but remember the full
+        # `cd` so the overlap response can carry the human-readable fields the
+        # frontend's conflict screen renders (course_name, classroom, etc.).
+        def _slot_summary(cd, source):
+            return {
+                'source': source,  # 'incoming' or 'existing'
+                'course_id': cd.get('course_id') or '(unnamed)',
+                'course_name': cd.get('course_name') or '',
+                'classroom': cd.get('classroom') or '',
+                'start_time': cd.get('start_time') or '',
+                'end_time': cd.get('end_time') or '',
+                'rep_date': cd.get('rep_date') or '',
+            }
+
         incoming_slots = []
         for cd in courses_data:
             s = _slot_to_minutes(cd.get('start_time'))
@@ -435,18 +483,21 @@ class CourseFinalizeView(APIView):
             if s is None or e is None or s >= e or not days:
                 continue
             incoming_slots.append({
-                'course_id': cd.get('course_id') or '(unnamed)',
-                'days': days, 's': s, 'e': e,
+                'cd': cd, 'days': days, 's': s, 'e': e,
             })
 
         for i, a in enumerate(incoming_slots):
             for b in incoming_slots[i + 1:]:
                 day = _find_overlap_day(a['days'], a['s'], a['e'], b['days'], b['s'], b['e'])
                 if day:
+                    a_sum = _slot_summary(a['cd'], 'incoming')
+                    b_sum = _slot_summary(b['cd'], 'incoming')
                     return Response({
                         'error': 'overlap',
-                        'detail': f"{a['course_id']} and {b['course_id']} overlap on {day}.",
-                        'a': a['course_id'], 'b': b['course_id'], 'day': day,
+                        'kind': 'incoming_vs_incoming',
+                        'detail': f"{a_sum['course_id']} and {b_sum['course_id']} overlap on {day}.",
+                        'day': day,
+                        'a': a_sum, 'b': b_sum,
                     }, status=status.HTTP_400_BAD_REQUEST)
 
         for ex in Course.objects.filter(user=request.user):
@@ -458,10 +509,21 @@ class CourseFinalizeView(APIView):
             for inc in incoming_slots:
                 day = _find_overlap_day(inc['days'], inc['s'], inc['e'], ex_days, ex_s, ex_e)
                 if day:
+                    a_sum = _slot_summary(inc['cd'], 'incoming')
+                    b_sum = _slot_summary({
+                        'course_id': ex.course_id,
+                        'course_name': ex.course_name,
+                        'classroom': ex.classroom,
+                        'start_time': ex.start_time.strftime('%H:%M') if ex.start_time else '',
+                        'end_time': ex.end_time.strftime('%H:%M') if ex.end_time else '',
+                        'rep_date': ex.rep_date,
+                    }, 'existing')
                     return Response({
                         'error': 'overlap',
-                        'detail': f"{inc['course_id']} overlaps with your existing course {ex.course_id} on {day}.",
-                        'a': inc['course_id'], 'b': ex.course_id, 'day': day,
+                        'kind': 'incoming_vs_existing',
+                        'detail': f"{a_sum['course_id']} overlaps with your existing course {b_sum['course_id']} on {day}.",
+                        'day': day,
+                        'a': a_sum, 'b': b_sum,
                     }, status=status.HTTP_400_BAD_REQUEST)
 
         main_course = None

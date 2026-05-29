@@ -218,7 +218,10 @@ const App = () => {
       const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/analyze/`, { method: "POST", body: formData });
       const data = await response.json();
       if (response.ok) return { success: true, data };
-      else { setCourseErrors(data); return { success: false }; }
+      // Rate-limit response carries its own shape; surface to caller without overwriting other course errors.
+      if (response.status === 429) return { success: false, rateLimited: true, data };
+      setCourseErrors(data);
+      return { success: false };
     } catch (err) {
       setCourseErrors({ non_field_errors: ["An unexpected error occurred during analysis."] });
       return { success: false };
@@ -235,7 +238,10 @@ const App = () => {
       });
       const data = await response.json();
       if (response.ok) { window.location.reload(); return { success: true }; }
-      else { setCourseErrors(data); return { success: false }; }
+      setCourseErrors(data);
+      // Surface the failure payload so callers (e.g. the Add page) can route to
+      // a dedicated screen for structured errors like {error: "overlap"}.
+      return { success: false, data };
     } catch (err) {
       setCourseErrors({ non_field_errors: ["An unexpected error occurred during finalization."] });
       return { success: false };
