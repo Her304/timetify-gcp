@@ -106,6 +106,17 @@ class BackendLog(models.Model):
     def __str__(self):
         return f"[{self.timestamp}] {self.level}: {self.message[:50]}"
 
+
+class ReparseLog(models.Model):
+    # One row per AI-reparse attempt; used to enforce the 3/24h cap per user.
+    # The first analysis of a freshly uploaded outline is NOT logged here —
+    # only subsequent "try again" runs from the confirmation page count.
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='reparse_logs')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'created_at'])]
+
 # Error Report Model
 class ErrorReport(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
