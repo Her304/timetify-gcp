@@ -520,17 +520,14 @@ const CourseBlock = ({
   const isDark = pal.tone === "ink";
   const ringColor = isDark ? T.ink : pal.bg;
 
-  // Vertical layout when the block isn't tall enough for a horizontal split
-  // (avatar left + two-line text right). Below ~52px we stack to keep all
-  // three rows — course id, location, owner avatars — readable.
-  const compact = height < 56;
-  const avatarSize = compact ? 18 : 22;
+  const compact = height < 48;
+  const avatarSize = compact ? 16 : 20;
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="absolute rounded-2xl overflow-hidden text-left flex"
+      className="absolute rounded-2xl overflow-hidden text-left flex flex-col"
       style={{
         top,
         left: 4,
@@ -541,61 +538,42 @@ const CourseBlock = ({
         border: isLive ? `2px solid ${T.coral}` : "1px solid rgba(0,0,0,0.04)",
         boxShadow: isLive ? "0 0 0 3px rgba(237,106,74,0.25)" : "none",
         cursor: "pointer",
-        padding: compact ? "6px 8px" : "8px 10px",
-        gap: compact ? 6 : 8,
-        flexDirection: compact ? "column" : "row",
-        alignItems: compact ? "flex-start" : "center",
-        justifyContent: compact ? "space-between" : "flex-start",
+        padding: compact ? "5px 8px" : "7px 10px",
+        gap: compact ? 2 : 4,
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
       }}
     >
-      {!compact && (
-        <div className="flex-shrink-0">
-          <AvatarStack
-            owners={entry.owners}
-            currentUser={currentUser}
-            max={2}
-            size={avatarSize}
-            ring={ringColor}
-          />
-        </div>
-      )}
-      <div className="min-w-0 flex-1 w-full">
-        <div
-          className="text-[10px] font-semibold uppercase truncate leading-none"
-          style={{ fontFamily: FF.mono, color: pal.code, letterSpacing: 0.8 }}
-        >
-          {entry.courseId}
-          {isLive && (
-            <span className="ml-1.5" style={{ color: T.coral }}>
-              · live
-            </span>
-          )}
-        </div>
-        {entry.location && (
-          <div
-            className="text-[10px] mt-1 lowercase truncate"
-            style={{
-              fontFamily: FF.mono,
-              color: pal.code,
-              opacity: 0.85,
-              letterSpacing: 0.2,
-            }}
-          >
-            · {entry.location}
-          </div>
-        )}
+
+      <div className="flex-shrink-0">
+        <AvatarStack
+          owners={entry.owners}
+          currentUser={currentUser}
+          max={2}
+          size={avatarSize}
+          ring=""
+        />
       </div>
-      {compact && (
-        <div>
-          <AvatarStack
-            owners={entry.owners}
-            currentUser={currentUser}
-            max={2}
-            size={avatarSize}
-            ring={ringColor}
-          />
+      <div
+        className="text-[10px] font-semibold uppercase truncate leading-none w-full"
+        style={{ fontFamily: FF.mono, color: pal.code, letterSpacing: 0.8 }}
+      >
+        {entry.courseId}
+      </div>
+      {!compact && entry.location && (
+        <div
+          className="text-[10px] lowercase truncate w-full"
+          style={{
+            fontFamily: FF.mono,
+            color: pal.code,
+            opacity: 0.75,
+            letterSpacing: 0.2,
+          }}
+        >
+          {entry.location}
         </div>
       )}
+
 
       {extraCount > 0 && (
         <span
