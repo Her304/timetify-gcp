@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { T, FF, MonoLabel } from "@/components/shared/brand";
 import SnapCaptureModal from "@/components/snap/SnapCaptureModal";
@@ -105,30 +105,6 @@ export const Feed = ({
 
   const orderedTiles = useOrderedTiles({ acceptedFriends, snapsByUser, filter });
   const myStatus = useMyStatus({ personalSchedule, snapsByCourse });
-
-  // "N friends free now" chip — poll /api/availability/friends/ every 60s.
-  const [friendsAvail, setFriendsAvail] = useState(null);
-  const [freeChipDismissed, setFreeChipDismissed] = useState(false);
-  const availTimerRef = useRef(null);
-  useEffect(() => {
-    let cancelled = false;
-    const fetchAvail = async () => {
-      try {
-        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/availability/friends/`);
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (!cancelled) setFriendsAvail(data);
-      } catch { /* transient */ }
-    };
-    fetchAvail();
-    availTimerRef.current = setInterval(fetchAvail, 60000);
-    return () => { cancelled = true; clearInterval(availTimerRef.current); };
-  }, []);
-
-  const freeNowCount = useMemo(() => {
-    if (!friendsAvail) return 0;
-    return Object.values(friendsAvail).filter((f) => f.status === "free").length;
-  }, [friendsAvail]);
 
   const snapTiles = useMemo(() => orderedTiles.filter((t) => t.hasSnap), [orderedTiles]);
 
@@ -272,28 +248,6 @@ export const Feed = ({
             </span>
           )}
         </div>
-
-        {/* "N friends free now" dismissible chip */}
-        {freeNowCount > 0 && !freeChipDismissed && (
-          <div
-            className="flex items-center gap-3 px-4 py-3 rounded-2xl border"
-            style={{ background: T.lime + "33", borderColor: T.lime, color: T.ink }}
-          >
-            <span className="text-base">🟢</span>
-            <span className="flex-1 text-sm font-medium lowercase" style={{ fontFamily: FF.sans }}>
-              {freeNowCount} friend{freeNowCount !== 1 ? "s" : ""} free right now
-            </span>
-            <button
-              type="button"
-              onClick={() => setFreeChipDismissed(true)}
-              className="text-[11px] lowercase px-2 py-0.5 rounded-full hover:opacity-70 transition-opacity"
-              style={{ fontFamily: FF.mono, color: T.ink60 }}
-              aria-label="dismiss"
-            >
-              ×
-            </button>
-          </div>
-        )}
 
         <AvatarRow
           orderedTiles={orderedTiles}

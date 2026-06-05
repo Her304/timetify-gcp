@@ -476,7 +476,6 @@ const AppShell = ({
                     friendRequests={friendRequests}
                     respondToFriendRequest={respondToFriendRequest}
                     currentUser={currentUser}
-                    allClasses={allClasses}
                   />
                 </ProtectedRoute>
               }

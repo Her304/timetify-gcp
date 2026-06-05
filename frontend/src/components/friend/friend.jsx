@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { T, FF, MonoLabel, Avatar, Icon, Blob, Star } from "@/components/shared/brand";
+import { useNavigate } from "react-router-dom";
+import { T, FF, MonoLabel, Avatar, Icon, Blob, Star, PillBtn } from "@/components/shared/brand";
+import { authenticatedFetch } from "@/utils/api";
+import FindTimeSheet from "@/components/study/FindTimeSheet";
 
 // ─────────────────────────────────────────────────────────────────
 // helpers
@@ -21,14 +24,6 @@ const hashStr = (s) => {
 const dotForCourse = (courseId) =>
   COURSE_DOT_PALETTE[hashStr(courseId) % COURSE_DOT_PALETTE.length];
 
-const DAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-const toMinutes = (hhmm) => {
-  if (!hhmm || typeof hhmm !== "string") return null;
-  const [h, m] = hhmm.split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
-};
-
 const formatRelative = (iso) => {
   if (!iso) return null;
   const t = new Date(iso).getTime();
@@ -44,32 +39,12 @@ const formatRelative = (iso) => {
   return `${d}d ago`;
 };
 
-// Friends currently inside a class, derived from allClasses (which already
-// includes friend-owned classes). Returns Map<username, {courseId, course_name}>.
-const liveFriendsFromSchedule = (allClasses, currentUser) => {
-  const out = new Map();
-  if (!Array.isArray(allClasses) || allClasses.length === 0) return out;
-  const now = new Date();
-  const todayKey = DAYS[now.getDay()];
-  const nowMins = now.getHours() * 60 + now.getMinutes();
-  allClasses.forEach((c) => {
-    const day = String(c.day || "").toUpperCase().slice(0, 3);
-    if (day !== todayKey) return;
-    const s = toMinutes(c.start_time);
-    const e = toMinutes(c.end_time);
-    if (s == null || e == null) return;
-    if (nowMins < s || nowMins > e) return;
-    const owners = String(c.owner || "")
-      .split(/[,&]\s*/)
-      .map((o) => o.trim())
-      .filter((o) => o && o !== "Me" && o !== currentUser?.username);
-    owners.forEach((o) => {
-      if (!out.has(o)) {
-        out.set(o, { courseId: c.course || c.course_id, courseName: c.course_name });
-      }
-    });
-  });
-  return out;
+// Status → label/color mapping. Driven by /api/availability/friends/.
+const STATUS_META = {
+  free:      { label: "free now",  dot: T.lime,  bg: "#E8F5D7", fg: "#3F5E14" },
+  in_class:  { label: "in class",  dot: T.coral, bg: T.coralLt, fg: T.coralDk },
+  free_soon: { label: "free soon", dot: "#E8B84B", bg: "#FBEFC6", fg: "#6B5210" },
+  unknown:   { label: null,        dot: T.ink40, bg: null,      fg: null },
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -111,11 +86,22 @@ const CoursePill = ({ courseId }) => (
 );
 
 // ─────────────────────────────────────────────────────────────────
-// LIVE NOW strip — horizontal dark card with friend tiles
+// FREE NOW strip — horizontal dark card with currently-free friends.
+// Tap a tile → start the find-a-time flow with that friend.
 // ─────────────────────────────────────────────────────────────────
 
-const LiveNowStrip = ({ liveFriends }) => {
-  const entries = Array.from(liveFriends.entries()).slice(0, 5);
+const fmtUntil = (iso) => {
+  if (!iso) return null;
+  const t = new Date(iso);
+  if (!Number.isFinite(t.getTime())) return null;
+  return t
+    .toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    .toLowerCase()
+    .replace(/\s/g, "");
+};
+
+const FreeNowStrip = ({ freeFriends, friendsAvail, onFindTime, findTimeLoadingId }) => {
+  const entries = freeFriends.slice(0, 5);
   if (entries.length === 0) return null;
   return (
     <div
@@ -123,7 +109,7 @@ const LiveNowStrip = ({ liveFriends }) => {
       style={{ background: T.ink, color: T.cream }}
     >
       <Blob
-        color={T.coral}
+        color={T.lime}
         size={170}
         seed={2}
         style={{ position: "absolute", left: -60, bottom: -60, opacity: 0.8 }}
@@ -137,8 +123,8 @@ const LiveNowStrip = ({ liveFriends }) => {
             letterSpacing: 1.2,
           }}
         >
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: T.coral }} />
-          live now · {entries.length} friend{entries.length === 1 ? "" : "s"}
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: T.lime }} />
+          free now · {entries.length} friend{entries.length === 1 ? "" : "s"}
         </div>
         <a
           href="#recently-active"
@@ -153,43 +139,51 @@ const LiveNowStrip = ({ liveFriends }) => {
         </a>
       </div>
       <div className="relative flex gap-2 overflow-x-auto pb-1">
-        {entries.map(([username, info]) => (
-          <div
-            key={username}
-            className="flex-shrink-0 rounded-2xl p-3 flex items-center gap-2"
-            style={{
-              background: "rgba(248,244,237,0.06)",
-              border: "1px solid rgba(248,244,237,0.1)",
-              minWidth: 168,
-            }}
-          >
-            <Avatar
-              name={(username?.slice(0, 2) || "?").toLowerCase()}
-              bg={colorFor(username)}
-              fg={isCoral(colorFor(username)) ? "#fff" : T.ink}
-              size={36}
-              ring={T.ink}
-            />
-            <div className="min-w-0">
-              <div
-                className="text-sm lowercase truncate leading-none"
-                style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}
-              >
-                {username}
+        {entries.map((u) => {
+          const meta = friendsAvail[String(u.id)] || {};
+          const untilLabel = fmtUntil(meta.next_busy_starts);
+          const loading = findTimeLoadingId === u.id;
+          return (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => onFindTime && onFindTime(u)}
+              disabled={loading}
+              className="flex-shrink-0 rounded-2xl p-3 flex items-center gap-2 text-left transition-opacity disabled:opacity-50 hover:opacity-90"
+              style={{
+                background: "rgba(248,244,237,0.06)",
+                border: "1px solid rgba(248,244,237,0.1)",
+                minWidth: 178,
+              }}
+            >
+              <Avatar
+                name={(u.username?.slice(0, 2) || "?").toLowerCase()}
+                bg={colorFor(u.username)}
+                fg={isCoral(colorFor(u.username)) ? "#fff" : T.ink}
+                size={36}
+                ring={T.ink}
+              />
+              <div className="min-w-0 flex-1">
+                <div
+                  className="text-sm lowercase truncate leading-none"
+                  style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}
+                >
+                  {u.username}
+                </div>
+                <div
+                  className="text-[9px] uppercase mt-1"
+                  style={{
+                    fontFamily: FF.mono,
+                    color: "rgba(248,244,237,0.6)",
+                    letterSpacing: 1,
+                  }}
+                >
+                  {loading ? "opening…" : untilLabel ? `free til ${untilLabel}` : "free today"}
+                </div>
               </div>
-              <div
-                className="text-[9px] uppercase mt-1"
-                style={{
-                  fontFamily: FF.mono,
-                  color: "rgba(248,244,237,0.6)",
-                  letterSpacing: 1,
-                }}
-              >
-                {info.courseId}
-              </div>
-            </div>
-          </div>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -199,34 +193,46 @@ const LiveNowStrip = ({ liveFriends }) => {
 // Friend card — rich tile in the recently-active grid
 // ─────────────────────────────────────────────────────────────────
 
-const FriendCard = ({ user, isLive, liveCourse }) => {
+const FriendCard = ({ user, status, onFindTime, onMessage, findTimeLoading }) => {
   const name = user.username;
   const bg = colorFor(name);
-  const snappedLabel = !isLive ? formatRelative(user.last_snap_at) : null;
-  const lastSeenLabel = !isLive && !snappedLabel ? formatRelative(user.last_seen) : null;
+  const meta = STATUS_META[status] || STATUS_META.unknown;
+  const isLive = status === "in_class" || status === "free_soon";
+  const isFree = status === "free";
+  const snappedLabel = !isLive && !isFree ? formatRelative(user.last_snap_at) : null;
+  const lastSeenLabel = !isLive && !isFree && !snappedLabel ? formatRelative(user.last_seen) : null;
 
   return (
     <div className="bg-white border border-ink-8 rounded-3xl p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
-        <Avatar
-          name={(name?.slice(0, 2) || "?").toLowerCase()}
-          bg={bg}
-          fg={isCoral(bg) ? "#fff" : T.ink}
-          size={56}
-          ring={isLive ? T.coral : bg}
-        />
-        {isLive ? (
+        <div className="relative">
+          <Avatar
+            name={(name?.slice(0, 2) || "?").toLowerCase()}
+            bg={bg}
+            fg={isCoral(bg) ? "#fff" : T.ink}
+            size={56}
+            ring={isLive ? T.coral : isFree ? T.lime : bg}
+          />
+          {status && status !== "unknown" && (
+            <span
+              className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full"
+              style={{ background: meta.dot, border: "2px solid #fff" }}
+              aria-label={meta.label || ""}
+            />
+          )}
+        </div>
+        {meta.label ? (
           <span
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] uppercase font-semibold"
             style={{
-              background: T.coralLt,
-              color: T.coralDk,
+              background: meta.bg,
+              color: meta.fg,
               fontFamily: FF.mono,
               letterSpacing: 1,
             }}
           >
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: T.coral }} />
-            live now
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: meta.dot }} />
+            {meta.label}
           </span>
         ) : snappedLabel || lastSeenLabel ? (
           <span
@@ -262,26 +268,32 @@ const FriendCard = ({ user, isLive, liveCourse }) => {
         </div>
       )}
       <div className="text-xs text-ink-60 lowercase" style={{ fontFamily: FF.sans }}>
-        {isLive
-          ? `in class now · ${(liveCourse?.courseId || "").toLowerCase()}`
-          : snappedLabel
-            ? `snapped ${snappedLabel}`
-            : lastSeenLabel
-              ? `active ${lastSeenLabel}`
-              : [user.major, user.grad_year ? `class of ${user.grad_year}` : null]
-                  .filter(Boolean)
-                  .join(" · ")}
+        {snappedLabel
+          ? `snapped ${snappedLabel}`
+          : lastSeenLabel
+            ? `active ${lastSeenLabel}`
+            : [user.major, user.grad_year ? `class of ${user.grad_year}` : null]
+                .filter(Boolean)
+                .join(" · ")}
       </div>
       <div className="flex items-center gap-2 mt-1">
         <button
           type="button"
-          disabled
-          title="messages coming soon"
-          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold opacity-90 cursor-not-allowed"
+          onClick={() => onMessage && onMessage(user)}
+          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold hover:opacity-90 transition-opacity"
           style={{ background: T.ink, color: T.cream, fontFamily: FF.sans }}
         >
           <Icon name="msg" size={15} color={T.cream} />
           message
+        </button>
+        <button
+          type="button"
+          onClick={() => onFindTime && onFindTime(user)}
+          disabled={findTimeLoading}
+          className="inline-flex items-center justify-center px-4 py-2.5 rounded-full text-sm font-semibold transition-opacity disabled:opacity-50 lowercase"
+          style={{ background: T.coral, color: "#fff", fontFamily: FF.sans }}
+        >
+          {findTimeLoading ? "…" : "find a time"}
         </button>
         <button
           type="button"
@@ -542,15 +554,80 @@ const SearchFriend = ({
   friendRequests = [],
   respondToFriendRequest,
   currentUser,
-  allClasses = [],
 }) => {
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
-  const [filter, setFilter] = useState("all"); // all | my_classes | year | live
-  const [sortBy, setSortBy] = useState("recent"); // recent | name | live
+  const [filter, setFilter] = useState("all"); // all | my_classes | year | free_now | in_class
+  const [sortBy, setSortBy] = useState("recent"); // recent | name | free
   const [popup, setPopup] = useState(false);
   const searchInputRef = useRef(null);
   const suggestedRef = useRef(null);
+
+  // Availability — poll /api/availability/friends/ every 60s.
+  // Response shape: { "<friend_id>": { username, status, current_block_ends, next_busy_starts } }
+  const [friendsAvail, setFriendsAvail] = useState({});
+  const availTimerRef = useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchAvail = async () => {
+      try {
+        const res = await authenticatedFetch(
+          `${import.meta.env.VITE_API_URL}/api/availability/friends/`
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) setFriendsAvail(data || {});
+      } catch { /* transient */ }
+    };
+    fetchAvail();
+    availTimerRef.current = setInterval(fetchAvail, 60000);
+    return () => { cancelled = true; clearInterval(availTimerRef.current); };
+  }, []);
+
+  // username → status string ("free"|"in_class"|"free_soon"|"unknown")
+  const statusByUsername = useMemo(() => {
+    const m = new Map();
+    Object.values(friendsAvail).forEach((v) => {
+      if (v?.username) m.set(v.username, v.status || "unknown");
+    });
+    return m;
+  }, [friendsAvail]);
+
+  // Find-a-time flow: creates a DM, then opens FindTimeSheet against that room.
+  const [findTimeFriend, setFindTimeFriend] = useState(null);
+  const [findTimeRoomId, setFindTimeRoomId] = useState(null);
+  const [findTimeLoadingId, setFindTimeLoadingId] = useState(null);
+
+  const handleFindTime = async (friend) => {
+    if (!friend?.id || findTimeLoadingId) return;
+    setFindTimeLoadingId(friend.id);
+    try {
+      const res = await authenticatedFetch(
+        `${import.meta.env.VITE_API_URL}/api/chats/`,
+        { method: "POST", body: JSON.stringify({ friend_id: friend.id }) }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setFindTimeFriend(friend);
+      setFindTimeRoomId(data.id);
+    } finally {
+      setFindTimeLoadingId(null);
+    }
+  };
+
+  const handleMessage = async (friend) => {
+    if (!friend?.id) return;
+    try {
+      const res = await authenticatedFetch(
+        `${import.meta.env.VITE_API_URL}/api/chats/`,
+        { method: "POST", body: JSON.stringify({ friend_id: friend.id }) }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      navigate(`/chat/${data.id}`);
+    } catch { /* transient */ }
+  };
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -582,20 +659,21 @@ const SearchFriend = ({
     [friendsList]
   );
 
-  const liveFriends = useMemo(
-    () => liveFriendsFromSchedule(allClasses, currentUser),
-    [allClasses, currentUser]
-  );
-
   const counts = useMemo(() => {
     const all = friendUsers.length;
     const myClasses = friendUsers.filter((u) => (u.shared_courses || []).length > 0).length;
     const year = currentUser?.grad_year
       ? friendUsers.filter((u) => String(u.grad_year) === String(currentUser.grad_year)).length
       : 0;
-    const live = liveFriends.size;
-    return { all, myClasses, year, live };
-  }, [friendUsers, currentUser, liveFriends]);
+    let freeNow = 0;
+    let inClass = 0;
+    friendUsers.forEach((u) => {
+      const s = statusByUsername.get(u.username);
+      if (s === "free") freeNow += 1;
+      else if (s === "in_class" || s === "free_soon") inClass += 1;
+    });
+    return { all, myClasses, year, freeNow, inClass };
+  }, [friendUsers, currentUser, statusByUsername]);
 
   // Sort + filter the friend grid.
   const visibleFriends = useMemo(() => {
@@ -606,10 +684,14 @@ const SearchFriend = ({
       arr = arr.filter(
         (u) => currentUser?.grad_year && String(u.grad_year) === String(currentUser.grad_year)
       );
-    } else if (filter === "live") {
-      arr = arr.filter((u) => liveFriends.has(u.username));
+    } else if (filter === "free_now") {
+      arr = arr.filter((u) => statusByUsername.get(u.username) === "free");
+    } else if (filter === "in_class") {
+      arr = arr.filter((u) => {
+        const s = statusByUsername.get(u.username);
+        return s === "in_class" || s === "free_soon";
+      });
     }
-    const liveSet = liveFriends;
     const tsRecent = (u) => {
       const lastSnap = u.last_snap_at ? new Date(u.last_snap_at).getTime() : 0;
       const lastSeen = u.last_seen ? new Date(u.last_seen).getTime() : 0;
@@ -618,18 +700,18 @@ const SearchFriend = ({
     arr = [...arr];
     if (sortBy === "name") {
       arr.sort((a, b) => (a.username || "").localeCompare(b.username || ""));
-    } else if (sortBy === "live") {
+    } else if (sortBy === "free") {
       arr.sort((a, b) => {
-        const aL = liveSet.has(a.username) ? 1 : 0;
-        const bL = liveSet.has(b.username) ? 1 : 0;
-        if (aL !== bL) return bL - aL;
+        const aF = statusByUsername.get(a.username) === "free" ? 1 : 0;
+        const bF = statusByUsername.get(b.username) === "free" ? 1 : 0;
+        if (aF !== bF) return bF - aF;
         return tsRecent(b) - tsRecent(a);
       });
     } else {
       arr.sort((a, b) => tsRecent(b) - tsRecent(a));
     }
     return arr;
-  }, [friendUsers, filter, sortBy, currentUser, liveFriends]);
+  }, [friendUsers, filter, sortBy, currentUser, statusByUsername]);
 
   const filteredResults = useMemo(() => {
     let arr = results;
@@ -672,7 +754,7 @@ const SearchFriend = ({
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <MonoLabel>
-            {counts.all} friend{counts.all === 1 ? "" : "s"} · {counts.live} in class now
+            {counts.all} friend{counts.all === 1 ? "" : "s"} · {counts.freeNow} free now
           </MonoLabel>
           <h1
             className="text-5xl md:text-6xl text-ink mt-2 leading-none flex items-center gap-3"
@@ -704,7 +786,7 @@ const SearchFriend = ({
             onClick={focusSearch}
             className="px-5 py-2.5 rounded-full text-sm font-semibold text-cream bg-ink hover:opacity-90 transition-opacity lowercase"
           >
-            + find more
+            search
           </button>
         </div>
       </div>
@@ -733,10 +815,17 @@ const SearchFriend = ({
             onSelect={setFilter}
           />
           <CountPill
-            value="live"
-            label={`live · ${counts.live}`}
+            value="free_now"
+            label={`free now · ${counts.freeNow}`}
             dot={T.lime}
-            active={filter === "live"}
+            active={filter === "free_now"}
+            onSelect={setFilter}
+          />
+          <CountPill
+            value="in_class"
+            label={`in class · ${counts.inClass}`}
+            dot={T.coral}
+            active={filter === "in_class"}
             onSelect={setFilter}
           />
         </div>
@@ -752,7 +841,7 @@ const SearchFriend = ({
             style={{ fontFamily: FF.sans }}
           >
             <option value="recent">recently active</option>
-            <option value="live">live first</option>
+            <option value="free">free first</option>
             <option value="name">name</option>
           </select>
         </div>
@@ -778,9 +867,16 @@ const SearchFriend = ({
         </section>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
-          {/* Left column: live strip + recently-active grid */}
+          {/* Left column: free-now strip + recently-active grid */}
           <div className="flex flex-col gap-4">
-            <LiveNowStrip liveFriends={liveFriends} />
+            <FreeNowStrip
+              freeFriends={friendUsers.filter(
+                (u) => statusByUsername.get(u.username) === "free"
+              )}
+              friendsAvail={friendsAvail}
+              onFindTime={handleFindTime}
+              findTimeLoadingId={findTimeLoadingId}
+            />
 
             <section id="recently-active">
               <div className="flex items-end justify-between mb-3">
@@ -808,8 +904,10 @@ const SearchFriend = ({
                     <FriendCard
                       key={u.id}
                       user={u}
-                      isLive={liveFriends.has(u.username)}
-                      liveCourse={liveFriends.get(u.username)}
+                      status={statusByUsername.get(u.username) || "unknown"}
+                      onFindTime={handleFindTime}
+                      onMessage={handleMessage}
+                      findTimeLoading={findTimeLoadingId === u.id}
                     />
                   ))}
                 </div>
@@ -826,6 +924,15 @@ const SearchFriend = ({
             <SuggestedCard suggestions={suggestions} onAdd={handleAdd} />
           </div>
         </div>
+      )}
+
+      {findTimeFriend && findTimeRoomId && (
+        <FindTimeSheet
+          userIds={[findTimeFriend.id]}
+          roomId={findTimeRoomId}
+          onClose={() => { setFindTimeFriend(null); setFindTimeRoomId(null); }}
+          onInviteSent={() => navigate(`/chat/${findTimeRoomId}`)}
+        />
       )}
     </div>
   );
