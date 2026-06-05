@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useLocation } from "react-router-dom";
-import { T, FF, ProfileAvatar } from "@/components/shared/brand";
+import { T, Icon, ProfileAvatar } from "@/components/shared/brand";
 import { NavIcon } from "./nav-icons";
+import AddMenu from "./AddMenu";
 
 // Reuse the same Material Design icon set the desktop nav pills use, so the
 // two surfaces feel like the same nav. NavIcon's path inherits `currentColor`
@@ -30,6 +32,24 @@ const TabBtn = ({ active, href, icon, label, badgeDot }) => (
   </a>
 );
 
+// Center "+" tab opens the AddMenu sheet. Always rendered as a filled coral
+// disc to stand out as the primary action between the muted nav tabs.
+const AddTab = ({ onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label="add"
+    className="flex items-center justify-center flex-1"
+  >
+    <span
+      className="w-12 h-12 rounded-full flex items-center justify-center"
+      style={{ background: T.coral, boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }}
+    >
+      <Icon name="plus" size={22} color="#fff" />
+    </span>
+  </button>
+);
+
 // Avatar tab replaces the old camera button. Renders as a coral circle with
 // the user's initial; coral ring when /profile is active to match the active
 // state visual of the other tabs (which use a filled coral disc behind the icon).
@@ -53,7 +73,7 @@ const AvatarTab = ({ active, currentUser }) => {
   );
 };
 
-export const MobileBottomNav = ({ currentUser, unreadChatCount = 0 }) => {
+export const MobileBottomNav = ({ currentUser, unreadChatCount = 0, onAddClass, onAddEvent }) => {
   const location = useLocation();
   const path = location.pathname;
 
@@ -62,27 +82,40 @@ export const MobileBottomNav = ({ currentUser, unreadChatCount = 0 }) => {
   const isFeed = path === "/feed";
   const isProfile = path === "/profile";
 
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+
   return (
-    <div className="md:hidden fixed bottom-4 left-0 right-0 z-40 flex justify-center px-6 pointer-events-none">
-      <div
-        className="flex items-center gap-1 px-3 py-2 rounded-full pointer-events-auto"
-        style={{
-          background: T.ink,
-          boxShadow: "0 8px 28px rgba(31,26,34,0.35)",
-          minWidth: 280,
-        }}
-      >
-        <TabBtn
-          active={isFeed}
-          href="/feed"
-          icon="feed"
-          label="feed"
-          badgeDot={unreadChatCount > 0 && !isFeed}
-        />
-        <TabBtn active={isSchedule} href="/" icon="schedule" label="schedule" />
-        <TabBtn active={isFriends} href="/friend" icon="friends" label="friends" />
-        <AvatarTab active={isProfile} currentUser={currentUser} />
+    <>
+      <div className="md:hidden fixed bottom-4 left-0 right-0 z-40 flex justify-center px-4 pointer-events-none">
+        <div
+          className="flex items-center gap-1 px-3 py-2 rounded-full pointer-events-auto"
+          style={{
+            background: T.ink,
+            boxShadow: "0 8px 28px rgba(31,26,34,0.35)",
+            minWidth: 330,
+          }}
+        >
+          <TabBtn
+            active={isFeed}
+            href="/feed"
+            icon="feed"
+            label="feed"
+            badgeDot={unreadChatCount > 0 && !isFeed}
+          />
+          <TabBtn active={isSchedule} href="/" icon="schedule" label="schedule" />
+          <AddTab onClick={() => setAddMenuOpen(true)} />
+          <TabBtn active={isFriends} href="/friend" icon="friends" label="friends" />
+          <AvatarTab active={isProfile} currentUser={currentUser} />
+        </div>
       </div>
-    </div>
+      {addMenuOpen && (
+        <AddMenu
+          variant="sheet"
+          onClose={() => setAddMenuOpen(false)}
+          onAddClass={onAddClass}
+          onAddEvent={onAddEvent}
+        />
+      )}
+    </>
   );
 };

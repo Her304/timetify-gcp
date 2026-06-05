@@ -58,6 +58,10 @@ urlpatterns = [
     path('api/availability/shared-gaps/', views.SharedGapsView.as_view(), name='shared-gaps'),
     path('api/study-invites/', views.StudyInviteView.as_view(), name='study-invite-create'),
     path('api/chats/<int:pk>/messages/<int:msg_id>/invite/', views.StudyInviteRespondView.as_view(), name='study-invite-respond'),
+    # Events
+    path('api/events/', views.EventListCreateView.as_view(), name='event-list-create'),
+    path('api/events/invites/<int:pk>/', views.EventInviteRespondView.as_view(), name='event-invite-respond'),
+    path('api/events/<int:pk>/', views.EventDetailView.as_view(), name='event-detail'),
     # Moderation: admin + cron
     path('api/admin/reports/', views.AdminReportListView.as_view(), name='admin-reports'),
     path('api/admin/reports/<int:pk>/act/', views.AdminReportActView.as_view(), name='admin-report-act'),

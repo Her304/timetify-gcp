@@ -14,11 +14,12 @@ from .serializers import (
     ExamSerializer, AssignmentSerializer, FriendSerializer,
     FriendRequestSerializer, UserSerializer, SnapSerializer,
     MessageSerializer, ChatRoomListSerializer, ChatRoomDetailSerializer,
+    EventSerializer, EventInviteSerializer, EventCreateSerializer,
 )
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog, ExternalCalendarEvent, UserBlock
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog, ExternalCalendarEvent, UserBlock, Event, EventInvite
 from datetime import datetime, timedelta, time as dt_time
 from django.contrib.auth import get_user_model
 from main.utils import send_email
@@ -1355,12 +1356,72 @@ class NotificationsView(APIView):
             # so the rest of the panel still renders.
             logger.exception("notifications: moderation summary failed")
 
+        # 5. Pending event invites addressed to me.
+        def _abs_pic(user):
+            if not user or not getattr(user, 'profile_picture', None):
+                return None
+            try:
+                return request.build_absolute_uri(user.profile_picture.url)
+            except Exception:
+                return None
+
+        event_invites_data = []
+        event_invite_qs = (
+            EventInvite.objects
+            .filter(invitee=me, status=EventInvite.STATUS_PENDING)
+            .select_related('event__creator')
+            .order_by('-created_at')[:20]
+        )
+        for inv in event_invite_qs:
+            evt = inv.event
+            event_invites_data.append({
+                "id": inv.id,
+                "event_id": evt.id,
+                "event_name": evt.name,
+                "event_date": evt.date.isoformat(),
+                "event_start_time": evt.start_time.strftime("%H:%M"),
+                "event_end_time": evt.end_time.strftime("%H:%M"),
+                "event_location": evt.location,
+                "event_creator_username": evt.creator.username,
+                "event_creator_profile_picture_url": _abs_pic(evt.creator),
+                "created_at": inv.created_at.isoformat(),
+            })
+
+        # 6. Pending study invites — messages addressed to me in rooms I'm in.
+        study_invites_data = []
+        study_invite_qs = (
+            Message.objects
+            .filter(
+                message_type=Message.MSG_STUDY_INVITE,
+                room__members__user=me,
+                metadata__status='pending',
+            )
+            .exclude(sender=me)
+            .select_related('sender', 'room')
+            .order_by('-created_at')[:20]
+        )
+        for msg in study_invite_qs:
+            md = msg.metadata or {}
+            study_invites_data.append({
+                "id": msg.id,
+                "room_id": msg.room_id,
+                "sender_id": msg.sender_id,
+                "sender_username": msg.sender.username,
+                "sender_profile_picture_url": _abs_pic(msg.sender),
+                "proposed_start": md.get('proposed_start'),
+                "proposed_end": md.get('proposed_end'),
+                "suggested_course_id": md.get('suggested_course_id'),
+                "created_at": msg.created_at.isoformat(),
+            })
+
         return Response({
             "friend_requests": friend_requests_data,
             "new_snaps": new_snaps_data,
             "live_class_alerts": live_class_alerts,
             "reports_received": reports_received_data,
             "reports_filed": reports_filed_data,
+            "event_invites": event_invites_data,
+            "study_invites": study_invites_data,
         })
 
 
@@ -2760,3 +2821,244 @@ class StudyInviteRespondView(APIView):
                     )
 
         return Response(MessageSerializer(msg, context={'request': request}).data)
+
+
+_WEEKDAY_ABBR = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+
+
+def _parse_iso_date(s, default):
+    if not s:
+        return default
+    try:
+        return datetime.strptime(s, '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _week_start_for(d):
+    # Monday of the week containing d.
+    return d - timedelta(days=d.weekday())
+
+
+def _expand_event_occurrences(evt, week_start, week_end):
+    """Yield (occurrence_date) for evt within [week_start, week_end)."""
+    if not evt.is_repeating:
+        if week_start <= evt.date < week_end:
+            yield evt.date
+        return
+    repeat_set = {t.strip().upper() for t in (evt.repeat_days or '').split(',') if t.strip()}
+    if not repeat_set:
+        return
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        if day < evt.date:
+            continue  # series hasn't started yet on this day
+        if _WEEKDAY_ABBR[day.weekday()] in repeat_set:
+            yield day
+
+
+class EventListCreateView(APIView):
+    """GET  /api/events/?week=YYYY-MM-DD — events visible to me within the
+            7-day window starting at `week` (Monday). Repeating events are
+            expanded into one entry per occurrence.
+       POST /api/events/ — create an event with optional invites."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        me = request.user
+        today = timezone.localdate()
+        week_param = request.query_params.get('week')
+        week_start = _parse_iso_date(week_param, _week_start_for(today))
+        if week_start is None:
+            return Response({"detail": "week must be YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
+        week_end = week_start + timedelta(days=7)
+
+        friend_ids = _friend_user_ids(me)
+
+        # Candidate events:
+        #  - mine
+        #  - any event with an ACCEPTED invite for me
+        #  - PUBLIC events from accepted friends
+        # Date filter: either evt.date < week_end (non-repeating) OR is_repeating
+        # (repeating series may have started before week_start and still apply).
+        visible = (
+            Event.objects.filter(
+                Q(creator=me)
+                | Q(invites__invitee=me, invites__status=EventInvite.STATUS_ACCEPTED)
+                | Q(visibility=Event.VISIBILITY_PUBLIC, creator_id__in=friend_ids)
+            )
+            .filter(Q(is_repeating=True) | Q(date__lt=week_end))
+            .select_related('creator')
+            .distinct()
+        )
+
+        # Prefetch my-invite status for the visible set to avoid per-row queries.
+        my_statuses = dict(
+            EventInvite.objects.filter(event__in=visible, invitee=me)
+            .values_list('event_id', 'status')
+        )
+        ctx = {'request': request, 'my_invite_status_by_event_id': my_statuses}
+
+        payload = []
+        for evt in visible:
+            base = EventSerializer(evt, context=ctx).data
+            for occ in _expand_event_occurrences(evt, week_start, week_end):
+                payload.append({**base, 'occurrence_date': occ.isoformat()})
+        payload.sort(key=lambda e: (e['occurrence_date'], e['start_time']))
+        return Response(payload)
+
+    def post(self, request):
+        me = request.user
+        serializer = EventCreateSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        invite_user_ids = data.pop('invite_user_ids', [])
+        if invite_user_ids:
+            my_friends = _friend_user_ids(me)
+            strangers = [uid for uid in invite_user_ids if uid not in my_friends]
+            if strangers:
+                return Response(
+                    {"detail": "not_friends", "stranger_ids": strangers},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        with transaction.atomic():
+            event = Event.objects.create(creator=me, **data)
+            if invite_user_ids:
+                EventInvite.objects.bulk_create([
+                    EventInvite(event=event, invitee_id=uid) for uid in invite_user_ids
+                ])
+
+        event = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=event.pk)
+        return Response(
+            EventSerializer(event, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class EventDetailView(APIView):
+    """GET    /api/events/<pk>/ — event detail, visibility-gated.
+       PATCH  /api/events/<pk>/ — edit (creator only).
+       DELETE /api/events/<pk>/ — delete (creator only)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_visible(self, request, pk):
+        me = request.user
+        try:
+            evt = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=pk)
+        except Event.DoesNotExist:
+            return None, Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if evt.creator_id == me.id:
+            return evt, None
+
+        my_invite = EventInvite.objects.filter(event=evt, invitee=me).only('status').first()
+        if my_invite and my_invite.status == EventInvite.STATUS_ACCEPTED:
+            return evt, None
+
+        if evt.visibility == Event.VISIBILITY_PUBLIC and evt.creator_id in _friend_user_ids(me):
+            return evt, None
+
+        # PENDING invitees can fetch via /events/invites/<id>/ flow; for the
+        # event endpoint itself, treat as 404 to avoid info leak.
+        return None, Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def get(self, request, pk):
+        evt, err = self._get_visible(request, pk)
+        if err:
+            return err
+        return Response(EventSerializer(evt, context={'request': request}).data)
+
+    def patch(self, request, pk):
+        me = request.user
+        try:
+            evt = Event.objects.get(pk=pk)
+        except Event.DoesNotExist:
+            return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+        if evt.creator_id != me.id:
+            return Response({"detail": "creator only"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Reuse the create serializer's validators for field-level rules; only
+        # mutate the fields actually present in the request body.
+        partial_data = {**EventSerializer(evt).data, **request.data}
+        partial_data['invite_user_ids'] = []  # not editable via this endpoint
+        s = EventCreateSerializer(data=partial_data, context={'request': request})
+        s.is_valid(raise_exception=True)
+        data = s.validated_data
+        data.pop('invite_user_ids', None)
+        for field, value in data.items():
+            setattr(evt, field, value)
+        evt.save()
+        evt = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=evt.pk)
+        return Response(EventSerializer(evt, context={'request': request}).data)
+
+    def delete(self, request, pk):
+        me = request.user
+        try:
+            evt = Event.objects.get(pk=pk)
+        except Event.DoesNotExist:
+            return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+        if evt.creator_id != me.id:
+            return Response({"detail": "creator only"}, status=status.HTTP_403_FORBIDDEN)
+        evt.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class EventInviteRespondView(APIView):
+    """PATCH /api/events/invites/<pk>/ — accept or decline an invite.
+       On accept, lazily creates the event's ROOM_GROUP chat and adds the
+       invitee (and creator if first acceptance)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        me = request.user
+        try:
+            invite = EventInvite.objects.select_related('event', 'event__creator').get(
+                pk=pk, invitee=me,
+            )
+        except EventInvite.DoesNotExist:
+            return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get('action')
+        if action not in ('accept', 'decline'):
+            return Response(
+                {"detail": "action must be 'accept' or 'decline'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if invite.status != EventInvite.STATUS_PENDING:
+            return Response(
+                {"detail": "invite already responded"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        evt = invite.event
+        with transaction.atomic():
+            if action == 'accept':
+                invite.status = EventInvite.STATUS_ACCEPTED
+                invite.responded_at = timezone.now()
+                invite.save(update_fields=['status', 'responded_at'])
+
+                if evt.chat_room_id is None:
+                    room = ChatRoom.objects.create(
+                        room_type=ChatRoom.ROOM_GROUP,
+                        name=evt.name[:80],
+                        created_by=evt.creator,
+                    )
+                    ChatRoomMember.objects.create(room=room, user=evt.creator, is_admin=True)
+                    ChatRoomMember.objects.create(room=room, user=me, is_admin=False)
+                    evt.chat_room = room
+                    evt.save(update_fields=['chat_room'])
+                else:
+                    ChatRoomMember.objects.get_or_create(
+                        room_id=evt.chat_room_id, user=me,
+                        defaults={'is_admin': False},
+                    )
+            else:
+                invite.status = EventInvite.STATUS_DECLINED
+                invite.responded_at = timezone.now()
+                invite.save(update_fields=['status', 'responded_at'])
+
+        evt = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=evt.pk)
+        return Response(EventSerializer(evt, context={'request': request}).data)

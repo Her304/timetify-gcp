@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { authenticatedFetch } from "@/utils/api";
 import { T, FF, MonoLabel, Avatar, Blob, Icon } from "@/components/shared/brand";
 import CourseDetailsModal from "@/components/home/CourseDetailsModal";
+import EventBlock from "@/components/events/EventBlock";
+import EventDetailsModal from "@/components/events/EventDetailsModal";
 
 const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const JS_TO_KEY = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
@@ -148,7 +150,18 @@ const AvatarStack = ({ owners = [], max = 3, size = 20, currentUser, ring = "#ff
   );
 };
 
-export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
+// Map an "YYYY-MM-DD" date string to a DAYS key (MON/TUE/…). Parsed as local
+// time to avoid timezone-shift bugs where "2026-06-08" would resolve to Sunday
+// in negative-UTC zones.
+const dateStrToDayKey = (iso) => {
+  if (!iso || typeof iso !== "string") return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  return JS_TO_KEY[dt.getDay()];
+};
+
+export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsChanged }) => {
   const dates = useMemo(() => weekDates(), []);
   const todayKey = JS_TO_KEY[new Date().getDay()];
 
@@ -162,6 +175,7 @@ export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
 
   // Modal state — opened by clicking a block or its "+N" chip.
   const [modalCluster, setModalCluster] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
 
   // One-shot fetch of full course list so the "reminders for today" block
   // can read today's assignments/exams without an extra round-trip per row.
@@ -219,6 +233,21 @@ export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
     return out;
   }, [allClasses]);
 
+  const eventsByDay = useMemo(() => {
+    const out = {};
+    DAYS.forEach((k) => (out[k] = []));
+    events.forEach((e) => {
+      const k = dateStrToDayKey(e.occurrence_date);
+      if (!k) return;
+      const start = toMinutes(e.start_time);
+      const end = toMinutes(e.end_time);
+      if (start == null || end == null) return;
+      out[k].push({ ...e, start, end });
+    });
+    DAYS.forEach((k) => out[k].sort((a, b) => a.start - b.start));
+    return out;
+  }, [events]);
+
   // Auto-clamp the visible hour range to data, falling back to 8–18.
   const { startHour, endHour } = useMemo(() => {
     let minM = 8 * 60;
@@ -229,10 +258,16 @@ export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
         if (e.end != null) maxM = Math.max(maxM, e.end);
       })
     );
+    Object.values(eventsByDay).forEach((arr) =>
+      arr.forEach((e) => {
+        minM = Math.min(minM, e.start);
+        maxM = Math.max(maxM, e.end);
+      })
+    );
     const startHour = Math.max(0, Math.floor(minM / 60));
     const endHour = Math.min(24, Math.ceil(maxM / 60));
     return { startHour, endHour: Math.max(endHour, startHour + 4) };
-  }, [classesByDay]);
+  }, [classesByDay, eventsByDay]);
 
   const HOUR_PX = 64;
   const gridHeight = (endHour - startHour) * HOUR_PX;
@@ -312,13 +347,6 @@ export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
             )}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onAddClass}
-          className="px-5 py-2.5 rounded-full text-sm font-semibold text-cream bg-ink hover:opacity-90 transition-opacity lowercase"
-        >
-          + add class
-        </button>
       </div>
 
       {/* ───── Calendar + side rail ───── */}
@@ -399,6 +427,7 @@ export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
                 {/* Day columns */}
                 {DAYS.map((k) => {
                   const items = classesByDay[k] || [];
+                  const dayEvents = eventsByDay[k] || [];
                   const isToday = k === todayKey;
                   const clusters = buildClusters(items);
                   return (
@@ -463,6 +492,27 @@ export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
                           />
                         );
                       })}
+
+                      {/* Event tiles — layered above course blocks. Click
+                          opens EventDetailsModal. */}
+                      {dayEvents.map((evt) => {
+                        const top = ((evt.start - startHour * 60) / 60) * HOUR_PX;
+                        const height = Math.max(
+                          40,
+                          ((evt.end - evt.start) / 60) * HOUR_PX - 4
+                        );
+                        return (
+                          <EventBlock
+                            key={`evt-${evt.id}-${evt.occurrence_date}`}
+                            event={evt}
+                            top={top}
+                            height={height}
+                            startMin={evt.start}
+                            endMin={evt.end}
+                            onOpen={() => setSelectedEvent(evt)}
+                          />
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -489,6 +539,14 @@ export const WeekView = ({ allClasses = [], currentUser, onAddClass }) => {
         <CourseDetailsModal
           cluster={modalCluster}
           onClose={() => setModalCluster(null)}
+        />
+      )}
+
+      {selectedEvent && (
+        <EventDetailsModal
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onChanged={onEventsChanged}
         />
       )}
     </div>

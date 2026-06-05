@@ -4,6 +4,7 @@ import { AppMark, T, FF, Icon, ProfileAvatar } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { NavIcon } from "./nav-icons";
+import AddMenu from "./AddMenu";
 
 const NavItem = ({ active, href, icon, label, badge }) => (
   <a
@@ -31,7 +32,7 @@ const NavItem = ({ active, href, icon, label, badge }) => (
   </a>
 );
 
-export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unreadChatCount = 0 }) => {
+export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onRespondToEventInvite, onAddClass, onAddEvent, unreadChatCount = 0 }) => {
   const location = useLocation();
   const path = location.pathname;
 
@@ -44,6 +45,7 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unread
   const [panelOpen, setPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState(null);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const bellRef = useRef(null);
 
   const fetchNotifications = async () => {
@@ -73,14 +75,22 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unread
     fetchNotifications();
   };
 
+  const handleRespondToEventInvite = async (id, action) => {
+    await onRespondToEventInvite?.(id, action);
+    fetchNotifications();
+  };
+
   // Bell badge counts actionable items the user can still act on:
-  // friend requests + unseen snaps + reports against me that are still
-  // appealable. Filed-report status updates are passive (read-only summary).
+  // friend requests + unseen snaps + pending event/study invites + reports
+  // against me that are still appealable. Filed-report status updates are
+  // passive (read-only summary).
   const actionableReports =
     (notifications?.reports_received || []).filter((r) => r.can_appeal).length;
   const unreadCount =
     (notifications?.friend_requests?.length ?? 0) +
     (notifications?.new_snaps?.length ?? 0) +
+    (notifications?.event_invites?.length ?? 0) +
+    (notifications?.study_invites?.length ?? 0) +
     actionableReports;
 
   return (
@@ -108,6 +118,28 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unread
 
       {/* Right cluster */}
       <div className="flex items-center gap-3 flex-shrink-0 ml-auto">
+        {/* "+" add menu */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setAddMenuOpen((v) => !v)}
+            className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity hover:opacity-90"
+            style={{ background: T.coral }}
+            aria-label="add"
+            aria-expanded={addMenuOpen}
+          >
+            <Icon name="plus" size={20} color="#fff" />
+          </button>
+          {addMenuOpen && (
+            <AddMenu
+              variant="popover"
+              onClose={() => setAddMenuOpen(false)}
+              onAddClass={onAddClass}
+              onAddEvent={onAddEvent}
+            />
+          )}
+        </div>
+
         {/* Bell + panel */}
         <div className="relative" ref={bellRef}>
           <button
@@ -136,6 +168,7 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, unread
               notifications={notifications}
               loading={notifLoading}
               onRespondToRequest={handleRespondToRequest}
+              onRespondToEventInvite={handleRespondToEventInvite}
               onRefresh={fetchNotifications}
               onClose={() => setPanelOpen(false)}
             />

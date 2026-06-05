@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { T, FF, Avatar, Icon } from "@/components/shared/brand";
+import { useNavigate } from "react-router-dom";
+import { T, FF, Avatar, Icon, ProfileAvatar } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 
 const AVATAR_PALETTE = [T.lime, T.lilac, "#f0c4a8", "#b8d8c2", T.coral];
@@ -52,6 +53,33 @@ const REPORT_STATUS_LABEL = {
 };
 
 const formatContentType = (ct) => (ct === "snap" ? "snap" : "message");
+
+const fmtEventWhen = (dateIso, startHHMM) => {
+  if (!dateIso) return "";
+  const [y, m, d] = dateIso.split("-").map(Number);
+  const dt = y && m && d ? new Date(y, m - 1, d) : null;
+  const day = dt
+    ? dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }).toLowerCase()
+    : dateIso;
+  if (!startHHMM) return day;
+  const [hh, mm] = startHHMM.split(":");
+  const h24 = Number(hh);
+  const m2 = Number(mm);
+  const ap = h24 >= 12 ? "pm" : "am";
+  const h = ((h24 + 11) % 12) + 1;
+  const t = m2 === 0 ? `${h}${ap}` : `${h}:${String(m2).padStart(2, "0")}${ap}`;
+  return `${day} · ${t}`;
+};
+
+const fmtStudyWhen = (startIso, endIso) => {
+  if (!startIso) return "";
+  const s = new Date(startIso);
+  const day = s.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }).toLowerCase();
+  const fmt = (d) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).toLowerCase();
+  if (!endIso) return `${day} · ${fmt(s)}`;
+  const e = new Date(endIso);
+  return `${day} · ${fmt(s)}–${fmt(e)}`;
+};
 
 // Tiny inline AppealModal — keeps the network call local to the panel so it
 // can refetch notifications on success and dismiss without a full reload.
@@ -184,7 +212,8 @@ const ReportDocPreview = ({ doc }) => {
   );
 };
 
-export const NotificationsPanel = ({ notifications, loading, onRespondToRequest, onClose, onRefresh, variant = "dropdown" }) => {
+export const NotificationsPanel = ({ notifications, loading, onRespondToRequest, onRespondToEventInvite, onClose, onRefresh, variant = "dropdown" }) => {
+  const navigate = useNavigate();
   const isFullscreen = variant === "fullscreen";
   const shellCls = isFullscreen
     ? "w-full h-full bg-white overflow-hidden flex flex-col"
@@ -227,14 +256,24 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
     live_class_alerts = [],
     reports_received = [],
     reports_filed = [],
+    event_invites = [],
+    study_invites = [],
   } = notifications;
   const isEmpty =
     !friend_requests.length &&
     !new_snaps.length &&
     !live_class_alerts.length &&
     !reports_received.length &&
-    !reports_filed.length;
+    !reports_filed.length &&
+    !event_invites.length &&
+    !study_invites.length;
   const hasPrev = (s) => s > 0;
+
+  const openChat = (roomId) => {
+    if (!roomId) return;
+    navigate(`/chat/${roomId}`);
+    onClose?.();
+  };
 
   return (
     <div className={shellCls} style={scrollShellStyle}>
@@ -310,9 +349,106 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
         </div>
       )}
 
+      {/* Event invites — actionable, accept/decline inline. */}
+      {event_invites.length > 0 && (
+        <div className={hasPrev(friend_requests.length) ? "border-t border-ink-8" : ""}>
+          <SectionLabel count={event_invites.length}>event invites</SectionLabel>
+          {event_invites.map((inv) => {
+            const bg = colorFor(inv.event_creator_username);
+            return (
+              <div
+                key={inv.id}
+                className="px-4 py-2.5 flex items-center gap-3 hover:bg-ink-8 transition-colors"
+              >
+                <ProfileAvatar
+                  profilePictureUrl={inv.event_creator_profile_picture_url}
+                  name={(inv.event_creator_username?.slice(0, 2) || "?").toLowerCase()}
+                  bg={bg}
+                  fg={isCoral(bg) ? "#fff" : T.ink}
+                  size={38}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm lowercase leading-none truncate" style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}>
+                    {inv.event_name}
+                  </div>
+                  <div className="text-[10px] text-ink-40 mt-0.5 lowercase truncate" style={{ fontFamily: FF.mono }}>
+                    {inv.event_creator_username} · {fmtEventWhen(inv.event_date, inv.event_start_time)}
+                    {inv.event_location ? ` · ${inv.event_location}` : ""}
+                  </div>
+                </div>
+                <div className="flex gap-1.5 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onRespondToEventInvite?.(inv.id, "accept")}
+                    aria-label="accept event invite"
+                    className="w-8 h-8 rounded-full flex items-center justify-center"
+                    style={{ background: T.coral }}
+                  >
+                    <Icon name="check" size={14} color="#fff" stroke={2.4} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRespondToEventInvite?.(inv.id, "decline")}
+                    aria-label="decline event invite"
+                    className="w-8 h-8 rounded-full flex items-center justify-center border"
+                    style={{ background: "#fff", borderColor: T.ink15 }}
+                  >
+                    <Icon name="x" size={14} color={T.ink60} stroke={2} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Study invites — read-only summary; tap routes to the chat thread
+          where StudyInviteBubble handles accept/decline in context. */}
+      {study_invites.length > 0 && (
+        <div className={
+          hasPrev(friend_requests.length) || hasPrev(event_invites.length)
+            ? "border-t border-ink-8" : ""
+        }>
+          <SectionLabel count={study_invites.length}>study invites</SectionLabel>
+          {study_invites.map((inv) => {
+            const bg = colorFor(inv.sender_username);
+            return (
+              <button
+                key={inv.id}
+                type="button"
+                onClick={() => openChat(inv.room_id)}
+                className="w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-ink-8 transition-colors"
+              >
+                <ProfileAvatar
+                  profilePictureUrl={inv.sender_profile_picture_url}
+                  name={(inv.sender_username?.slice(0, 2) || "?").toLowerCase()}
+                  bg={bg}
+                  fg={isCoral(bg) ? "#fff" : T.ink}
+                  size={38}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm lowercase leading-none truncate" style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}>
+                    {inv.sender_username} wants to study
+                  </div>
+                  <div className="text-[10px] text-ink-40 mt-0.5 lowercase truncate" style={{ fontFamily: FF.mono }}>
+                    {fmtStudyWhen(inv.proposed_start, inv.proposed_end)}
+                  </div>
+                </div>
+                <Icon name="chevR" size={14} color={T.ink40} stroke={2} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Reports against me — surfaced first because they're actionable. */}
       {reports_received.length > 0 && (
-        <div className={hasPrev(friend_requests.length) ? "border-t border-ink-8" : ""}>
+        <div className={
+          hasPrev(friend_requests.length) ||
+          hasPrev(event_invites.length) ||
+          hasPrev(study_invites.length)
+            ? "border-t border-ink-8" : ""
+        }>
           <SectionLabel count={reports_received.filter((r) => r.can_appeal).length || null}>
             reports against you
           </SectionLabel>
@@ -378,7 +514,10 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
       {reports_filed.length > 0 && (
         <div
           className={
-            hasPrev(friend_requests.length) || hasPrev(reports_received.length)
+            hasPrev(friend_requests.length) ||
+            hasPrev(event_invites.length) ||
+            hasPrev(study_invites.length) ||
+            hasPrev(reports_received.length)
               ? "border-t border-ink-8"
               : ""
           }
@@ -427,6 +566,8 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
         <div
           className={
             hasPrev(friend_requests.length) ||
+            hasPrev(event_invites.length) ||
+            hasPrev(study_invites.length) ||
             hasPrev(reports_received.length) ||
             hasPrev(reports_filed.length)
               ? "border-t border-ink-8"
@@ -467,6 +608,8 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
         <div
           className={
             hasPrev(friend_requests.length) ||
+            hasPrev(event_invites.length) ||
+            hasPrev(study_invites.length) ||
             hasPrev(new_snaps.length) ||
             hasPrev(reports_received.length) ||
             hasPrev(reports_filed.length)
