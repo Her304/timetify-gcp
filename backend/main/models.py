@@ -508,3 +508,63 @@ class ExternalCalendarEvent(models.Model):
 
     def __str__(self):
         return f"{self.user.username}: {self.title} {self.starts_at}–{self.ends_at}"
+
+
+class Event(models.Model):
+    VISIBILITY_PRIVATE = 'PRIVATE'
+    VISIBILITY_SEMI = 'SEMI'
+    VISIBILITY_PUBLIC = 'PUBLIC'
+    VISIBILITY_CHOICES = [
+        (VISIBILITY_PRIVATE, 'Private'),
+        (VISIBILITY_SEMI, 'Semi-public'),
+        (VISIBILITY_PUBLIC, 'Public'),
+    ]
+
+    creator = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='events_created')
+    name = models.CharField(max_length=100)
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    location = models.CharField(max_length=200, blank=True)
+    is_repeating = models.BooleanField(default=False)
+    # Comma-separated weekday abbreviations, e.g. "MON,WED". Mirrors Course.rep_date.
+    repeat_days = models.CharField(max_length=50, blank=True)
+    visibility = models.CharField(max_length=8, choices=VISIBILITY_CHOICES, default=VISIBILITY_PRIVATE)
+    chat_room = models.ForeignKey(
+        'ChatRoom', on_delete=models.SET_NULL, null=True, blank=True, related_name='events'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['creator', 'date']),
+            models.Index(fields=['date', 'start_time']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.creator.username} @ {self.date} {self.start_time})"
+
+
+class EventInvite(models.Model):
+    STATUS_PENDING = 'PENDING'
+    STATUS_ACCEPTED = 'ACCEPTED'
+    STATUS_DECLINED = 'DECLINED'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_DECLINED, 'Declined'),
+    ]
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='invites')
+    invitee = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='event_invites')
+    status = models.CharField(max_length=8, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('event', 'invitee')
+        indexes = [models.Index(fields=['invitee', 'status'])]
+
+    def __str__(self):
+        return f"{self.invitee.username} → {self.event.name} [{self.status}]"
