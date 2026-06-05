@@ -32,7 +32,15 @@ Desktop `header-nav-app.jsx` (sticky; bell → `NotificationsPanel`; avatar → 
 
 ## Models (non-obvious)
 
-`Snap.visibility` ∈ `all_friends|selected|group`, plus `is_removed`, `expires_at`. `ChatRoomMember.is_admin` gates group rename/add/remove; oldest member auto-promoted when last admin leaves. `Message.replied_snap` SET_NULL on Snap delete; soft-delete retains `content`. `FunctionRestriction.restriction_type` ∈ `snap_posting|chat_messaging|both`; `expires_at` null = permanent. `ReparseLog`: one row per AI-reparse attempt; backs the 3 / 24 h cap.
+`Snap.visibility` ∈ `all_friends|selected|group`, plus `is_removed`, `expires_at`. `ChatRoomMember.is_admin` gates group rename/add/remove; oldest member auto-promoted when last admin leaves. `Message.replied_snap` SET_NULL on Snap delete; soft-delete retains `content`. `Message.message_type` ∈ `text|study_invite`; `metadata` JSON holds `proposed_start/end`, `suggested_course_id`, `status` for study invites. `FunctionRestriction.restriction_type` ∈ `snap_posting|chat_messaging|both`; `expires_at` null = permanent. `ReparseLog`: one row per AI-reparse attempt; backs the 3 / 24 h cap. `ExternalCalendarEvent`: blocking time slots (`source` ∈ `study_invite|manual|external`); used by availability engine, never exposes `title` to other users.
+
+## Availability & Study Coordination
+
+- `backend/main/availability.py` — pure Python, no ORM. Pass pre-fetched querysets. Key fns: `get_busy_blocks(courses, events, day)`, `get_free_slots(...)`, `get_shared_free_slots(...)`, `get_current_status(busy, now, has_courses)` → `free|in_class|free_soon|unknown`.
+- `Course.rep_date` is comma-separated weekday abbreviations e.g. `"MON,WED,FRI"`. Python `weekday()` 0=MON … 6=SUN maps to `["MON"…"SUN"]`.
+- Endpoints: `GET /api/availability/me/`, `GET /api/availability/friends/` (friend-gated, blocks respected, no event titles leaked), `POST /api/availability/shared-gaps/`, `POST /api/study-invites/`, `PATCH /api/chats/<pk>/messages/<msg_id>/invite/` (accept creates `ExternalCalendarEvent`).
+- Feed polls `/api/availability/friends/` every 60 s for the "N friends free now" chip.
+- Frontend components: `components/study/FindTimeSheet.jsx` (shared-gap bottom sheet), `components/study/StudyInviteBubble.jsx` (invite card with accept/decline). "Find a time" button lives in the DM header and `GroupInfoModal` footer.
 
 ## AI course parse (`backend/main/pdf.py`)
 
