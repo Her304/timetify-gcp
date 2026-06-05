@@ -19,6 +19,7 @@ export default function GroupInfoModal({
   onClose,
   onUpdated,
   onLeft,
+  onFindTime,
 }) {
   const [name, setName] = useState(room?.name || "");
   const [editing, setEditing] = useState(false);
@@ -321,7 +322,17 @@ export default function GroupInfoModal({
         </div>
 
         {/* footer */}
-        <div className="px-5 py-4 border-t" style={{ borderColor: "rgba(255,255,255,.08)" }}>
+        <div className="px-5 py-4 border-t flex flex-col gap-2" style={{ borderColor: "rgba(255,255,255,.08)" }}>
+          {onFindTime && (
+            <button
+              onClick={onFindTime}
+              disabled={busy}
+              className="w-full px-4 py-2.5 rounded-full text-sm font-semibold lowercase disabled:opacity-40"
+              style={{ background: T.lime, color: T.ink }}
+            >
+              📅 find a time
+            </button>
+          )}
           <button
             onClick={leaveGroup}
             disabled={busy}

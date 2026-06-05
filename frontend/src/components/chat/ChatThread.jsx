@@ -5,6 +5,8 @@ import { authenticatedFetch } from "@/utils/api";
 import SnapViewerModal from "@/components/snap/SnapViewerModal";
 import ReportModal from "@/components/shared/ReportModal";
 import GroupInfoModal from "@/components/chat/GroupInfoModal";
+import StudyInviteBubble from "@/components/study/StudyInviteBubble";
+import FindTimeSheet from "@/components/study/FindTimeSheet";
 
 const MAX_LEN = 2000;
 const COUNTER_THRESHOLD = 1800;
@@ -344,6 +346,7 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
   const isGroup = room?.room_type === "group";
   const otherUser = !isGroup ? room?.other_user || null : null;
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [findTimeOpen, setFindTimeOpen] = useState(false);
   // Friend list for the GroupInfoModal's add-members picker. Lazy-loaded on
   // open so we don't pay the fetch when the user is just chatting.
   const [friendsForGroup, setFriendsForGroup] = useState([]);
@@ -830,6 +833,16 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
                 </MonoLabel>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() => setFindTimeOpen(true)}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold lowercase transition-colors hover:opacity-80"
+              style={{ background: T.lime, color: T.ink, fontFamily: FF.sans }}
+              title="find a time to study together"
+            >
+              <Icon name="clock" size={14} color={T.ink} />
+              find a time
+            </button>
           </>
         ) : loading ? (
           <div className="text-sm text-ink-60 lowercase">loading…</div>
@@ -884,16 +897,28 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
         ) : (
           <div className="flex flex-col-reverse gap-1.5 py-4 px-3 min-h-full">
             {messages.map((m, idx) => (
-              <Bubble
-                key={m.id}
-                msg={m}
-                mine={m.sender_id === currentUser?.id}
-                showTime={showTimeByIdx[idx]}
-                showSender={showSenderByIdx[idx]}
-                onRetry={handleRetry}
-                onReport={(target) => setReportingMsg(target)}
-                onReply={handleReply}
-              />
+              m.message_type === "study_invite" ? (
+                <StudyInviteBubble
+                  key={m.id}
+                  msg={m}
+                  mine={m.sender_id === currentUser?.id}
+                  roomId={roomId}
+                  onUpdated={(updated) =>
+                    setMessages((prev) => prev.map((x) => x.id === updated.id ? updated : x))
+                  }
+                />
+              ) : (
+                <Bubble
+                  key={m.id}
+                  msg={m}
+                  mine={m.sender_id === currentUser?.id}
+                  showTime={showTimeByIdx[idx]}
+                  showSender={showSenderByIdx[idx]}
+                  onRetry={handleRetry}
+                  onReport={(target) => setReportingMsg(target)}
+                  onReply={handleReply}
+                />
+              )
             ))}
             {/* Sentinel sits at the *visual* top under flex-col-reverse (DOM-last). */}
             {!olderExhausted && (
@@ -1068,6 +1093,21 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
             setGroupInfoOpen(false);
             navigate("/feed");
           }}
+          onFindTime={() => { setGroupInfoOpen(false); setFindTimeOpen(true); }}
+        />
+      )}
+      {findTimeOpen && room && (
+        <FindTimeSheet
+          userIds={
+            isGroup
+              ? (room.members || []).map((m) => m.id).filter((id) => id !== currentUser?.id)
+              : otherUser ? [otherUser.id] : []
+          }
+          roomId={roomId}
+          onClose={() => setFindTimeOpen(false)}
+          onInviteSent={(msg) =>
+            setMessages((prev) => [msg, ...prev])
+          }
         />
       )}
     </div>

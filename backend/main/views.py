@@ -18,8 +18,8 @@ from .serializers import (
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog
-from datetime import datetime, timedelta
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog, ExternalCalendarEvent, UserBlock
+from datetime import datetime, timedelta, time as dt_time
 from django.contrib.auth import get_user_model
 from main.utils import send_email
 
@@ -2444,3 +2444,319 @@ class SnapGroupMemberRemoveView(APIView):
         SnapGroupMember.objects.filter(group=group, user_id=user_id).delete()
         group.save(update_fields=['updated_at'])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Availability & Study Coordination
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_day_window(day):
+    """Return (day_start, day_end) as UTC-aware datetimes for an 8am-10pm window."""
+    from datetime import timezone as dt_tz
+    return (
+        datetime.combine(day, dt_time(8, 0)).replace(tzinfo=dt_tz.utc),
+        datetime.combine(day, dt_time(22, 0)).replace(tzinfo=dt_tz.utc),
+    )
+
+
+def _fetch_events_for_day(user_ids, day):
+    """Return ExternalCalendarEvent rows for given users on the given day."""
+    from datetime import timezone as dt_tz
+    day_start = datetime.combine(day, dt_time(0, 0)).replace(tzinfo=dt_tz.utc)
+    day_end   = datetime.combine(day, dt_time(23, 59, 59)).replace(tzinfo=dt_tz.utc)
+    return ExternalCalendarEvent.objects.filter(
+        user_id__in=user_ids,
+        is_blocking=True,
+        starts_at__lt=day_end,
+        ends_at__gt=day_start,
+    )
+
+
+class AvailabilityMeView(APIView):
+    """GET /api/availability/me/
+    Returns the current user's free/busy status for today plus free slots."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from .availability import get_busy_blocks, get_current_status, get_free_slots
+        user = request.user
+        today = timezone.now().date()
+        now   = timezone.now()
+
+        has_courses = Course.objects.filter(user=user).exists()
+
+        active_courses = Course.objects.filter(
+            user=user, start_date__lte=today, end_date__gte=today,
+        ) if has_courses else []
+
+        events = _fetch_events_for_day([user.id], today).filter(user=user)
+        busy   = get_busy_blocks(active_courses, events, today)
+        status_data = get_current_status(busy, now, has_courses=has_courses)
+
+        window_start, window_end = _get_day_window(today)
+        free_slots = get_free_slots(busy, window_start, window_end, min_duration_minutes=30)
+
+        return Response({
+            **status_data,
+            "free_slots_today": [
+                {"start": s.isoformat(), "end": e.isoformat()}
+                for s, e in free_slots
+            ],
+        })
+
+
+class AvailabilityFriendsView(APIView):
+    """GET /api/availability/friends/
+    Returns current free/busy status for all accepted friends.
+    Respects UserBlock — blocked users are excluded from the result.
+    Never exposes calendar event titles, only free/busy status."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from .availability import get_busy_blocks, get_current_status
+        user  = request.user
+        today = timezone.now().date()
+        now   = timezone.now()
+
+        # Accepted friends (bidirectional)
+        rows = Friend.objects.filter(
+            Q(user=user) | Q(friend=user), status=Friend.ACCEPTED
+        ).values_list('user_id', 'friend_id')
+        friend_ids = {uid if uid != user.id else fid for uid, fid in rows}
+
+        # Remove blocked users
+        blocked = set(
+            UserBlock.objects.filter(Q(blocker=user) | Q(blocked=user))
+            .values_list('blocker_id', 'blocked_id')
+        )
+        blocked_flat = {uid for pair in blocked for uid in pair} - {user.id}
+        friend_ids -= blocked_flat
+
+        if not friend_ids:
+            return Response({})
+
+        friends = User.objects.filter(id__in=friend_ids)
+
+        # Prefetch courses + events for all friends in two queries
+        courses_qs = Course.objects.filter(
+            user_id__in=friend_ids, start_date__lte=today, end_date__gte=today,
+        )
+        events_qs = _fetch_events_for_day(friend_ids, today)
+
+        courses_by_user: dict = {}
+        for c in courses_qs:
+            courses_by_user.setdefault(c.user_id, []).append(c)
+
+        events_by_user: dict = {}
+        for ev in events_qs:
+            events_by_user.setdefault(ev.user_id, []).append(ev)
+
+        result = {}
+        for friend in friends:
+            has_courses = friend.id in courses_by_user
+            busy = get_busy_blocks(
+                courses_by_user.get(friend.id, []),
+                events_by_user.get(friend.id, []),
+                today,
+            )
+            status_data = get_current_status(busy, now, has_courses=has_courses)
+            result[str(friend.id)] = {"username": friend.username, **status_data}
+
+        return Response(result)
+
+
+class SharedGapsView(APIView):
+    """POST /api/availability/shared-gaps/
+    Returns free slots shared by the requesting user + specified friends."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from .availability import get_busy_blocks, get_shared_free_slots
+        user = request.user
+
+        try:
+            user_ids      = [int(i) for i in (request.data.get('user_ids') or [])]
+            days_ahead    = min(int(request.data.get('days_ahead', 7)), 14)
+            min_duration  = max(15, int(request.data.get('min_duration_minutes', 30)))
+        except (TypeError, ValueError):
+            return Response({"error": "Invalid parameters."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Always include self; validate the rest are accepted friends
+        friend_rows = Friend.objects.filter(
+            Q(user=user) | Q(friend=user), status=Friend.ACCEPTED
+        ).values_list('user_id', 'friend_id')
+        accepted_friends = {uid if uid != user.id else fid for uid, fid in friend_rows}
+
+        valid_ids = list({user.id} | (set(user_ids) & accepted_friends))
+
+        all_gaps = []
+        today = timezone.now().date()
+
+        for offset in range(days_ahead):
+            day = today + timedelta(days=offset)
+            window_start, window_end = _get_day_window(day)
+
+            courses_qs = Course.objects.filter(
+                user_id__in=valid_ids, start_date__lte=day, end_date__gte=day,
+            )
+            events_qs = _fetch_events_for_day(valid_ids, day)
+
+            courses_by_user: dict = {}
+            for c in courses_qs:
+                courses_by_user.setdefault(c.user_id, []).append(c)
+            events_by_user: dict = {}
+            for ev in events_qs:
+                events_by_user.setdefault(ev.user_id, []).append(ev)
+
+            all_busy = [
+                get_busy_blocks(
+                    courses_by_user.get(uid, []),
+                    events_by_user.get(uid, []),
+                    day,
+                )
+                for uid in valid_ids
+            ]
+            shared = get_shared_free_slots(all_busy, window_start, window_end, min_duration)
+
+            for s, e in shared:
+                all_gaps.append({
+                    "start": s.isoformat(),
+                    "end":   e.isoformat(),
+                    "duration_minutes": int((e - s).total_seconds() / 60),
+                    "users_free": valid_ids,
+                })
+
+        all_gaps.sort(key=lambda g: g["start"])
+
+        # Suggested course: shared course with the soonest upcoming exam
+        suggested_course = None
+        if len(valid_ids) > 1:
+            user_cids = [
+                set(Course.objects.filter(user_id=uid).values_list('course_id', flat=True))
+                for uid in valid_ids
+            ]
+            shared_cids = set.intersection(*user_cids) if user_cids else set()
+            if shared_cids:
+                upcoming = (
+                    Exam.objects.filter(
+                        user=user,
+                        course__course_id__in=shared_cids,
+                        exam_date__gte=timezone.now(),
+                        is_completed=False,
+                    )
+                    .order_by('exam_date')
+                    .select_related('course')
+                    .first()
+                )
+                if upcoming:
+                    suggested_course = {
+                        "id": upcoming.course.id,
+                        "name": upcoming.course.course_name,
+                        "course_id": upcoming.course.course_id,
+                    }
+
+        if suggested_course:
+            for gap in all_gaps:
+                gap["suggested_course"] = suggested_course
+
+        return Response({"gaps": all_gaps[:20]})
+
+
+class StudyInviteView(APIView):
+    """POST /api/study-invites/
+    Creates a study_invite message in the given chat room."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        room_id          = request.data.get('room_id')
+        proposed_start   = request.data.get('proposed_start')
+        proposed_end     = request.data.get('proposed_end')
+        suggested_course_id = request.data.get('suggested_course_id')
+
+        if not room_id or not proposed_start or not proposed_end:
+            return Response(
+                {"error": "room_id, proposed_start, proposed_end are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            room = ChatRoom.objects.get(pk=room_id)
+            ChatRoomMember.objects.get(room=room, user=request.user)
+        except ChatRoom.DoesNotExist:
+            return Response({"error": "Room not found."}, status=status.HTTP_404_NOT_FOUND)
+        except ChatRoomMember.DoesNotExist:
+            return Response({"error": "Not a member of this room."}, status=status.HTTP_403_FORBIDDEN)
+
+        metadata = {
+            "proposed_start":      proposed_start,
+            "proposed_end":        proposed_end,
+            "suggested_course_id": suggested_course_id,
+            "status":              "pending",
+        }
+
+        msg = Message.objects.create(
+            room=room,
+            sender=request.user,
+            content="study invite",
+            message_type=Message.MSG_STUDY_INVITE,
+            metadata=metadata,
+        )
+        return Response(
+            MessageSerializer(msg, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class StudyInviteRespondView(APIView):
+    """PATCH /api/chats/<pk>/messages/<msg_id>/invite/
+    Accept or decline a study invite. Accepting creates an ExternalCalendarEvent
+    for the responding user to block that time in future gap searches."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk, msg_id):
+        try:
+            msg = Message.objects.get(
+                pk=msg_id, room_id=pk, message_type=Message.MSG_STUDY_INVITE
+            )
+            ChatRoomMember.objects.get(room_id=pk, user=request.user)
+        except Message.DoesNotExist:
+            return Response({"error": "Invite not found."}, status=status.HTTP_404_NOT_FOUND)
+        except ChatRoomMember.DoesNotExist:
+            return Response({"error": "Not a member of this room."}, status=status.HTTP_403_FORBIDDEN)
+
+        action = request.data.get('action')
+        if action not in ('accept', 'decline'):
+            return Response(
+                {"error": "action must be 'accept' or 'decline'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        metadata = dict(msg.metadata or {})
+        metadata['status'] = 'accepted' if action == 'accept' else 'declined'
+        msg.metadata = metadata
+        msg.save(update_fields=['metadata'])
+
+        if action == 'accept':
+            proposed_start = metadata.get('proposed_start')
+            proposed_end   = metadata.get('proposed_end')
+            if proposed_start and proposed_end:
+                try:
+                    from django.utils.dateparse import parse_datetime
+                    s = parse_datetime(proposed_start)
+                    e = parse_datetime(proposed_end)
+                    if s and e:
+                        ExternalCalendarEvent.objects.create(
+                            user=request.user,
+                            title='Study session (Timetify)',
+                            starts_at=s,
+                            ends_at=e,
+                            is_blocking=True,
+                            source=ExternalCalendarEvent.SOURCE_STUDY_INVITE,
+                        )
+                except Exception:
+                    logger.warning(
+                        "Failed to create calendar event for study invite accept user_id=%s",
+                        request.user.id, exc_info=True,
+                    )
+
+        return Response(MessageSerializer(msg, context={'request': request}).data)

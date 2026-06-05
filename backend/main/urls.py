@@ -52,6 +52,12 @@ urlpatterns = [
     path('api/blocks/', views.BlockListView.as_view(), name='blocks-list'),
     path('api/blocks/<int:pk>/', views.BlockDeleteView.as_view(), name='block-delete'),
     path('api/restrictions/my/', views.MyRestrictionsView.as_view(), name='restrictions-my'),
+    # Availability & study coordination
+    path('api/availability/me/', views.AvailabilityMeView.as_view(), name='availability-me'),
+    path('api/availability/friends/', views.AvailabilityFriendsView.as_view(), name='availability-friends'),
+    path('api/availability/shared-gaps/', views.SharedGapsView.as_view(), name='shared-gaps'),
+    path('api/study-invites/', views.StudyInviteView.as_view(), name='study-invite-create'),
+    path('api/chats/<int:pk>/messages/<int:msg_id>/invite/', views.StudyInviteRespondView.as_view(), name='study-invite-respond'),
     # Moderation: admin + cron
     path('api/admin/reports/', views.AdminReportListView.as_view(), name='admin-reports'),
     path('api/admin/reports/<int:pk>/act/', views.AdminReportActView.as_view(), name='admin-report-act'),

@@ -228,9 +228,20 @@ class ChatRoomMember(models.Model):
 
 
 class Message(models.Model):
+    MSG_TEXT = 'text'
+    MSG_STUDY_INVITE = 'study_invite'
+    MSG_TYPE_CHOICES = [
+        (MSG_TEXT, 'Text'),
+        (MSG_STUDY_INVITE, 'Study invite'),
+    ]
+
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
     sender = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='messages_sent')
     content = models.TextField()
+    message_type = models.CharField(max_length=16, choices=MSG_TYPE_CHOICES, default=MSG_TEXT)
+    # Used by study_invite messages to store proposed_start, proposed_end,
+    # suggested_course_id, and status (pending/accepted/declined).
+    metadata = models.JSONField(null=True, blank=True)
     reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
     # IG-style snap-reply. When set, the chat bubble renders a snap thumbnail
     # card above the text. SET_NULL so the message survives the snap's lifecycle
@@ -468,3 +479,32 @@ class SnapGroupMember(models.Model):
 
     def __str__(self):
         return f"{self.user.username} ∈ group #{self.group_id}"
+
+
+class ExternalCalendarEvent(models.Model):
+    """Blocking time slot from an external source (study invite acceptance,
+    manual entry, or future calendar-sync import). Used by availability
+    computation to mark time as busy beyond course schedule."""
+    SOURCE_STUDY_INVITE = 'study_invite'
+    SOURCE_MANUAL = 'manual'
+    SOURCE_EXTERNAL = 'external'
+    SOURCE_CHOICES = [
+        (SOURCE_STUDY_INVITE, 'Study invite'),
+        (SOURCE_MANUAL, 'Manual'),
+        (SOURCE_EXTERNAL, 'External calendar'),
+    ]
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='calendar_events')
+    # Title is private — only visible to the owner, never exposed to other users.
+    title = models.CharField(max_length=200, default='Busy')
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    is_blocking = models.BooleanField(default=True)
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_MANUAL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'starts_at', 'ends_at'])]
+
+    def __str__(self):
+        return f"{self.user.username}: {self.title} {self.starts_at}–{self.ends_at}"
