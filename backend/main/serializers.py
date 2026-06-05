@@ -269,7 +269,8 @@ class MessageSerializer(serializers.ModelSerializer):
     the original text (the column itself stays populated for future
     moderation use). `replied_snap` is the IG-style story-reply reference;
     once the snap is removed/expired/purged, the FK clears (SET_NULL) and
-    the block becomes None — the frontend then renders a muted placeholder."""
+    the block becomes None — the frontend then renders a muted placeholder.
+    `message_type` / `metadata` power study-invite rich cards."""
     sender_id = serializers.IntegerField(read_only=True)
     sender_username = serializers.CharField(source='sender.username', read_only=True)
     content = serializers.SerializerMethodField()
@@ -279,6 +280,7 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = ['id', 'room', 'sender_id', 'sender_username', 'content',
+                  'message_type', 'metadata',
                   'replied_snap', 'reply_to', 'is_removed', 'created_at']
         read_only_fields = fields
 
