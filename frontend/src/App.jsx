@@ -25,6 +25,7 @@ import Help from "@/components/help/help";
 import Privacy from "@/components/privacy/privacy";
 import Terms from "@/components/terms/terms";
 import Landing from "@/components/landing/Landing";
+import AddEventModal from "@/components/events/AddEventModal";
 
 const simpleItems = [];
 const HeaderNavigationSimpleDemo = () => <HeaderNavigationBase activeUrl="/" items={simpleItems} />;
@@ -44,6 +45,8 @@ const App = () => {
   const [friendRequests, setFriendRequests] = useState([]);
   const [snapsByCourse, setSnapsByCourse] = useState({});
   const [isErrorReportModalOpen, setIsErrorReportModalOpen] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [eventModalOpen, setEventModalOpen] = useState(false);
 
   useEffect(() => { initLogger(); }, []);
 
@@ -131,7 +134,40 @@ const App = () => {
     fetchData();
     fetchFriendsData();
     fetchSnapFeed();
+    fetchEvents();
   }, [token]);
+
+  const fetchEvents = async () => {
+    try {
+      const monday = (() => {
+        const d = new Date();
+        const day = d.getDay(); // 0 = Sun
+        const diff = day === 0 ? -6 : 1 - day;
+        d.setDate(d.getDate() + diff);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${dd}`;
+      })();
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/events/?week=${monday}`);
+      if (res.ok) setEvents(await res.json());
+    } catch (err) {
+      Sentry.captureException(err);
+    }
+  };
+
+  const respondToEventInvite = async (inviteId, action) => {
+    try {
+      const res = await authenticatedFetch(
+        `${import.meta.env.VITE_API_URL}/api/events/invites/${inviteId}/`,
+        { method: "PATCH", body: JSON.stringify({ action }) }
+      );
+      if (res.ok) await fetchEvents();
+      return res.ok;
+    } catch (err) {
+      return false;
+    }
+  };
 
   const fetchSnapFeed = async () => {
     try {
@@ -310,6 +346,12 @@ const App = () => {
       courseErrors={courseErrors}
       isErrorReportModalOpen={isErrorReportModalOpen}
       setIsErrorReportModalOpen={setIsErrorReportModalOpen}
+      events={events}
+      eventModalOpen={eventModalOpen}
+      setEventModalOpen={setEventModalOpen}
+      respondToEventInvite={respondToEventInvite}
+      onEventCreated={() => { setEventModalOpen(false); fetchEvents(); }}
+      onEventsChanged={fetchEvents}
     />
   );
 };
@@ -344,6 +386,12 @@ const AppShell = ({
   courseErrors,
   isErrorReportModalOpen,
   setIsErrorReportModalOpen,
+  events,
+  eventModalOpen,
+  setEventModalOpen,
+  respondToEventInvite,
+  onEventCreated,
+  onEventsChanged,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -397,6 +445,9 @@ const AppShell = ({
           currentUser={currentUser}
           onLogout={logoutUser}
           onRespondToRequest={respondToFriendRequest}
+          onRespondToEventInvite={respondToEventInvite}
+          onAddClass={() => navigate("/Add")}
+          onAddEvent={() => setEventModalOpen(true)}
           unreadChatCount={unreadChatCount}
         />
       ) : (
@@ -429,8 +480,9 @@ const AppShell = ({
                   ) : (
                     <WeekView
                       allClasses={allClasses}
+                      events={events}
                       currentUser={currentUser}
-                      onAddClass={() => navigate("/Add")}
+                      onEventsChanged={onEventsChanged}
                     />
                   )
                 ) : (
@@ -530,6 +582,8 @@ const AppShell = ({
         <MobileBottomNav
           currentUser={currentUser}
           unreadChatCount={unreadChatCount}
+          onAddClass={() => navigate("/Add")}
+          onAddEvent={() => setEventModalOpen(true)}
         />
       )}
 
@@ -537,6 +591,14 @@ const AppShell = ({
         isOpen={isErrorReportModalOpen}
         onClose={() => setIsErrorReportModalOpen(false)}
       />
+
+      {currentUser && eventModalOpen && (
+        <AddEventModal
+          friendsList={friendsList}
+          onClose={() => setEventModalOpen(false)}
+          onCreated={onEventCreated}
+        />
+      )}
     </div>
   );
 };

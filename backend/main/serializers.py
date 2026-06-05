@@ -7,6 +7,7 @@ from .models import (
     ChatRoom, ChatRoomMember, Message,
     Report, AiReport, Appeal, UserBlock, FunctionRestriction,
     NotificationPreference, SnapGroup, SnapGroupMember,
+    Event, EventInvite,
 )
 
 User = get_user_model()
@@ -607,3 +608,127 @@ class SnapGroupSerializer(serializers.ModelSerializer):
 
     def get_member_count(self, obj):
         return len(obj.members.all())
+
+
+def _absolute_profile_picture_url(user, request):
+    if not user or not getattr(user, 'profile_picture', None):
+        return None
+    try:
+        url = user.profile_picture.url
+    except Exception:
+        logger.warning("profile_picture.url failed for user_id=%s", getattr(user, 'id', None), exc_info=True)
+        return None
+    if request is not None:
+        return request.build_absolute_uri(url)
+    return url
+
+
+class EventInviteSerializer(serializers.ModelSerializer):
+    invitee_id = serializers.IntegerField(source='invitee.id', read_only=True)
+    invitee_username = serializers.CharField(source='invitee.username', read_only=True)
+    invitee_profile_picture_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventInvite
+        fields = ['id', 'invitee_id', 'invitee_username', 'invitee_profile_picture_url', 'status', 'responded_at']
+        read_only_fields = fields
+
+    def get_invitee_profile_picture_url(self, obj):
+        return _absolute_profile_picture_url(obj.invitee, self.context.get('request'))
+
+
+class EventSerializer(serializers.ModelSerializer):
+    creator_username = serializers.CharField(source='creator.username', read_only=True)
+    creator_profile_picture_url = serializers.SerializerMethodField()
+    is_mine = serializers.SerializerMethodField()
+    my_invite_status = serializers.SerializerMethodField()
+    invites = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = [
+            'id', 'creator', 'creator_username', 'creator_profile_picture_url',
+            'name', 'date', 'start_time', 'end_time', 'location',
+            'is_repeating', 'repeat_days', 'visibility',
+            'chat_room', 'is_mine', 'my_invite_status', 'invites',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+    def get_creator_profile_picture_url(self, obj):
+        return _absolute_profile_picture_url(obj.creator, self.context.get('request'))
+
+    def _request_user(self):
+        request = self.context.get('request')
+        return getattr(request, 'user', None) if request else None
+
+    def get_is_mine(self, obj):
+        me = self._request_user()
+        return bool(me and me.is_authenticated and obj.creator_id == me.id)
+
+    def get_my_invite_status(self, obj):
+        me = self._request_user()
+        if not (me and me.is_authenticated):
+            return None
+        # Prefer prefetched invites map if the view passed one via context.
+        precomputed = self.context.get('my_invite_status_by_event_id')
+        if precomputed is not None:
+            return precomputed.get(obj.id)
+        invite = EventInvite.objects.filter(event=obj, invitee=me).only('status').first()
+        return invite.status if invite else None
+
+    def get_invites(self, obj):
+        me = self._request_user()
+        if not (me and me.is_authenticated):
+            return None
+        is_creator = obj.creator_id == me.id
+        if not is_creator:
+            has_accepted = EventInvite.objects.filter(
+                event=obj, invitee=me, status=EventInvite.STATUS_ACCEPTED
+            ).exists()
+            if not has_accepted:
+                return None
+        invites_qs = obj.invites.select_related('invitee').all()
+        return EventInviteSerializer(invites_qs, many=True, context=self.context).data
+
+
+class EventCreateSerializer(serializers.ModelSerializer):
+    invite_user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        default=list,
+        write_only=True,
+    )
+
+    class Meta:
+        model = Event
+        fields = [
+            'id', 'name', 'date', 'start_time', 'end_time', 'location',
+            'is_repeating', 'repeat_days', 'visibility', 'invite_user_ids',
+        ]
+        read_only_fields = ['id']
+
+    def validate(self, attrs):
+        if attrs['end_time'] <= attrs['start_time']:
+            raise serializers.ValidationError({'end_time': 'end_time must be after start_time.'})
+
+        is_repeating = attrs.get('is_repeating', False)
+        repeat_days = (attrs.get('repeat_days') or '').strip()
+        if is_repeating and not repeat_days:
+            raise serializers.ValidationError({'repeat_days': 'repeat_days is required when is_repeating=True.'})
+        if not is_repeating and repeat_days:
+            raise serializers.ValidationError({'repeat_days': 'repeat_days must be empty when is_repeating=False.'})
+        if repeat_days:
+            valid = {'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'}
+            tokens = [t.strip().upper() for t in repeat_days.split(',') if t.strip()]
+            if not tokens or any(t not in valid for t in tokens):
+                raise serializers.ValidationError({'repeat_days': 'Use comma-separated MON,TUE,WED,THU,FRI,SAT,SUN.'})
+            # Normalize.
+            attrs['repeat_days'] = ','.join(tokens)
+
+        # De-dupe and drop creator from invitee list (creator is implicit).
+        request = self.context.get('request')
+        creator_id = getattr(getattr(request, 'user', None), 'id', None)
+        ids = list({uid for uid in attrs.get('invite_user_ids', []) if uid != creator_id})
+        attrs['invite_user_ids'] = ids
+        return attrs
