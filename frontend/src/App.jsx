@@ -24,8 +24,9 @@ import About from "@/components/about/about";
 import Help from "@/components/help/help";
 import Privacy from "@/components/privacy/privacy";
 import Terms from "@/components/terms/terms";
+import Community from "@/components/community/community";
 import Landing from "@/components/landing/Landing";
-import AddEventModal from "@/components/events/AddEventModal";
+import AddEventPage from "@/components/events/AddEventPage";
 
 const simpleItems = [];
 const HeaderNavigationSimpleDemo = () => <HeaderNavigationBase activeUrl="/" items={simpleItems} />;
@@ -46,7 +47,6 @@ const App = () => {
   const [snapsByCourse, setSnapsByCourse] = useState({});
   const [isErrorReportModalOpen, setIsErrorReportModalOpen] = useState(false);
   const [events, setEvents] = useState([]);
-  const [eventModalOpen, setEventModalOpen] = useState(false);
 
   useEffect(() => { initLogger(); }, []);
 
@@ -347,11 +347,9 @@ const App = () => {
       isErrorReportModalOpen={isErrorReportModalOpen}
       setIsErrorReportModalOpen={setIsErrorReportModalOpen}
       events={events}
-      eventModalOpen={eventModalOpen}
-      setEventModalOpen={setEventModalOpen}
       respondToEventInvite={respondToEventInvite}
-      onEventCreated={() => { setEventModalOpen(false); fetchEvents(); }}
       onEventsChanged={fetchEvents}
+      fetchEvents={fetchEvents}
     />
   );
 };
@@ -387,11 +385,9 @@ const AppShell = ({
   isErrorReportModalOpen,
   setIsErrorReportModalOpen,
   events,
-  eventModalOpen,
-  setEventModalOpen,
   respondToEventInvite,
-  onEventCreated,
   onEventsChanged,
+  fetchEvents,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -447,7 +443,7 @@ const AppShell = ({
           onRespondToRequest={respondToFriendRequest}
           onRespondToEventInvite={respondToEventInvite}
           onAddClass={() => navigate("/Add")}
-          onAddEvent={() => setEventModalOpen(true)}
+          onAddEvent={() => navigate("/add-event")}
           unreadChatCount={unreadChatCount}
         />
       ) : (
@@ -457,11 +453,12 @@ const AppShell = ({
         <MobileTopBar
           currentUser={currentUser}
           onRespondToRequest={respondToFriendRequest}
+          onRespondToEventInvite={respondToEventInvite}
         />
       )}
 
       <main ref={mainRef} className="flex-1 overflow-y-auto flex flex-col">
-        <div className={`flex-1 ${currentUser ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
+        <div className={`flex-1 ${(currentUser && location.pathname !== "/add-event") || ["/about", "/help", "/privacy", "/terms", "/community"].includes(location.pathname) ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
           <Routes>
             <Route
               path="/"
@@ -483,6 +480,7 @@ const AppShell = ({
                       events={events}
                       currentUser={currentUser}
                       onEventsChanged={onEventsChanged}
+                      respondToEventInvite={respondToEventInvite}
                     />
                   )
                 ) : (
@@ -566,10 +564,23 @@ const AppShell = ({
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/add-event"
+              element={
+                <ProtectedRoute currentUser={currentUser}>
+                  <AddEventPage
+                    friendsList={friendsList}
+                    currentUser={currentUser}
+                    onCreated={() => { fetchEvents(); navigate("/"); }}
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/about" element={<About />} />
             <Route path="/help" element={<Help />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/community" element={<Community />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
@@ -583,7 +594,7 @@ const AppShell = ({
           currentUser={currentUser}
           unreadChatCount={unreadChatCount}
           onAddClass={() => navigate("/Add")}
-          onAddEvent={() => setEventModalOpen(true)}
+          onAddEvent={() => navigate("/add-event")}
         />
       )}
 
@@ -591,14 +602,6 @@ const AppShell = ({
         isOpen={isErrorReportModalOpen}
         onClose={() => setIsErrorReportModalOpen(false)}
       />
-
-      {currentUser && eventModalOpen && (
-        <AddEventModal
-          friendsList={friendsList}
-          onClose={() => setEventModalOpen(false)}
-          onCreated={onEventCreated}
-        />
-      )}
     </div>
   );
 };
