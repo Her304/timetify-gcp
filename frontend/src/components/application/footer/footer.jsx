@@ -20,8 +20,7 @@ export const Footer = ({ currentUser }) => {
               )}
               <Link to="/about" className="hover:text-coral transition-colors lowercase">about</Link>
               <Link to="/help" className="hover:text-coral transition-colors lowercase">help</Link>
-              <Link to="/privacy" className="hover:text-coral transition-colors lowercase">privacy</Link>
-              <a href="https://github.com/Her304/timetify" className="hover:text-coral transition-colors lowercase">github</a>
+              <a href="https://github.com/Her304/timetify-gcp" className="hover:text-coral transition-colors lowercase">github</a>
             </nav>
           </div>
         </div>
@@ -31,6 +30,7 @@ export const Footer = ({ currentUser }) => {
           <div className="flex gap-5">
             <Link to="/terms" className="hover:text-coral transition-colors">terms</Link>
             <Link to="/privacy" className="hover:text-coral transition-colors">privacy</Link>
+            <Link to="/community" className="hover:text-coral transition-colors">community</Link>
           </div>
         </div>
       </div>
