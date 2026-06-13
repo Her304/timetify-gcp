@@ -12,7 +12,7 @@ from django.db.models import Q
 from .serializers import (
     RegisterSerializer, CourseSerializer, WeekSerializer,
     ExamSerializer, AssignmentSerializer, FriendSerializer,
-    FriendRequestSerializer, UserSerializer, SnapSerializer,
+    FriendRequestSerializer, UserSerializer, PublicUserSerializer, SnapSerializer,
     MessageSerializer, ChatRoomListSerializer, ChatRoomDetailSerializer,
     EventSerializer, EventInviteSerializer, EventCreateSerializer,
 )
@@ -81,10 +81,16 @@ def home(request):
     shared_classes = set()
     friendships = models.Friend.objects.filter(status=1).filter(Q(user=user) | Q(friend=user)).select_related('user', 'friend')
 
+    # Honor UserBlock on the dashboard: a blocked friend's schedule must not
+    # leak through here even though the underlying friendship still exists.
+    blocked_ids = _blocked_user_ids(user)
+
     my_class_tuples = set(my_classes.values_list('course_id', 'classroom', 'start_time'))
 
     for fship in friendships:
         friend = fship.friend if fship.user == user else fship.user
+        if friend.id in blocked_ids:
+            continue
         friend_name = friend.username
         friend_schedule = {day: [] for day in ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]}
         friend_classes = list(models.Course.objects.filter(
@@ -786,23 +792,27 @@ class FriendListView(generics.ListAPIView):
         return ctx
 
 class SearchFriend(generics.ListAPIView):
-    serializer_class = UserSerializer
+    # Use the stripped PublicUserSerializer so search results never disclose
+    # `email` or `university` for strangers. `read_only=True` on a serializer
+    # field only blocks writes — it does NOT exclude the field from the
+    # output, which is how the bug existed in the first place.
+    serializer_class = PublicUserSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_queryset(self):
         query = self.request.query_params.get('q', '')
         if query:
             existing_friends = Friend.objects.filter(
                 Q(user=self.request.user) | Q(friend=self.request.user)
             ).values_list('user', 'friend')
-            
+
             friend_ids = set()
             for u, f in existing_friends:
                 friend_ids.add(u)
                 friend_ids.add(f)
-            
-            # Search by username only — searching by email substring leaks
-            # every user's email address to any authenticated attacker.
+
+            # Search by username only — searching by email substring would
+            # leak every user's email address to any authenticated attacker.
             return User.objects.filter(
                 username__icontains=query
             ).exclude(id__in=friend_ids).exclude(id=self.request.user.id)
@@ -1157,7 +1167,15 @@ class SnapViewView(APIView):
             if snap.visibility == Snap.VIS_ALL_FRIENDS:
                 allowed = snap.uploader_id in _friend_user_ids(me)
             else:
-                allowed = SnapAudience.objects.filter(snap=snap, viewer=me).exists()
+                # SnapAudience rows are written at upload time from a snapshot
+                # of friendship + group membership. If the friendship is later
+                # severed (block, or a future unfriend endpoint), the stale row
+                # would otherwise still grant access — so we re-verify current
+                # friendship in addition to the audience row.
+                allowed = (
+                    SnapAudience.objects.filter(snap=snap, viewer=me).exists()
+                    and snap.uploader_id in _friend_user_ids(me)
+                )
             # A block in either direction overrides any otherwise-allowed access.
             if allowed and _is_blocked_between(me, snap.uploader):
                 allowed = False
@@ -1181,7 +1199,16 @@ class SnapDeleteView(APIView):
         except Snap.DoesNotExist:
             return Response({"error": "Snap not found."}, status=status.HTTP_404_NOT_FOUND)
         snap.is_removed = True
-        snap.save(update_fields=["is_removed"])
+        # User-initiated delete: purge the blob now to honor the user's intent.
+        # Anyone who cached the public URL loses access immediately, not in 30
+        # days. Moderation-initiated removal goes through a different path and
+        # keeps the file for retention.
+        try:
+            if snap.media_file:
+                snap.media_file.delete(save=False)
+        except Exception:
+            logger.warning("Eager blob delete failed for snap_id=%s", snap.pk, exc_info=True)
+        snap.save(update_fields=["is_removed", "media_file"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1221,12 +1248,13 @@ class NotificationsView(APIView):
         # 2. Unseen snaps from friends (not viewed by me, not expired).
         # Gate: prefs.snaps_from_friends=False → return [] without querying.
         friend_ids = _friend_user_ids(me)
+        blocked_ids = _blocked_user_ids(me)
         new_snaps_data = []
         if prefs.snaps_from_friends:
             selected_snap_ids = list(
                 SnapAudience.objects.filter(viewer=me).values_list("snap_id", flat=True)
             )
-            feed_snaps = list(
+            feed_snaps_qs = (
                 Snap.objects.filter(is_removed=False, expires_at__gt=now)
                 .filter(
                     (Q(visibility=Snap.VIS_ALL_FRIENDS) & Q(uploader_id__in=friend_ids))
@@ -1234,6 +1262,10 @@ class NotificationsView(APIView):
                 )
                 .select_related("uploader", "course")
             )
+            # Mirror SnapFeedView: blocked uploaders shouldn't ring the bell.
+            if blocked_ids:
+                feed_snaps_qs = feed_snaps_qs.exclude(uploader_id__in=blocked_ids)
+            feed_snaps = list(feed_snaps_qs)
             viewed_ids = set(
                 SnapAudience.objects.filter(
                     viewer=me, has_viewed=True, snap_id__in=[s.id for s in feed_snaps]
@@ -1255,8 +1287,11 @@ class NotificationsView(APIView):
 
         # 3. Live class alerts — courses happening right now with 3+ friends enrolled.
         # Gate: prefs.class_is_live=False → return [].
+        # Blocks honored: a blocked friend shouldn't tip me off that they're in
+        # the same live class.
         live_class_alerts = []
-        if friend_ids and prefs.class_is_live:
+        visible_friend_ids = friend_ids - blocked_ids if blocked_ids else friend_ids
+        if visible_friend_ids and prefs.class_is_live:
             my_courses_today = list(
                 Course.objects.filter(user=me, start_date__lte=today, end_date__gte=today)
             )
@@ -1269,7 +1304,7 @@ class NotificationsView(APIView):
                 live_course_ids = [c.course_id for c in my_live]
                 friend_courses = list(
                     Course.objects.filter(
-                        user_id__in=friend_ids,
+                        user_id__in=visible_friend_ids,
                         course_id__in=live_course_ids,
                         start_date__lte=today,
                         end_date__gte=today,
@@ -1665,14 +1700,25 @@ class ChatDetailView(APIView):
         if not _user_membership(room, me):
             return Response({"detail": "not a member"}, status=status.HTTP_403_FORBIDDEN)
 
+        blocked_ids = _blocked_user_ids(me)
+        # DM rooms: ChatListCreateView already hides them from the inbox when
+        # the peer is on either side of a UserBlock, but a stale link or direct
+        # URL still routes here — refuse the read so blocked DM history can't
+        # be exfiltrated by guessing the room id.
+        if room.room_type == ChatRoom.ROOM_DM and blocked_ids:
+            peer_id = next(
+                (m.user_id for m in room.members.all() if m.user_id != me.id),
+                None,
+            )
+            if peer_id is not None and peer_id in blocked_ids:
+                return Response({"detail": "blocked"}, status=status.HTTP_403_FORBIDDEN)
+
         msg_qs = Message.objects.filter(room=room).select_related('sender', 'reply_to__sender')
         # Group rooms: hide messages from users on either side of a UserBlock
         # so blocked-uploader messages don't render as ghost bubbles. DMs
-        # already short-circuit at list/send time, so no filter here.
-        if room.room_type == ChatRoom.ROOM_GROUP:
-            blocked_ids = _blocked_user_ids(me)
-            if blocked_ids:
-                msg_qs = msg_qs.exclude(sender_id__in=blocked_ids)
+        # already short-circuit above.
+        if room.room_type == ChatRoom.ROOM_GROUP and blocked_ids:
+            msg_qs = msg_qs.exclude(sender_id__in=blocked_ids)
         msgs = list(msg_qs.order_by('-created_at')[:INITIAL_MESSAGE_PAGE])
         ctx = {'request': request, 'initial_messages': msgs}
         return Response(ChatRoomDetailSerializer(room, context=ctx).data)
@@ -1694,19 +1740,36 @@ class MessageListCreateView(APIView):
 
         try:
             limit = min(int(request.query_params.get('limit', OLDER_MESSAGE_PAGE)), 100)
-        except ValueError:
+        except (TypeError, ValueError):
             limit = OLDER_MESSAGE_PAGE
-        before = request.query_params.get('before')
+
+        # Coerce `before` up front so non-numeric input returns a clean 400
+        # instead of Django's PK-cast raising ValueError → 500.
+        before_raw = request.query_params.get('before')
+        before_id = None
+        if before_raw not in (None, '', 'null'):
+            try:
+                before_id = int(before_raw)
+            except (TypeError, ValueError):
+                return Response({"detail": "before must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        blocked_ids = _blocked_user_ids(me)
+        # DM: refuse the read if the peer is blocked, mirrors ChatDetailView.
+        if room.room_type == ChatRoom.ROOM_DM and blocked_ids:
+            peer_id = (
+                ChatRoomMember.objects.filter(room=room).exclude(user=me)
+                .values_list('user_id', flat=True).first()
+            )
+            if peer_id is not None and peer_id in blocked_ids:
+                return Response({"detail": "blocked"}, status=status.HTTP_403_FORBIDDEN)
 
         qs = Message.objects.filter(room=room).select_related('sender', 'reply_to__sender').order_by('-created_at')
         # Group rooms: hide messages from blocked users (mirrors ChatDetailView).
-        if room.room_type == ChatRoom.ROOM_GROUP:
-            blocked_ids = _blocked_user_ids(me)
-            if blocked_ids:
-                qs = qs.exclude(sender_id__in=blocked_ids)
-        if before:
+        if room.room_type == ChatRoom.ROOM_GROUP and blocked_ids:
+            qs = qs.exclude(sender_id__in=blocked_ids)
+        if before_id is not None:
             try:
-                anchor = Message.objects.get(pk=before, room=room)
+                anchor = Message.objects.get(pk=before_id, room=room)
                 qs = qs.filter(created_at__lt=anchor.created_at)
             except Message.DoesNotExist:
                 return Response({"detail": "anchor not found"}, status=status.HTTP_400_BAD_REQUEST)
@@ -2189,6 +2252,15 @@ def _blocked_user_ids(me):
     return ids
 
 
+def _visible_friend_ids(user):
+    """`_friend_user_ids` minus everyone who has a block in either direction
+    with `user`. Use this everywhere a feature should treat blocked friends as
+    "not friends" — Events, Notifications, SharedGaps, the home dashboard. Raw
+    `_friend_user_ids` is reserved for places that need the unfiltered roster
+    (e.g. invite-target validation in SnapUploadView's audience check)."""
+    return _friend_user_ids(user) - _blocked_user_ids(user)
+
+
 class ReportCreateView(APIView):
     """POST /api/reports/ — user files a report.
        Body: { content_type, snap?, chat_message?, template_reasons[], free_text }"""
@@ -2210,6 +2282,24 @@ class ReportCreateView(APIView):
             reported_user = target.sender
         if reported_user.id == me.id:
             return Response({'detail': 'cannot_report_self'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Visibility gate: the reporter must actually have access to the
+        # content. Otherwise the endpoint becomes (a) an ID-enumeration oracle
+        # — 201 vs 403 reveals whether a given snap/message PK exists — and
+        # (b) a harassment vector that lets a stranger flood a victim's
+        # `reports_received` notifications with reports about content they
+        # never could see. Returns 404 (not 403) to avoid disclosing whether
+        # the PK exists.
+        if ct == Report.CONTENT_SNAP:
+            can_see = (
+                target.uploader_id == me.id
+                or (target.visibility == Snap.VIS_ALL_FRIENDS and target.uploader_id in _friend_user_ids(me))
+                or SnapAudience.objects.filter(snap=target, viewer=me).exists()
+            )
+        else:
+            can_see = ChatRoomMember.objects.filter(room_id=target.room_id, user=me).exists()
+        if not can_see or _is_blocked_between(me, reported_user):
+            return Response({'detail': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
 
         # Dedup: same reporter on the same content with an in-flight report.
         in_flight_statuses = [
@@ -2394,11 +2484,14 @@ class AdminRunModerationView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        import hmac
         expected = getattr(settings, 'MODERATION_RUN_SECRET', None)
         if not expected:
             return Response({'detail': 'moderation_disabled'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         got = request.headers.get('X-Moderation-Secret') or ''
-        if got != expected:
+        # Constant-time compare so the header check doesn't leak the secret
+        # one byte at a time via response timing.
+        if not hmac.compare_digest(got, expected):
             return Response({'detail': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
         from .moderation_pipeline import run_moderation_tick
@@ -2694,13 +2787,11 @@ class SharedGapsView(APIView):
         except (TypeError, ValueError):
             return Response({"error": "Invalid parameters."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Always include self; validate the rest are accepted friends
-        friend_rows = Friend.objects.filter(
-            Q(user=user) | Q(friend=user), status=Friend.ACCEPTED
-        ).values_list('user_id', 'friend_id')
-        accepted_friends = {uid if uid != user.id else fid for uid, fid in friend_rows}
-
-        valid_ids = list({user.id} | (set(user_ids) & accepted_friends))
+        # Always include self; validate the rest are accepted friends, and
+        # subtract anyone on either side of a UserBlock so a blocked friend's
+        # busy/free pattern can't be inferred by listing them in user_ids.
+        visible_friends = _visible_friend_ids(user)
+        valid_ids = list({user.id} | (set(user_ids) & visible_friends))
 
         all_gaps = []
         today = timezone.now().date()
@@ -2792,8 +2883,33 @@ class StudyInviteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate datetimes BEFORE writing the invite. Accepting the invite
+        # later creates an ExternalCalendarEvent that blocks the responder's
+        # availability forever, so a malformed/inverted/wildly-future range
+        # would pollute their calendar.
+        from django.utils.dateparse import parse_datetime
+        s = parse_datetime(proposed_start) if isinstance(proposed_start, str) else None
+        e = parse_datetime(proposed_end) if isinstance(proposed_end, str) else None
+        if not s or not e:
+            return Response(
+                {"error": "proposed_start and proposed_end must be ISO 8601 datetimes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if e <= s:
+            return Response(
+                {"error": "proposed_end must be after proposed_start."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # 30-day horizon mirrors the snap retention window and bounds the
+        # accept-path's calendar-write to a sane range.
+        if (s - timezone.now()) > timedelta(days=30):
+            return Response(
+                {"error": "proposed_start must be within 30 days."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
-            room = ChatRoom.objects.get(pk=room_id)
+            room = ChatRoom.objects.get(pk=room_id, is_active=True)
             ChatRoomMember.objects.get(room=room, user=request.user)
         except ChatRoom.DoesNotExist:
             return Response({"error": "Room not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2828,7 +2944,7 @@ class StudyInviteRespondView(APIView):
 
     def patch(self, request, pk, msg_id):
         try:
-            msg = Message.objects.get(
+            msg = Message.objects.select_related('room').get(
                 pk=msg_id, room_id=pk, message_type=Message.MSG_STUDY_INVITE
             )
             ChatRoomMember.objects.get(room_id=pk, user=request.user)
@@ -2836,6 +2952,10 @@ class StudyInviteRespondView(APIView):
             return Response({"error": "Invite not found."}, status=status.HTTP_404_NOT_FOUND)
         except ChatRoomMember.DoesNotExist:
             return Response({"error": "Not a member of this room."}, status=status.HTTP_403_FORBIDDEN)
+        # Refuse responses in soft-deleted rooms — the accept path would
+        # otherwise create an ExternalCalendarEvent for a dead conversation.
+        if not msg.room.is_active:
+            return Response({"error": "Room is no longer active."}, status=status.HTTP_410_GONE)
 
         action = request.data.get('action')
         if action not in ('accept', 'decline'):
@@ -2857,7 +2977,10 @@ class StudyInviteRespondView(APIView):
                     from django.utils.dateparse import parse_datetime
                     s = parse_datetime(proposed_start)
                     e = parse_datetime(proposed_end)
-                    if s and e:
+                    # Defense-in-depth: StudyInviteView validates on create,
+                    # but reject inverted/missing ranges here too so a
+                    # tampered metadata blob can't pollute the calendar.
+                    if s and e and e > s:
                         ExternalCalendarEvent.objects.create(
                             user=request.user,
                             title='Study session (Timetify)',
@@ -3050,13 +3173,16 @@ class EventListCreateView(APIView):
             return Response({"detail": "week must be YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
         week_end = week_start + timedelta(days=7)
 
-        friend_ids = _friend_user_ids(me)
+        # Use _visible_friend_ids so blocked friends' events (both PUBLIC and
+        # the redacted PRIVATE busy-block) drop out. Direct invites still flow
+        # through `invites__invitee=me` regardless of friendship status.
+        friend_ids = _visible_friend_ids(me)
         friend_set = set(friend_ids)
 
         # Candidate events:
         #  - mine
         #  - any event I've been invited to (any status)
-        #  - any event from an accepted friend (full if PUBLIC, redacted if PRIVATE)
+        #  - any event from a visible friend (full if PUBLIC, redacted if PRIVATE)
         # Date filter: either evt.date < week_end (non-repeating) OR is_repeating
         # (repeating series may have started before week_start and still apply).
         visible = (
@@ -3172,7 +3298,9 @@ class EventDetailView(APIView):
         if EventInvite.objects.filter(event=evt, invitee=me).exists():
             return evt, None
 
-        if evt.visibility == Event.VISIBILITY_PUBLIC and evt.creator_id in _friend_user_ids(me):
+        # `_visible_friend_ids` excludes blocked friends so a blocked friend's
+        # PUBLIC event isn't reachable by direct ID lookup.
+        if evt.visibility == Event.VISIBILITY_PUBLIC and evt.creator_id in _visible_friend_ids(me):
             return evt, None
 
         return None, Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -3319,7 +3447,9 @@ class EventJoinRequestView(APIView):
             return Response({"detail": "creator cannot request to join"}, status=status.HTTP_400_BAD_REQUEST)
         if evt.visibility != Event.VISIBILITY_PUBLIC or not evt.allow_join_requests:
             return Response({"detail": "join requests not allowed"}, status=status.HTTP_403_FORBIDDEN)
-        if evt.creator_id not in _friend_user_ids(me):
+        # `_visible_friend_ids` treats blocked friends as not-friends so a
+        # block in either direction also closes off join requests.
+        if evt.creator_id not in _visible_friend_ids(me):
             return Response({"detail": "not_friends"}, status=status.HTTP_403_FORBIDDEN)
 
         existing = EventInvite.objects.filter(event=evt, invitee=me).first()

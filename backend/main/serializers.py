@@ -133,6 +133,34 @@ class UserSerializer(serializers.ModelSerializer):
                 logger.warning("Failed to delete previous profile picture for user_id=%s", instance.id, exc_info=True)
         return instance
 
+class PublicUserSerializer(serializers.ModelSerializer):
+    """Stripped-down view of a `User` for endpoints that surface strangers
+    (friend search results). Drops `email`, `university`, `last_seen` so a
+    casual search can't be used to harvest the user table. Keep this in sync
+    with whatever the search/result-card UI actually needs.
+    """
+    status = serializers.SerializerMethodField()
+    shared_courses = serializers.SerializerMethodField()
+    profile_picture_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'major', 'grad_year',
+            'status', 'shared_courses', 'profile_picture_url',
+        ]
+        read_only_fields = fields
+
+    def get_status(self, obj):
+        return UserSerializer.get_status(self, obj)
+
+    def get_shared_courses(self, obj):
+        return UserSerializer.get_shared_courses(self, obj)
+
+    def get_profile_picture_url(self, obj):
+        return UserSerializer.get_profile_picture_url(self, obj)
+
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     password2 = serializers.CharField(write_only=True, required=True)
