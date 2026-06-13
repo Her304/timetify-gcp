@@ -14,6 +14,7 @@ from .models import (
     CustomUser, Course, Week, Exam, Assignment, Friend, BackendLog, ErrorReport,
     Snap, SnapAudience, ChatRoom, ChatRoomMember, Message,
     Report, AiReport, SimilarityCheck, Appeal, FunctionRestriction, UserBlock,
+    Event, EventInvite,
 )
 from .moderation_pipeline import admin_remove, admin_dismiss
 
@@ -254,6 +255,39 @@ class MessageAdmin(admin.ModelAdmin):
     def preview(self, obj):
         return (obj.content or '')[:60]
     preview.short_description = 'content'
+
+
+# --- Events admin ------------------------------------------------------------
+
+class EventInviteInline(admin.TabularInline):
+    model = EventInvite
+    extra = 0
+    fields = ('invitee', 'status', 'responded_at', 'created_at')
+    readonly_fields = ('created_at',)
+    autocomplete_fields = ('invitee',)
+
+
+@admin.register(Event, site=site)
+class EventAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'name', 'creator', 'date', 'start_time', 'end_time',
+        'visibility', 'is_repeating', 'chat_room', 'created_at',
+    )
+    list_filter = ('visibility', 'is_repeating', 'date')
+    search_fields = ('name', 'creator__username', 'location')
+    autocomplete_fields = ('creator', 'chat_room')
+    readonly_fields = ('created_at', 'updated_at')
+    date_hierarchy = 'date'
+    inlines = [EventInviteInline]
+
+
+@admin.register(EventInvite, site=site)
+class EventInviteAdmin(admin.ModelAdmin):
+    list_display = ('id', 'event', 'invitee', 'status', 'responded_at', 'created_at')
+    list_filter = ('status',)
+    search_fields = ('event__name', 'invitee__username', 'event__creator__username')
+    autocomplete_fields = ('event', 'invitee')
+    readonly_fields = ('created_at',)
 
 
 # --- Moderation admin --------------------------------------------------------

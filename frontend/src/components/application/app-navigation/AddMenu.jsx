@@ -1,12 +1,25 @@
 import { useEffect, useRef } from "react";
-import { T, FF, Icon, MonoLabel } from "@/components/shared/brand";
+import { T, FF, MonoLabel } from "@/components/shared/brand";
+
+// Material Symbols — viewBox "0 -960 960 960", fill via `currentColor`.
+const AssignmentAddIcon = ({ size = 18 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" height={size} width={size} viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">
+    <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h168q13-36 43.5-58t68.5-22q38 0 68.5 22t43.5 58h168q33 0 56.5 23.5T840-760v268q-19-9-39-15.5t-41-9.5v-243H200v560h242q3 22 9.5 42t15.5 38H200Zm0-120v40-560 243-3 280Zm80-40h163q3-21 9.5-41t14.5-39H280v80Zm0-160h244q32-30 71.5-50t84.5-27v-3H280v80Zm0-160h400v-80H280v80Zm221.5-198.5Q510-807 510-820t-8.5-21.5Q493-850 480-850t-21.5 8.5Q450-833 450-820t8.5 21.5Q467-790 480-790t21.5-8.5ZM720-40q-83 0-141.5-58.5T520-240q0-83 58.5-141.5T720-440q83 0 141.5 58.5T920-240q0 83-58.5 141.5T720-40Zm-20-80h40v-100h100v-40H740v-100h-40v100H600v40h100v100Z" />
+  </svg>
+);
+
+const CalendarAddOnIcon = ({ size = 18 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" height={size} width={size} viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">
+    <path d="M680-80v-120H560v-80h120v-120h80v120h120v80H760v120h-80Zm-480-80q-33 0-56.5-23.5T120-240v-480q0-33 23.5-56.5T200-800h40v-80h80v80h240v-80h80v80h40q33 0 56.5 23.5T760-720v244q-20-3-40-3t-40 3v-84H200v320h280q0 20 3 40t11 40H200Zm0-480h480v-80H200v80Zm0 0v-80 80Z" />
+  </svg>
+);
 
 const ROWS = [
   {
     key: "class",
     label: "add class",
     hint: "from a syllabus or by hand",
-    icon: "file",
+    Icon: AssignmentAddIcon,
     bg: T.coralLt,
     fg: T.coral,
   },
@@ -14,13 +27,14 @@ const ROWS = [
     key: "event",
     label: "add event",
     hint: "social hang or study session",
-    icon: "calendar",
+    Icon: CalendarAddOnIcon,
     bg: "#E8DCF0",
     fg: T.lilacDk,
   },
 ];
 
 function MenuRow({ row, onSelect }) {
+  const RowIcon = row.Icon;
   return (
     <button
       type="button"
@@ -31,7 +45,7 @@ function MenuRow({ row, onSelect }) {
         className="w-10 h-10 rounded-full grid place-items-center flex-shrink-0"
         style={{ background: row.bg, color: row.fg }}
       >
-        <Icon name={row.icon} size={18} color={row.fg} />
+        <RowIcon size={18} />
       </span>
       <span className="flex flex-col">
         <span className="text-sm lowercase font-semibold" style={{ fontFamily: FF.sans, color: T.ink }}>

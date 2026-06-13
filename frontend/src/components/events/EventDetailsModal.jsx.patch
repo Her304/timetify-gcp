@@ -1,0 +1,137 @@
+--- /Users/hercules/timetify-gcp/frontend/src/components/events/EventDetailsModal.jsx
++++ /Users/hercules/timetify-gcp/frontend/src/components/events/EventDetailsModal.jsx
+@@ -46,15 +46,15 @@
+  *   onChanged   – called after a mutation (delete) so the parent can refetch
+  */
+-export default function EventDetailsModal({ event, onClose, onChanged }) {
++function EventDetailsContent({ event, onClose, onChanged }) {
+   const navigate = useNavigate();
+   const [deleting, setDeleting] = useState(false);
+   const [confirmingDelete, setConfirmingDelete] = useState(false);
+   const [error, setError] = useState(null);
+ 
+   if (!event) return null;
+ 
+   const isMine = !!event.is_mine;
+   const myStatus = event.my_invite_status;
+   const invites = Array.isArray(event.invites) ? event.invites : [];
+   const chatRoomId = event.chat_room;
+ 
+@@ -93,13 +93,8 @@
+       : null;
+ 
+   return (
+-    <div
+-      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+-      onClick={onClose}
+-    >
+-      <div
+-        className="w-full max-w-md rounded-3xl overflow-hidden flex flex-col"
+-        style={{ background: T.ink, color: "#fff", maxHeight: "90vh" }}
+-        onClick={(e) => e.stopPropagation()}
+-      >
++      <div className="flex flex-col h-full w-full max-w-md mx-auto" style={{ background: T.ink, color: "#fff", borderRadius: "1.5rem", overflow: "hidden" }}>
+         {/* header */}
+         <div
+           className="px-5 py-4 border-b flex items-start justify-between gap-3"
+@@ -269,5 +264,96 @@
+         </div>
+       </div>
+-    </div>
+   );
+ }
++
++const EventRow = ({ evt, active, onSelect }) => {
++  return (
++    <button
++      type="button"
++      onClick={() => onSelect(evt)}
++      className="w-full flex items-center gap-3 rounded-2xl p-3 transition-colors text-left"
++      style={{
++        background: active ? T.ink : "#fff",
++        color: active ? T.cream : T.ink,
++        border: active ? "none" : `1px solid ${T.ink08}`,
++      }}
++    >
++      <div
++        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
++        style={{ background: T.lilac, color: T.ink }}
++      >
++        <Icon name="calendar" size={16} />
++      </div>
++      <div className="min-w-0">
++        <div
++          className="text-[11px] uppercase font-semibold leading-none truncate"
++          style={{ fontFamily: FF.mono, letterSpacing: 1 }}
++        >
++          {evt.name}
++        </div>
++        <div
++          className="text-xs mt-1 truncate lowercase"
++          style={{
++            fontFamily: FF.sans,
++            color: active ? "rgba(248,244,237,0.7)" : T.ink60,
++          }}
++        >
++          {fmtTimeHM(evt.start_time)}–{fmtTimeHM(evt.end_time)}
++        </div>
++      </div>
++    </button>
++  );
++};
++
++export default function EventDetailsModal({ event, cluster, onClose, onChanged }) {
++  const [selected, setSelected] = useState(event || (cluster && cluster[0]));
++
++  if (!selected) return null;
++
++  const isCluster = cluster && cluster.length > 1;
++
++  return (
++    <div
++      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
++      onClick={onClose}
++    >
++      <div
++        className="w-full rounded-3xl overflow-hidden flex flex-col shadow-xl"
++        style={{ 
++          background: isCluster ? T.cream : "transparent",
++          color: isCluster ? T.ink : "#fff",
++          maxWidth: isCluster ? "48rem" : "28rem",
++          maxHeight: "90vh",
++        }}
++        onClick={(e) => e.stopPropagation()}
++      >
++        {isCluster && (
++          <div className="flex items-center justify-between px-5 py-4 border-b border-ink-8" style={{ background: T.cream }}>
++            <MonoLabel>overlapping · {cluster.length} events</MonoLabel>
++            <button
++              onClick={onClose}
++              className="w-8 h-8 rounded-full bg-white border border-ink-8 flex items-center justify-center hover:bg-ink hover:text-cream transition-colors"
++            >
++              <Icon name="x" size={14} />
++            </button>
++          </div>
++        )}
++
++        <div className={isCluster ? "grid gap-4 overflow-y-auto p-5 md:grid-cols-[200px_1fr]" : ""}>
++          {isCluster && (
++            <aside className="flex flex-col gap-2">
++              {cluster.map((e, i) => (
++                <EventRow
++                  key={`ev-${e.id}-${i}`}
++                  evt={e}
++                  active={selected.id === e.id}
++                  onSelect={setSelected}
++                />
++              ))}
++            </aside>
++          )}
++          <div className={isCluster ? "h-full min-h-[500px]" : "h-full"}>
++            <EventDetailsContent event={selected} onClose={onClose} onChanged={onChanged} />
++          </div>
++        </div>
++      </div>
++    </div>
++  );
++}

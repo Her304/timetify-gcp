@@ -104,6 +104,8 @@ const buildClusters = (entries) => {
   return clusters;
 };
 
+
+
 const ownerInitial = (name) => (name?.[0] || "?").toLowerCase();
 const avatarBgFor = (name) =>
   name === "Me"
@@ -161,7 +163,7 @@ const dateStrToDayKey = (iso) => {
   return JS_TO_KEY[dt.getDay()];
 };
 
-export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsChanged }) => {
+export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsChanged, respondToEventInvite }) => {
   const dates = useMemo(() => weekDates(), []);
   const todayKey = JS_TO_KEY[new Date().getDay()];
 
@@ -175,7 +177,7 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
 
   // Modal state — opened by clicking a block or its "+N" chip.
   const [modalCluster, setModalCluster] = useState(null);
-  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedEventCluster, setSelectedEventCluster] = useState(null);
 
   // One-shot fetch of full course list so the "reminders for today" block
   // can read today's assignments/exams without an extra round-trip per row.
@@ -237,6 +239,8 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
     const out = {};
     DAYS.forEach((k) => (out[k] = []));
     events.forEach((e) => {
+      // Hide events the user has declined (not creator)
+      if (!e.is_mine && e.my_invite_status === "DECLINED") return;
       const k = dateStrToDayKey(e.occurrence_date);
       if (!k) return;
       const start = toMinutes(e.start_time);
@@ -427,9 +431,10 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
                 {/* Day columns */}
                 {DAYS.map((k) => {
                   const items = classesByDay[k] || [];
-                  const dayEvents = eventsByDay[k] || [];
+                  const events = eventsByDay[k] || [];
                   const isToday = k === todayKey;
                   const clusters = buildClusters(items);
+                  const eventClusters = buildClusters(events);
                   return (
                     <div
                       key={k}
@@ -495,21 +500,33 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
 
                       {/* Event tiles — layered above course blocks. Click
                           opens EventDetailsModal. */}
-                      {dayEvents.map((evt) => {
-                        const top = ((evt.start - startHour * 60) / 60) * HOUR_PX;
+                      {eventClusters.map((cluster, cIdx) => {
+                        const primary = cluster[0];
+                        const extra = cluster.length - 1;
+                        const top = ((primary.start - startHour * 60) / 60) * HOUR_PX;
                         const height = Math.max(
                           40,
-                          ((evt.end - evt.start) / 60) * HOUR_PX - 4
+                          ((primary.end - primary.start) / 60) * HOUR_PX - 4
                         );
                         return (
                           <EventBlock
-                            key={`evt-${evt.id}-${evt.occurrence_date}`}
-                            event={evt}
+                            key={`evt-${primary.id}-${primary.occurrence_date}`}
+                            event={primary}
                             top={top}
                             height={height}
-                            startMin={evt.start}
-                            endMin={evt.end}
-                            onOpen={() => setSelectedEvent(evt)}
+                            startMin={primary.start}
+                            endMin={primary.end}
+                            extraCount={extra}
+                            onOpen={primary.is_redacted && extra === 0 ? undefined : () => setSelectedEventCluster([primary])}
+                            onOpenCluster={() => setSelectedEventCluster(cluster)}
+                            onRespond={
+                              respondToEventInvite && primary.my_invite_id
+                                ? async (action) => {
+                                    await respondToEventInvite(primary.my_invite_id, action);
+                                    onEventsChanged && onEventsChanged();
+                                  }
+                                : undefined
+                            }
                           />
                         );
                       })}
@@ -542,10 +559,10 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
         />
       )}
 
-      {selectedEvent && (
+      {selectedEventCluster && (
         <EventDetailsModal
-          event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
+          cluster={selectedEventCluster}
+          onClose={() => setSelectedEventCluster(null)}
           onChanged={onEventsChanged}
         />
       )}

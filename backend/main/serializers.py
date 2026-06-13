@@ -642,6 +642,7 @@ class EventSerializer(serializers.ModelSerializer):
     creator_profile_picture_url = serializers.SerializerMethodField()
     is_mine = serializers.SerializerMethodField()
     my_invite_status = serializers.SerializerMethodField()
+    my_invite_id = serializers.SerializerMethodField()
     invites = serializers.SerializerMethodField()
 
     class Meta:
@@ -649,8 +650,8 @@ class EventSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'creator', 'creator_username', 'creator_profile_picture_url',
             'name', 'date', 'start_time', 'end_time', 'location',
-            'is_repeating', 'repeat_days', 'visibility',
-            'chat_room', 'is_mine', 'my_invite_status', 'invites',
+            'is_repeating', 'repeat_days', 'visibility', 'allow_join_requests',
+            'chat_room', 'is_mine', 'my_invite_status', 'my_invite_id', 'invites',
             'created_at', 'updated_at',
         ]
         read_only_fields = fields
@@ -677,17 +678,20 @@ class EventSerializer(serializers.ModelSerializer):
         invite = EventInvite.objects.filter(event=obj, invitee=me).only('status').first()
         return invite.status if invite else None
 
+    def get_my_invite_id(self, obj):
+        me = self._request_user()
+        if not (me and me.is_authenticated):
+            return None
+        precomputed = self.context.get('my_invite_id_by_event_id')
+        if precomputed is not None and obj.id in precomputed:
+            return precomputed.get(obj.id)
+        invite = EventInvite.objects.filter(event=obj, invitee=me).only('id').first()
+        return invite.id if invite else None
+
     def get_invites(self, obj):
         me = self._request_user()
         if not (me and me.is_authenticated):
             return None
-        is_creator = obj.creator_id == me.id
-        if not is_creator:
-            has_accepted = EventInvite.objects.filter(
-                event=obj, invitee=me, status=EventInvite.STATUS_ACCEPTED
-            ).exists()
-            if not has_accepted:
-                return None
         invites_qs = obj.invites.select_related('invitee').all()
         return EventInviteSerializer(invites_qs, many=True, context=self.context).data
 
@@ -699,12 +703,18 @@ class EventCreateSerializer(serializers.ModelSerializer):
         default=list,
         write_only=True,
     )
+    create_chat = serializers.BooleanField(
+        required=False,
+        default=True,
+        write_only=True,
+    )
 
     class Meta:
         model = Event
         fields = [
             'id', 'name', 'date', 'start_time', 'end_time', 'location',
-            'is_repeating', 'repeat_days', 'visibility', 'invite_user_ids',
+            'is_repeating', 'repeat_days', 'visibility', 'allow_join_requests',
+            'invite_user_ids', 'create_chat',
         ]
         read_only_fields = ['id']
 
