@@ -1387,7 +1387,57 @@ class NotificationsView(APIView):
                 "created_at": inv.created_at.isoformat(),
             })
 
-        # 6. Pending study invites — messages addressed to me in rooms I'm in.
+        # 6b. Pending join requests — non-invited friends asking to join one of
+        #     my PUBLIC events (allow_join_requests=True).
+        event_join_requests_data = []
+        join_request_qs = (
+            EventInvite.objects
+            .filter(event__creator=me, status=EventInvite.STATUS_REQUESTED)
+            .select_related('invitee', 'event')
+            .order_by('-created_at')[:20]
+        )
+        for inv in join_request_qs:
+            evt = inv.event
+            event_join_requests_data.append({
+                "id": inv.id,
+                "event_id": evt.id,
+                "event_name": evt.name,
+                "event_date": evt.date.isoformat(),
+                "event_start_time": evt.start_time.strftime("%H:%M"),
+                "event_end_time": evt.end_time.strftime("%H:%M"),
+                "event_location": evt.location,
+                "requester_id": inv.invitee_id,
+                "requester_username": inv.invitee.username,
+                "requester_profile_picture_url": _abs_pic(inv.invitee),
+                "created_at": inv.created_at.isoformat(),
+            })
+
+        # 7. Event invite responses — invites on events I created that were
+        #    recently accepted or declined, so I know who's coming.
+        event_invite_responses_data = []
+        responded_invite_qs = (
+            EventInvite.objects
+            .filter(
+                event__creator=me,
+                status__in=[EventInvite.STATUS_ACCEPTED, EventInvite.STATUS_DECLINED],
+                responded_at__isnull=False,
+            )
+            .select_related('invitee', 'event')
+            .order_by('-responded_at')[:20]
+        )
+        for inv in responded_invite_qs:
+            evt = inv.event
+            event_invite_responses_data.append({
+                "id": inv.id,
+                "event_id": evt.id,
+                "event_name": evt.name,
+                "invitee_username": inv.invitee.username,
+                "invitee_profile_picture_url": _abs_pic(inv.invitee),
+                "status": inv.status,
+                "responded_at": inv.responded_at.isoformat(),
+            })
+
+        # 8. Pending study invites — messages addressed to me in rooms I'm in.
         study_invites_data = []
         study_invite_qs = (
             Message.objects
@@ -1421,6 +1471,8 @@ class NotificationsView(APIView):
             "reports_received": reports_received_data,
             "reports_filed": reports_filed_data,
             "event_invites": event_invites_data,
+            "event_invite_responses": event_invite_responses_data,
+            "event_join_requests": event_join_requests_data,
             "study_invites": study_invites_data,
         })
 
@@ -2857,6 +2909,131 @@ def _expand_event_occurrences(evt, week_start, week_end):
             yield day
 
 
+def _norm_day(d):
+    """Normalize a weekday token from any source (e.g. Course.rep_date 'Mon',
+    Event.repeat_days 'MON') to the canonical 3-letter UPPERCASE form."""
+    return (d or '').strip().upper()[:3]
+
+
+def _target_event_days(date_, is_repeating, repeat_days):
+    """Days-of-week this candidate event occurs on."""
+    if is_repeating:
+        return {_norm_day(t) for t in (repeat_days or '').split(',') if t.strip()}
+    return {_WEEKDAY_ABBR[date_.weekday()]}
+
+
+def _conflict_for_user(user, target_days, target_start, target_end, target_date, ignore_event_id=None):
+    """Strict-< overlap check (matches CourseFinalizeView's rule) of a candidate
+    event time against `user`'s active courses and committed events (created or
+    ACCEPTED). Returns the first conflict dict, or None.
+
+    target_date is the specific date for single-instance events, or None for
+    repeating events.
+    """
+    today = timezone.localdate()
+
+    # Courses — narrow to ones active on the relevant date(s).
+    courses_qs = Course.objects.filter(user=user)
+    if target_date is not None:
+        courses_qs = courses_qs.filter(start_date__lte=target_date, end_date__gte=target_date)
+    else:
+        courses_qs = courses_qs.filter(end_date__gte=today)
+
+    for c in courses_qs:
+        c_days = {_norm_day(d) for d in (c.rep_date or '').split(',') if d.strip()}
+        shared = c_days & target_days
+        if shared and target_start < c.end_time and c.start_time < target_end:
+            return {
+                "kind": "course",
+                "course_id": c.course_id,
+                "course_name": c.course_name,
+                "day": sorted(shared)[0],
+                "start_time": c.start_time.strftime("%H:%M"),
+                "end_time": c.end_time.strftime("%H:%M"),
+            }
+
+    # Events — those I'm creator OR ACCEPTED invitee of.
+    events_qs = Event.objects.filter(
+        Q(creator=user) | Q(invites__invitee=user, invites__status=EventInvite.STATUS_ACCEPTED)
+    ).distinct()
+    if ignore_event_id is not None:
+        events_qs = events_qs.exclude(pk=ignore_event_id)
+
+    for evt in events_qs:
+        evt_days = _target_event_days(evt.date, evt.is_repeating, evt.repeat_days)
+        shared = evt_days & target_days
+        if not shared:
+            continue
+        # Two single-instance events only clash on the exact same date.
+        if target_date is not None and not evt.is_repeating and evt.date != target_date:
+            continue
+        if target_start < evt.end_time and evt.start_time < target_end:
+            return {
+                "kind": "event",
+                "event_id": evt.id,
+                "event_name": evt.name,
+                "day": sorted(shared)[0],
+                "start_time": evt.start_time.strftime("%H:%M"),
+                "end_time": evt.end_time.strftime("%H:%M"),
+            }
+
+    return None
+
+
+def _redact_event_payload(evt, request):
+    """Shape for an event from an accepted friend that the viewer isn't entitled
+    to see in full (PRIVATE + not invited). Keeps time/creator avatar so the
+    viewer can see *that* the friend is busy without leaking name/location/etc.
+    Frontend treats `is_redacted: True` as non-clickable."""
+    pic = None
+    if evt.creator and getattr(evt.creator, 'profile_picture', None):
+        try:
+            url = evt.creator.profile_picture.url
+            pic = request.build_absolute_uri(url) if request is not None else url
+        except Exception:
+            pic = None
+    return {
+        "id": evt.id,
+        "is_redacted": True,
+        "creator": evt.creator_id,
+        "creator_username": evt.creator.username,
+        "creator_profile_picture_url": pic,
+        "name": None,
+        "location": "",
+        "date": evt.date.isoformat(),
+        "start_time": evt.start_time.strftime("%H:%M:%S"),
+        "end_time": evt.end_time.strftime("%H:%M:%S"),
+        "is_repeating": evt.is_repeating,
+        "repeat_days": evt.repeat_days if evt.is_repeating else "",
+        "visibility": Event.VISIBILITY_PRIVATE,
+        "chat_room": None,
+        "is_mine": False,
+        "my_invite_status": None,
+        "invites": None,
+    }
+
+
+def _collect_event_conflicts(creator, invitee_ids, data, ignore_event_id=None):
+    """Run the overlap check for the creator and every invitee. Returns a list
+    of conflict dicts (each tagged with user_id/username); empty if clear."""
+    target_days = _target_event_days(data['date'], data.get('is_repeating', False), data.get('repeat_days', ''))
+    target_date = data['date'] if not data.get('is_repeating', False) else None
+    start = data['start_time']
+    end = data['end_time']
+
+    checked = []
+    checked.append(creator)
+    if invitee_ids:
+        checked.extend(User.objects.filter(pk__in=invitee_ids))
+
+    conflicts = []
+    for u in checked:
+        c = _conflict_for_user(u, target_days, start, end, target_date, ignore_event_id=ignore_event_id)
+        if c:
+            conflicts.append({**c, "user_id": u.id, "username": u.username})
+    return conflicts
+
+
 class EventListCreateView(APIView):
     """GET  /api/events/?week=YYYY-MM-DD — events visible to me within the
             7-day window starting at `week` (Monday). Repeating events are
@@ -2874,34 +3051,48 @@ class EventListCreateView(APIView):
         week_end = week_start + timedelta(days=7)
 
         friend_ids = _friend_user_ids(me)
+        friend_set = set(friend_ids)
 
         # Candidate events:
         #  - mine
-        #  - any event with an ACCEPTED invite for me
-        #  - PUBLIC events from accepted friends
+        #  - any event I've been invited to (any status)
+        #  - any event from an accepted friend (full if PUBLIC, redacted if PRIVATE)
         # Date filter: either evt.date < week_end (non-repeating) OR is_repeating
         # (repeating series may have started before week_start and still apply).
         visible = (
             Event.objects.filter(
                 Q(creator=me)
-                | Q(invites__invitee=me, invites__status=EventInvite.STATUS_ACCEPTED)
-                | Q(visibility=Event.VISIBILITY_PUBLIC, creator_id__in=friend_ids)
+                | Q(invites__invitee=me)
+                | Q(creator_id__in=friend_ids)
             )
             .filter(Q(is_repeating=True) | Q(date__lt=week_end))
             .select_related('creator')
             .distinct()
         )
 
-        # Prefetch my-invite status for the visible set to avoid per-row queries.
-        my_statuses = dict(
+        # Prefetch my-invite status for the visible set; presence in this dict
+        # means I was invited (any status) → full details. Absence + PRIVATE +
+        # friend's event → redacted busy-block.
+        my_invite_rows = list(
             EventInvite.objects.filter(event__in=visible, invitee=me)
-            .values_list('event_id', 'status')
+            .values_list('event_id', 'status', 'id')
         )
-        ctx = {'request': request, 'my_invite_status_by_event_id': my_statuses}
+        my_statuses = {eid: status for eid, status, _ in my_invite_rows}
+        my_invite_ids = {eid: inv_id for eid, _, inv_id in my_invite_rows}
+        invited_event_ids = set(my_statuses.keys())
+        ctx = {'request': request, 'my_invite_status_by_event_id': my_statuses, 'my_invite_id_by_event_id': my_invite_ids}
 
         payload = []
         for evt in visible:
-            base = EventSerializer(evt, context=ctx).data
+            full = (
+                evt.creator_id == me.id
+                or evt.id in invited_event_ids
+                or (evt.visibility == Event.VISIBILITY_PUBLIC and evt.creator_id in friend_set)
+            )
+            base = (
+                EventSerializer(evt, context=ctx).data if full
+                else _redact_event_payload(evt, request)
+            )
             for occ in _expand_event_occurrences(evt, week_start, week_end):
                 payload.append({**base, 'occurrence_date': occ.isoformat()})
         payload.sort(key=lambda e: (e['occurrence_date'], e['start_time']))
@@ -2914,6 +3105,7 @@ class EventListCreateView(APIView):
         data = serializer.validated_data
 
         invite_user_ids = data.pop('invite_user_ids', [])
+        create_chat = data.pop('create_chat', True)
         if invite_user_ids:
             my_friends = _friend_user_ids(me)
             strangers = [uid for uid in invite_user_ids if uid not in my_friends]
@@ -2923,8 +3115,28 @@ class EventListCreateView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+        # Overlap check against creator + every invitee's courses and committed
+        # events. Strict-< (boundary-touch is allowed) — matches CourseFinalize.
+        conflicts = _collect_event_conflicts(me, invite_user_ids, data)
+        if conflicts:
+            return Response(
+                {"error": "overlap", "conflicts": conflicts},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         with transaction.atomic():
             event = Event.objects.create(creator=me, **data)
+            
+            if create_chat:
+                room = ChatRoom.objects.create(
+                    room_type=ChatRoom.ROOM_GROUP,
+                    name=event.name[:80],
+                    created_by=me,
+                )
+                ChatRoomMember.objects.create(room=room, user=me, is_admin=True)
+                event.chat_room = room
+                event.save(update_fields=['chat_room'])
+
             if invite_user_ids:
                 EventInvite.objects.bulk_create([
                     EventInvite(event=event, invitee_id=uid) for uid in invite_user_ids
@@ -2953,15 +3165,16 @@ class EventDetailView(APIView):
         if evt.creator_id == me.id:
             return evt, None
 
-        my_invite = EventInvite.objects.filter(event=evt, invitee=me).only('status').first()
-        if my_invite and my_invite.status == EventInvite.STATUS_ACCEPTED:
+        # Anyone with an invite row (PENDING/ACCEPTED/DECLINED) can read full
+        # detail — they need it to decide. Non-invitees only see PUBLIC events
+        # in detail; PRIVATE events surface as a redacted busy-block on the
+        # list view only and aren't reachable here.
+        if EventInvite.objects.filter(event=evt, invitee=me).exists():
             return evt, None
 
         if evt.visibility == Event.VISIBILITY_PUBLIC and evt.creator_id in _friend_user_ids(me):
             return evt, None
 
-        # PENDING invitees can fetch via /events/invites/<id>/ flow; for the
-        # event endpoint itself, treat as 404 to avoid info leak.
         return None, Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
 
     def get(self, request, pk):
@@ -2987,6 +3200,27 @@ class EventDetailView(APIView):
         s.is_valid(raise_exception=True)
         data = s.validated_data
         data.pop('invite_user_ids', None)
+
+        # Re-check overlap if the schedule fields changed. Pass the event's pk
+        # so we don't conflict with our own row. Accepted invitees' schedules
+        # are re-validated because the new time may invalidate their commitment.
+        schedule_changed = any(
+            getattr(evt, f) != data[f]
+            for f in ('date', 'start_time', 'end_time', 'is_repeating', 'repeat_days')
+            if f in data
+        )
+        if schedule_changed:
+            accepted_ids = list(
+                EventInvite.objects.filter(event=evt, status=EventInvite.STATUS_ACCEPTED)
+                .values_list('invitee_id', flat=True)
+            )
+            conflicts = _collect_event_conflicts(me, accepted_ids, data, ignore_event_id=evt.pk)
+            if conflicts:
+                return Response(
+                    {"error": "overlap", "conflicts": conflicts},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
         for field, value in data.items():
             setattr(evt, field, value)
         evt.save()
@@ -3006,17 +3240,21 @@ class EventDetailView(APIView):
 
 
 class EventInviteRespondView(APIView):
-    """PATCH /api/events/invites/<pk>/ — accept or decline an invite.
-       On accept, lazily creates the event's ROOM_GROUP chat and adds the
-       invitee (and creator if first acceptance)."""
+    """PATCH /api/events/invites/<pk>/ — accept or decline.
+
+    Two flows share this endpoint:
+      • Normal invite (PENDING): the **invitee** responds. Accept adds them to
+        the event's chat_room if one exists.
+      • Join request (REQUESTED): the event **creator** responds. Accept flips
+        the row to ACCEPTED and adds the requester to chat_room; decline flips
+        to DECLINED.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, pk):
         me = request.user
         try:
-            invite = EventInvite.objects.select_related('event', 'event__creator').get(
-                pk=pk, invitee=me,
-            )
+            invite = EventInvite.objects.select_related('event', 'event__creator', 'invitee').get(pk=pk)
         except EventInvite.DoesNotExist:
             return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -3027,32 +3265,31 @@ class EventInviteRespondView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if invite.status != EventInvite.STATUS_PENDING:
+        evt = invite.event
+        # Determine who is allowed to act, based on the row's current status.
+        if invite.status == EventInvite.STATUS_PENDING:
+            if invite.invitee_id != me.id:
+                return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+            joiner = invite.invitee
+        elif invite.status == EventInvite.STATUS_REQUESTED:
+            if evt.creator_id != me.id:
+                return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+            joiner = invite.invitee
+        else:
             return Response(
                 {"detail": "invite already responded"},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        evt = invite.event
         with transaction.atomic():
             if action == 'accept':
                 invite.status = EventInvite.STATUS_ACCEPTED
                 invite.responded_at = timezone.now()
                 invite.save(update_fields=['status', 'responded_at'])
 
-                if evt.chat_room_id is None:
-                    room = ChatRoom.objects.create(
-                        room_type=ChatRoom.ROOM_GROUP,
-                        name=evt.name[:80],
-                        created_by=evt.creator,
-                    )
-                    ChatRoomMember.objects.create(room=room, user=evt.creator, is_admin=True)
-                    ChatRoomMember.objects.create(room=room, user=me, is_admin=False)
-                    evt.chat_room = room
-                    evt.save(update_fields=['chat_room'])
-                else:
+                if evt.chat_room_id is not None:
                     ChatRoomMember.objects.get_or_create(
-                        room_id=evt.chat_room_id, user=me,
+                        room_id=evt.chat_room_id, user=joiner,
                         defaults={'is_admin': False},
                     )
             else:
@@ -3062,3 +3299,52 @@ class EventInviteRespondView(APIView):
 
         evt = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=evt.pk)
         return Response(EventSerializer(evt, context={'request': request}).data)
+
+
+class EventJoinRequestView(APIView):
+    """POST /api/events/<pk>/request-join/ — current user asks the host to join
+    a PUBLIC event with allow_join_requests=True. Creates an EventInvite row
+    with status=REQUESTED that surfaces in the host's notifications.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        me = request.user
+        try:
+            evt = Event.objects.select_related('creator').get(pk=pk)
+        except Event.DoesNotExist:
+            return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if evt.creator_id == me.id:
+            return Response({"detail": "creator cannot request to join"}, status=status.HTTP_400_BAD_REQUEST)
+        if evt.visibility != Event.VISIBILITY_PUBLIC or not evt.allow_join_requests:
+            return Response({"detail": "join requests not allowed"}, status=status.HTTP_403_FORBIDDEN)
+        if evt.creator_id not in _friend_user_ids(me):
+            return Response({"detail": "not_friends"}, status=status.HTTP_403_FORBIDDEN)
+
+        existing = EventInvite.objects.filter(event=evt, invitee=me).first()
+        if existing:
+            return Response(
+                {"detail": "already_invited", "status": existing.status},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Schedule clash check — refuse before the host ever sees the request.
+        my_conflict = _conflict_for_user(
+            me,
+            _target_event_days(evt.date, evt.is_repeating, evt.repeat_days),
+            evt.start_time, evt.end_time,
+            evt.date if not evt.is_repeating else None,
+        )
+        if my_conflict:
+            return Response(
+                {"error": "overlap", "conflicts": [{**my_conflict, "user_id": me.id, "username": me.username}]},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        EventInvite.objects.create(event=evt, invitee=me, status=EventInvite.STATUS_REQUESTED)
+        evt = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=evt.pk)
+        return Response(
+            EventSerializer(evt, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )

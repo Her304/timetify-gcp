@@ -512,11 +512,12 @@ class ExternalCalendarEvent(models.Model):
 
 class Event(models.Model):
     VISIBILITY_PRIVATE = 'PRIVATE'
-    VISIBILITY_SEMI = 'SEMI'
     VISIBILITY_PUBLIC = 'PUBLIC'
+    # PRIVATE: invitees see full details; other accepted friends of the creator
+    # see a redacted "private event" busy block (time + creator avatar only).
+    # PUBLIC:  all accepted friends of the creator see full details.
     VISIBILITY_CHOICES = [
         (VISIBILITY_PRIVATE, 'Private'),
-        (VISIBILITY_SEMI, 'Semi-public'),
         (VISIBILITY_PUBLIC, 'Public'),
     ]
 
@@ -530,6 +531,7 @@ class Event(models.Model):
     # Comma-separated weekday abbreviations, e.g. "MON,WED". Mirrors Course.rep_date.
     repeat_days = models.CharField(max_length=50, blank=True)
     visibility = models.CharField(max_length=8, choices=VISIBILITY_CHOICES, default=VISIBILITY_PRIVATE)
+    allow_join_requests = models.BooleanField(default=False)
     chat_room = models.ForeignKey(
         'ChatRoom', on_delete=models.SET_NULL, null=True, blank=True, related_name='events'
     )
@@ -550,15 +552,20 @@ class EventInvite(models.Model):
     STATUS_PENDING = 'PENDING'
     STATUS_ACCEPTED = 'ACCEPTED'
     STATUS_DECLINED = 'DECLINED'
+    # REQUESTED: row created by a non-invited friend asking to join a PUBLIC event
+    # with allow_join_requests=True. Awaits creator response; on accept the row
+    # transitions to ACCEPTED via the same path as a normal invite-accept.
+    STATUS_REQUESTED = 'REQUESTED'
     STATUS_CHOICES = [
         (STATUS_PENDING, 'Pending'),
         (STATUS_ACCEPTED, 'Accepted'),
         (STATUS_DECLINED, 'Declined'),
+        (STATUS_REQUESTED, 'Requested'),
     ]
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='invites')
     invitee = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='event_invites')
-    status = models.CharField(max_length=8, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    status = models.CharField(max_length=9, choices=STATUS_CHOICES, default=STATUS_PENDING)
     created_at = models.DateTimeField(auto_now_add=True)
     responded_at = models.DateTimeField(null=True, blank=True)
 

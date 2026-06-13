@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@google/design.md": "^0.2.0",
     "@sentry/react": "^10.47.0"
   }
 }

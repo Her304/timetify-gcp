@@ -257,8 +257,18 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
     reports_received = [],
     reports_filed = [],
     event_invites = [],
+    event_join_requests = [],
+    event_invite_responses = [],
     study_invites = [],
   } = notifications;
+
+  // Filter out responses older than 7 days
+  const recent_invite_responses = event_invite_responses.filter((r) => {
+    if (!r.responded_at) return false;
+    const diffDays = (Date.now() - new Date(r.responded_at).getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays <= 7;
+  });
+
   const isEmpty =
     !friend_requests.length &&
     !new_snaps.length &&
@@ -266,6 +276,8 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
     !reports_received.length &&
     !reports_filed.length &&
     !event_invites.length &&
+    !event_join_requests.length &&
+    !recent_invite_responses.length &&
     !study_invites.length;
   const hasPrev = (s) => s > 0;
 
@@ -402,11 +414,117 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
         </div>
       )}
 
+      {/* Event join requests — creator-side; same PATCH endpoint as event invites,
+          backend dispatches on the row's status (REQUESTED → creator path). */}
+      {event_join_requests.length > 0 && (
+        <div className={
+          hasPrev(friend_requests.length) || hasPrev(event_invites.length)
+            ? "border-t border-ink-8" : ""
+        }>
+          <SectionLabel count={event_join_requests.length}>join requests</SectionLabel>
+          {event_join_requests.map((req) => {
+            const bg = colorFor(req.requester_username);
+            return (
+              <div
+                key={req.id}
+                className="px-4 py-2.5 flex items-center gap-3 hover:bg-ink-8 transition-colors"
+              >
+                <ProfileAvatar
+                  profilePictureUrl={req.requester_profile_picture_url}
+                  name={(req.requester_username?.slice(0, 2) || "?").toLowerCase()}
+                  bg={bg}
+                  fg={isCoral(bg) ? "#fff" : T.ink}
+                  size={38}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm lowercase leading-none truncate" style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}>
+                    {req.requester_username} wants to join
+                  </div>
+                  <div className="text-[10px] text-ink-40 mt-0.5 lowercase truncate" style={{ fontFamily: FF.mono }}>
+                    {req.event_name} · {fmtEventWhen(req.event_date, req.event_start_time)}
+                    {req.event_location ? ` · ${req.event_location}` : ""}
+                  </div>
+                </div>
+                <div className="flex gap-1.5 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onRespondToEventInvite?.(req.id, "accept")}
+                    aria-label="accept join request"
+                    className="w-8 h-8 rounded-full flex items-center justify-center"
+                    style={{ background: T.coral }}
+                  >
+                    <Icon name="check" size={14} color="#fff" stroke={2.4} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRespondToEventInvite?.(req.id, "decline")}
+                    aria-label="decline join request"
+                    className="w-8 h-8 rounded-full flex items-center justify-center border"
+                    style={{ background: "#fff", borderColor: T.ink15 }}
+                  >
+                    <Icon name="x" size={14} color={T.ink60} stroke={2} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Event invite responses — read-only summary for event creator. */}
+      {recent_invite_responses.length > 0 && (
+        <div className={
+          hasPrev(friend_requests.length) || hasPrev(event_invites.length) || hasPrev(event_join_requests.length)
+            ? "border-t border-ink-8" : ""
+        }>
+          <SectionLabel count={recent_invite_responses.length}>invite responses</SectionLabel>
+          {recent_invite_responses.map((res) => {
+            const bg = colorFor(res.invitee_username);
+            const isAccepted = res.status === "ACCEPTED";
+            return (
+              <div
+                key={res.id}
+                className="px-4 py-2.5 flex items-center gap-3 hover:bg-ink-8 transition-colors"
+              >
+                <ProfileAvatar
+                  profilePictureUrl={res.invitee_profile_picture_url}
+                  name={(res.invitee_username?.slice(0, 2) || "?").toLowerCase()}
+                  bg={bg}
+                  fg={isCoral(bg) ? "#fff" : T.ink}
+                  size={38}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm lowercase leading-none truncate" style={{ fontFamily: FF.serif, letterSpacing: -0.3 }}>
+                    {res.event_name}
+                  </div>
+                  <div className="text-[10px] text-ink-40 mt-0.5 lowercase truncate" style={{ fontFamily: FF.mono }}>
+                    {res.invitee_username} · {timeAgo(res.responded_at)}
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <span
+                    className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full"
+                    style={{
+                      background: isAccepted ? T.lime : T.coralLt,
+                      color: isAccepted ? T.ink : T.coralDk,
+                      fontFamily: FF.mono,
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    {isAccepted ? "accepted" : "declined"}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Study invites — read-only summary; tap routes to the chat thread
           where StudyInviteBubble handles accept/decline in context. */}
       {study_invites.length > 0 && (
         <div className={
-          hasPrev(friend_requests.length) || hasPrev(event_invites.length)
+          hasPrev(friend_requests.length) || hasPrev(event_invites.length) || hasPrev(event_join_requests.length) || hasPrev(recent_invite_responses.length)
             ? "border-t border-ink-8" : ""
         }>
           <SectionLabel count={study_invites.length}>study invites</SectionLabel>
@@ -446,6 +564,8 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
         <div className={
           hasPrev(friend_requests.length) ||
           hasPrev(event_invites.length) ||
+          hasPrev(event_join_requests.length) ||
+          hasPrev(recent_invite_responses.length) ||
           hasPrev(study_invites.length)
             ? "border-t border-ink-8" : ""
         }>
@@ -516,6 +636,8 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
           className={
             hasPrev(friend_requests.length) ||
             hasPrev(event_invites.length) ||
+            hasPrev(event_join_requests.length) ||
+            hasPrev(recent_invite_responses.length) ||
             hasPrev(study_invites.length) ||
             hasPrev(reports_received.length)
               ? "border-t border-ink-8"
@@ -567,6 +689,8 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
           className={
             hasPrev(friend_requests.length) ||
             hasPrev(event_invites.length) ||
+            hasPrev(event_join_requests.length) ||
+            hasPrev(recent_invite_responses.length) ||
             hasPrev(study_invites.length) ||
             hasPrev(reports_received.length) ||
             hasPrev(reports_filed.length)
@@ -609,6 +733,8 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
           className={
             hasPrev(friend_requests.length) ||
             hasPrev(event_invites.length) ||
+            hasPrev(event_join_requests.length) ||
+            hasPrev(recent_invite_responses.length) ||
             hasPrev(study_invites.length) ||
             hasPrev(new_snaps.length) ||
             hasPrev(reports_received.length) ||

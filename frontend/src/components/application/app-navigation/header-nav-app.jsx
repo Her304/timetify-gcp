@@ -86,12 +86,21 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
   // passive (read-only summary).
   const actionableReports =
     (notifications?.reports_received || []).filter((r) => r.can_appeal).length;
+    
+  const recentInviteResponses = (notifications?.event_invite_responses || []).filter((r) => {
+    if (!r.responded_at) return false;
+    const diffDays = (Date.now() - new Date(r.responded_at).getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays <= 7;
+  }).length;
+
   const unreadCount =
     (notifications?.friend_requests?.length ?? 0) +
     (notifications?.new_snaps?.length ?? 0) +
     (notifications?.event_invites?.length ?? 0) +
+    (notifications?.event_join_requests?.length ?? 0) +
     (notifications?.study_invites?.length ?? 0) +
-    actionableReports;
+    actionableReports +
+    recentInviteResponses;
 
   return (
     <div className="hidden md:flex items-center gap-4 bg-cream border-b border-ink-8 px-6 h-16 flex-shrink-0 sticky top-0 z-30">

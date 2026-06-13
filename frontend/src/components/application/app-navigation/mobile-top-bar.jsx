@@ -8,7 +8,7 @@ import { NotificationsPanel } from "./NotificationsPanel";
 // the floating bottom pill. Bell taps open NotificationsPanel as a full-screen
 // sheet so the small viewport can host the same content the desktop dropdown
 // shows.
-export const MobileTopBar = ({ currentUser, onRespondToRequest }) => {
+export const MobileTopBar = ({ currentUser, onRespondToRequest, onRespondToEventInvite }) => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [notifications, setNotifications] = useState(null);
   const [notifLoading, setNotifLoading] = useState(false);
@@ -42,13 +42,29 @@ export const MobileTopBar = ({ currentUser, onRespondToRequest }) => {
   // appealable received-reports count and filed-reports don't.
   const actionableReports =
     (notifications?.reports_received || []).filter((r) => r.can_appeal).length;
+    
+  const recentInviteResponses = (notifications?.event_invite_responses || []).filter((r) => {
+    if (!r.responded_at) return false;
+    const diffDays = (Date.now() - new Date(r.responded_at).getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays <= 7;
+  }).length;
+
   const unreadCount =
     (notifications?.friend_requests?.length ?? 0) +
     (notifications?.new_snaps?.length ?? 0) +
-    actionableReports;
+    (notifications?.event_invites?.length ?? 0) +
+    (notifications?.event_join_requests?.length ?? 0) +
+    (notifications?.study_invites?.length ?? 0) +
+    actionableReports +
+    recentInviteResponses;
 
   const handleRespondToRequest = async (id, action) => {
     await onRespondToRequest?.(id, action);
+    fetchNotifications();
+  };
+
+  const handleRespondToEventInvite = async (id, action) => {
+    await onRespondToEventInvite?.(id, action);
     fetchNotifications();
   };
 
@@ -103,6 +119,7 @@ export const MobileTopBar = ({ currentUser, onRespondToRequest }) => {
               notifications={notifications}
               loading={notifLoading}
               onRespondToRequest={handleRespondToRequest}
+              onRespondToEventInvite={handleRespondToEventInvite}
               onRefresh={fetchNotifications}
               onClose={() => setPanelOpen(false)}
             />

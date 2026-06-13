@@ -61,6 +61,7 @@ urlpatterns = [
     # Events
     path('api/events/', views.EventListCreateView.as_view(), name='event-list-create'),
     path('api/events/invites/<int:pk>/', views.EventInviteRespondView.as_view(), name='event-invite-respond'),
+    path('api/events/<int:pk>/request-join/', views.EventJoinRequestView.as_view(), name='event-request-join'),
     path('api/events/<int:pk>/', views.EventDetailView.as_view(), name='event-detail'),
     # Moderation: admin + cron
     path('api/admin/reports/', views.AdminReportListView.as_view(), name='admin-reports'),

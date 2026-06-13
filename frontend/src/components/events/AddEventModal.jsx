@@ -6,9 +6,8 @@ const NAME_MAX = 100;
 const LOC_MAX = 200;
 const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const VISIBILITY_OPTIONS = [
-  { value: "PRIVATE", label: "private", hint: "only invited friends see it" },
-  { value: "SEMI",    label: "semi",    hint: "invited friends only (same as private for now)" },
-  { value: "PUBLIC",  label: "public",  hint: "all your accepted friends can see it" },
+  { value: "PRIVATE", label: "private", hint: "invited friends see details · other friends see a 'private event' busy block" },
+  { value: "PUBLIC",  label: "public",  hint: "all your accepted friends see the full event" },
 ];
 
 const hashStr = (s) => {
@@ -27,7 +26,7 @@ const todayIso = () => {
   return `${y}-${m}-${day}`;
 };
 
-export default function AddEventModal({ friendsList = [], onClose, onCreated }) {
+export default function AddEventModal({ friendsList = [], currentUser, onClose, onCreated }) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [date, setDate] = useState(todayIso());
@@ -39,6 +38,8 @@ export default function AddEventModal({ friendsList = [], onClose, onCreated }) 
   const [selectedFriends, setSelectedFriends] = useState(() => new Set());
   const [query, setQuery] = useState("");
   const [visibility, setVisibility] = useState("PRIVATE");
+  const [createChat, setCreateChat] = useState(true);
+  const [allowJoinRequests, setAllowJoinRequests] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -88,7 +89,9 @@ export default function AddEventModal({ friendsList = [], onClose, onCreated }) 
       is_repeating: isRepeating,
       repeat_days: isRepeating ? Array.from(repeatDays).join(",") : "",
       visibility,
+      allow_join_requests: visibility === "PUBLIC" ? allowJoinRequests : false,
       invite_user_ids: Array.from(selectedFriends),
+      create_chat: createChat,
     };
     try {
       const res = await authenticatedFetch(
@@ -97,7 +100,17 @@ export default function AddEventModal({ friendsList = [], onClose, onCreated }) 
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.detail === "not_friends") setError("some picks aren't your friends");
+        if (data.error === "overlap" && Array.isArray(data.conflicts)) {
+          const lines = data.conflicts.map((c) => {
+            const who = c.user_id === currentUser?.id ? "you" : c.username;
+            const what = c.kind === "course"
+              ? `${c.course_id}`
+              : `“${c.event_name}”`;
+            return `${who} · ${what} on ${c.day} ${c.start_time}–${c.end_time}`;
+          });
+          setError(`time conflict — ${lines.join(" · ")}`);
+        }
+        else if (data.detail === "not_friends") setError("some picks aren't your friends");
         else if (data.detail) setError(String(data.detail));
         else if (data.end_time) setError(String(data.end_time));
         else if (data.repeat_days) setError(String(data.repeat_days));
@@ -325,6 +338,32 @@ export default function AddEventModal({ friendsList = [], onClose, onCreated }) 
                   </div>
                 )}
               </div>
+
+              <div className="flex items-center justify-between mt-2 p-3 rounded-2xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)" }}>
+                <div className="flex flex-col">
+                  <span className="text-sm lowercase font-semibold" style={{ fontFamily: FF.sans }}>
+                    create a groupchat
+                  </span>
+                  <span className="text-[11px] lowercase mt-0.5" style={{ color: "rgba(255,255,255,.6)", fontFamily: FF.sans }}>
+                    for this event's participants
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCreateChat((v) => !v)}
+                  className="w-12 h-7 rounded-full transition-colors flex-shrink-0"
+                  style={{
+                    background: createChat ? T.coral : "rgba(255,255,255,.16)",
+                    position: "relative",
+                  }}
+                  aria-pressed={createChat}
+                >
+                  <span
+                    className="block w-5 h-5 rounded-full bg-white absolute top-1 transition-all"
+                    style={{ left: createChat ? 24 : 4 }}
+                  />
+                </button>
+              </div>
             </>
           )}
 
@@ -362,6 +401,34 @@ export default function AddEventModal({ friendsList = [], onClose, onCreated }) 
                   </button>
                 );
               })}
+
+              {visibility === "PUBLIC" && (
+                <div className="flex items-center justify-between mt-2 p-3 rounded-2xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)" }}>
+                  <div className="flex flex-col">
+                    <span className="text-sm lowercase font-semibold" style={{ fontFamily: FF.sans }}>
+                      allow join requests
+                    </span>
+                    <span className="text-[11px] lowercase mt-0.5" style={{ color: "rgba(255,255,255,.6)", fontFamily: FF.sans }}>
+                      friends can ask to join this event
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAllowJoinRequests((v) => !v)}
+                    className="w-12 h-7 rounded-full transition-colors flex-shrink-0"
+                    style={{
+                      background: allowJoinRequests ? T.coral : "rgba(255,255,255,.16)",
+                      position: "relative",
+                    }}
+                    aria-pressed={allowJoinRequests}
+                  >
+                    <span
+                      className="block w-5 h-5 rounded-full bg-white absolute top-1 transition-all"
+                      style={{ left: allowJoinRequests ? 24 : 4 }}
+                    />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
