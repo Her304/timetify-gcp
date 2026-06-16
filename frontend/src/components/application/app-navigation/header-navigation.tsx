@@ -120,7 +120,7 @@ export const HeaderNavigationBase = ({
     return (
         <>
             <MobileNavigationHeader>
-                <aside className="flex h-full max-w-full flex-col justify-between overflow-auto bg-primary pt-4">
+                <aside className="flex h-full max-w-full flex-col justify-between overflow-auto pt-4" style={{ background: T.cream }}>
                     <div className="flex flex-col gap-5 px-4">
                         <a
                             aria-label="Go to homepage"
@@ -129,7 +129,6 @@ export const HeaderNavigationBase = ({
                         >
                             <div className="flex items-center gap-2">
                                 <h2 className="text-xl font-normal" style={{ fontFamily: FF.serif, color: T.coral }}>timetify</h2>
-                                <span className="px-1.5 py-0.5 text-[10px] leading-none font-medium" style={{ background: T.lilacDk + '20', color: T.lilacDk, border: `1px solid ${T.lilac}` }}>Beta</span>
                             </div>
                         </a>
 
@@ -176,7 +175,8 @@ export const HeaderNavigationBase = ({
 
             <header className="max-lg:hidden">
                 <section
-                    className={cx("flex h-16 w-full items-center justify-center bg-primary", (!hideBorder || showSecondaryNav) && "border-b border-secondary")}
+                    className={cx("flex h-16 w-full items-center justify-center", (!hideBorder || showSecondaryNav) && "border-b border-secondary")}
+                    style={{ background: T.cream }}
                 >
                     <div className={cx("flex w-full max-w-container items-center pr-3 pl-4 md:px-8", centered && "gap-8")}>
                         <div className={cx("flex items-center", centered ? "flex-1" : "mr-4")}>
@@ -186,9 +186,7 @@ export const HeaderNavigationBase = ({
                                 className="rounded-xs outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                             >
                                 <div className="flex items-center gap-2">
-                                    <h2 className="text-2xl font-normal" style={{ fontFamily: FF.serif, color: T.coral }}>timetify</h2>
-                                    <span className="px-2 py-1 text-xs leading-none font-medium rounded-full" style={{ background: T.lilacDk + '20', color: T.lilacDk, border: `1px solid ${T.lilac}` }}>Beta</span>
-                                </div>
+                                    <h2 className="text-2xl font-normal" style={{ fontFamily: FF.serif, color: T.coral }}>timetify</h2>                                </div>
                             </a>
                         </div>
 
