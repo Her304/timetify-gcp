@@ -395,6 +395,11 @@ const AppShell = ({
   // mobile pill AND the mobile top bar prevents either from competing with
   // the chat's own chrome.
   const isChatThread = location.pathname.startsWith("/chat/");
+  // Landing uses scroll-driven animations (sticky + framer-motion useScroll).
+  // Those depend on the document being the scroller, so for the logged-out
+  // landing route we drop the app's h-screen/overflow-hidden wrapper and let
+  // the page scroll naturally.
+  const isLandingRoute = !currentUser && location.pathname === "/";
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   // <main> is the scroll container (overflow-y-auto), so window.scrollTo is
   // a no-op. Reset its scrollTop on every route change so footer links and
@@ -435,7 +440,7 @@ const AppShell = ({
   }, [currentUser, location.pathname]);
 
   return (
-    <div className={`flex flex-col h-screen w-full ${currentUser ? "bg-cream" : "bg-white"} overflow-hidden`}>
+    <div className={`flex flex-col w-full ${currentUser ? "bg-cream" : "bg-white"} ${isLandingRoute ? "min-h-screen" : "h-screen overflow-hidden"}`}>
       {currentUser ? (
         <HeaderNavApp
           currentUser={currentUser}
@@ -447,7 +452,9 @@ const AppShell = ({
           unreadChatCount={unreadChatCount}
         />
       ) : (
-        <HeaderNavigationSimpleDemo />
+        <div className={isLandingRoute ? "fixed top-0 left-0 right-0 z-50" : ""}>
+          <HeaderNavigationSimpleDemo />
+        </div>
       )}
       {currentUser && !isChatThread && (
         <MobileTopBar
@@ -457,7 +464,7 @@ const AppShell = ({
         />
       )}
 
-      <main ref={mainRef} className="flex-1 overflow-y-auto flex flex-col">
+      <main ref={mainRef} className={`flex-1 ${isLandingRoute ? "pt-16" : "overflow-y-auto"} flex flex-col`}>
         <div className={`flex-1 ${(currentUser && location.pathname !== "/add-event") || ["/about", "/help", "/privacy", "/terms", "/community"].includes(location.pathname) ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
           <Routes>
             <Route
