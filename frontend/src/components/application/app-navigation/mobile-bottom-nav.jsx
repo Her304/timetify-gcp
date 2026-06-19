@@ -78,7 +78,6 @@ export const MobileBottomNav = ({ currentUser, unreadChatCount = 0, onAddClass, 
   const path = location.pathname;
 
   const isSchedule = path === "/";
-  const isFriends = path === "/friend";
   const isFeed = path === "/feed";
   const isProfile = path === "/profile";
 
@@ -104,7 +103,6 @@ export const MobileBottomNav = ({ currentUser, unreadChatCount = 0, onAddClass, 
           />
           <TabBtn active={isSchedule} href="/" icon="schedule" label="schedule" />
           <AddTab onClick={() => setAddMenuOpen(true)} />
-          <TabBtn active={isFriends} href="/friend" icon="friends" label="friends" />
           <AvatarTab active={isProfile} currentUser={currentUser} />
         </div>
       </div>

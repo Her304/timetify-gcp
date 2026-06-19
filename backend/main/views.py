@@ -19,7 +19,7 @@ from .serializers import (
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog, ExternalCalendarEvent, UserBlock, Event, EventInvite
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog, ExternalCalendarEvent, UserBlock, Event, EventInvite, CourseSkip, EventOccurrenceSkip
 from datetime import datetime, timedelta, time as dt_time
 from django.contrib.auth import get_user_model
 from main.utils import send_email
@@ -3048,12 +3048,16 @@ def _target_event_days(date_, is_repeating, repeat_days):
 def _conflict_for_user(user, target_days, target_start, target_end, target_date, ignore_event_id=None):
     """Strict-< overlap check (matches CourseFinalizeView's rule) of a candidate
     event time against `user`'s active courses and committed events (created or
-    ACCEPTED). Returns the first conflict dict, or None.
+    ACCEPTED). Returns a list of every clashing block (may be empty).
+
+    Each conflict dict is tagged with `kind` and carries the DB pk needed to
+    later record a skip: courses use `course_pk`, events use `event_id`.
 
     target_date is the specific date for single-instance events, or None for
     repeating events.
     """
     today = timezone.localdate()
+    conflicts = []
 
     # Courses — narrow to ones active on the relevant date(s).
     courses_qs = Course.objects.filter(user=user)
@@ -3066,14 +3070,15 @@ def _conflict_for_user(user, target_days, target_start, target_end, target_date,
         c_days = {_norm_day(d) for d in (c.rep_date or '').split(',') if d.strip()}
         shared = c_days & target_days
         if shared and target_start < c.end_time and c.start_time < target_end:
-            return {
+            conflicts.append({
                 "kind": "course",
+                "course_pk": c.pk,
                 "course_id": c.course_id,
                 "course_name": c.course_name,
                 "day": sorted(shared)[0],
                 "start_time": c.start_time.strftime("%H:%M"),
                 "end_time": c.end_time.strftime("%H:%M"),
-            }
+            })
 
     # Events — those I'm creator OR ACCEPTED invitee of.
     events_qs = Event.objects.filter(
@@ -3091,16 +3096,70 @@ def _conflict_for_user(user, target_days, target_start, target_end, target_date,
         if target_date is not None and not evt.is_repeating and evt.date != target_date:
             continue
         if target_start < evt.end_time and evt.start_time < target_end:
-            return {
+            conflicts.append({
                 "kind": "event",
                 "event_id": evt.id,
                 "event_name": evt.name,
                 "day": sorted(shared)[0],
                 "start_time": evt.start_time.strftime("%H:%M"),
                 "end_time": evt.end_time.strftime("%H:%M"),
-            }
+            })
 
-    return None
+    return conflicts
+
+
+# How far ahead to materialize skip rows for a repeating attending event whose
+# clashing target has no natural end (event-vs-event). Courses are bounded by
+# their own end_date, so this only caps the open-ended event case.
+_SKIP_HORIZON_DAYS = 365
+
+
+def _co_occurrence_dates(target_days, target_date, anchor_date, end_bound):
+    """Concrete dates on which both the attending event and the clashing block
+    occur, within [max(today, anchor_date), end_bound]. For a single-instance
+    attending event (target_date set) this is just [target_date]."""
+    if target_date is not None:
+        return [target_date]
+    today = timezone.localdate()
+    start = max(today, anchor_date)
+    horizon = today + timedelta(days=_SKIP_HORIZON_DAYS)
+    stop = min(end_bound, horizon) if end_bound else horizon
+    dates = []
+    day = start
+    while day <= stop:
+        if _WEEKDAY_ABBR[day.weekday()] in target_days:
+            dates.append(day)
+        day += timedelta(days=1)
+    return dates
+
+
+def _apply_skips(user, conflicts, attending_event, target_days, target_date):
+    """Record CourseSkip / EventOccurrenceSkip rows so the clashing blocks in
+    `conflicts` are hidden for `user` on every date they co-occur with
+    `attending_event`. Idempotent via get_or_create."""
+    anchor = attending_event.date
+    for c in conflicts:
+        if c.get("kind") == "course":
+            try:
+                course = Course.objects.get(pk=c["course_pk"], user=user)
+            except Course.DoesNotExist:
+                continue
+            for d in _co_occurrence_dates(target_days, target_date, anchor, course.end_date):
+                CourseSkip.objects.get_or_create(
+                    user=user, course=course, date=d,
+                    defaults={"event": attending_event},
+                )
+        elif c.get("kind") == "event":
+            try:
+                skipped = Event.objects.get(pk=c["event_id"])
+            except Event.DoesNotExist:
+                continue
+            end_bound = None if skipped.is_repeating else skipped.date
+            for d in _co_occurrence_dates(target_days, target_date, anchor, end_bound):
+                EventOccurrenceSkip.objects.get_or_create(
+                    user=user, skipped_event=skipped, date=d,
+                    defaults={"attending_event": attending_event},
+                )
 
 
 def _redact_event_payload(evt, request):
@@ -3151,8 +3210,7 @@ def _collect_event_conflicts(creator, invitee_ids, data, ignore_event_id=None):
 
     conflicts = []
     for u in checked:
-        c = _conflict_for_user(u, target_days, start, end, target_date, ignore_event_id=ignore_event_id)
-        if c:
+        for c in _conflict_for_user(u, target_days, start, end, target_date, ignore_event_id=ignore_event_id):
             conflicts.append({**c, "user_id": u.id, "username": u.username})
     return conflicts
 
@@ -3232,6 +3290,19 @@ class EventListCreateView(APIView):
 
         invite_user_ids = data.pop('invite_user_ids', [])
         create_chat = data.pop('create_chat', True)
+
+        # Optional: post an event_card system message into an existing chat room
+        # after creation. Used by the /create slash command in chat.
+        source_chat_room_id = request.data.get('source_chat_room_id')
+        source_room = None
+        if source_chat_room_id:
+            try:
+                source_room = ChatRoom.objects.get(pk=int(source_chat_room_id), is_active=True)
+                if not _user_membership(source_room, me):
+                    source_room = None
+            except (ChatRoom.DoesNotExist, TypeError, ValueError):
+                source_room = None
+
         if invite_user_ids:
             my_friends = _friend_user_ids(me)
             strangers = [uid for uid in invite_user_ids if uid not in my_friends]
@@ -3243,16 +3314,42 @@ class EventListCreateView(APIView):
 
         # Overlap check against creator + every invitee's courses and committed
         # events. Strict-< (boundary-touch is allowed) — matches CourseFinalize.
+        # The creator resolves their OWN clash (skip the clashing block, or keep
+        # both visible); they can't decide for an invitee, so an invitee clash
+        # only needs the host's acknowledgement ("let them decide") to proceed —
+        # the invitee makes the real skip/keep choice when they accept.
+        creator_resolution = request.data.get('conflict_resolution')  # 'skip'|'keep_both'|None
+        proceed_invitee = bool(request.data.get('proceed_invitee_conflicts', False))
+
         conflicts = _collect_event_conflicts(me, invite_user_ids, data)
-        if conflicts:
+        creator_conflicts = [c for c in conflicts if c['user_id'] == me.id]
+        invitee_conflicts = [c for c in conflicts if c['user_id'] != me.id]
+
+        needs_creator_decision = bool(creator_conflicts) and creator_resolution not in (
+            EventInvite.SKIP_SKIP, EventInvite.SKIP_KEEP_BOTH,
+        )
+        needs_invitee_ack = bool(invitee_conflicts) and not proceed_invitee
+        if needs_creator_decision or needs_invitee_ack:
             return Response(
-                {"error": "overlap", "conflicts": conflicts},
+                {
+                    "error": "overlap",
+                    "conflicts": conflicts,
+                    "creator_conflicts": creator_conflicts,
+                    "invitee_conflicts": invitee_conflicts,
+                },
                 status=status.HTTP_409_CONFLICT,
             )
 
+        target_days = _target_event_days(data['date'], data.get('is_repeating', False), data.get('repeat_days', ''))
+        target_date = data['date'] if not data.get('is_repeating', False) else None
+
         with transaction.atomic():
             event = Event.objects.create(creator=me, **data)
-            
+
+            # Creator chose to skip their own clashing blocks → record them.
+            if creator_conflicts and creator_resolution == EventInvite.SKIP_SKIP:
+                _apply_skips(me, creator_conflicts, event, target_days, target_date)
+
             if create_chat:
                 room = ChatRoom.objects.create(
                     room_type=ChatRoom.ROOM_GROUP,
@@ -3267,6 +3364,24 @@ class EventListCreateView(APIView):
                 EventInvite.objects.bulk_create([
                     EventInvite(event=event, invitee_id=uid) for uid in invite_user_ids
                 ])
+
+            if source_room:
+                loc = data.get('location', '') or ''
+                Message.objects.create(
+                    room=source_room,
+                    sender=me,
+                    content=event.name,
+                    message_type=Message.MSG_EVENT_CARD,
+                    metadata={
+                        'event_id': event.id,
+                        'name': event.name,
+                        'date': str(event.date),
+                        'start_time': str(event.start_time),
+                        'end_time': str(event.end_time),
+                        'location': loc,
+                        'creator_username': me.username,
+                    },
+                )
 
         event = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=event.pk)
         return Response(
@@ -3337,21 +3452,48 @@ class EventDetailView(APIView):
             for f in ('date', 'start_time', 'end_time', 'is_repeating', 'repeat_days')
             if f in data
         )
+        creator_conflicts = []
         if schedule_changed:
             accepted_ids = list(
                 EventInvite.objects.filter(event=evt, status=EventInvite.STATUS_ACCEPTED)
                 .values_list('invitee_id', flat=True)
             )
             conflicts = _collect_event_conflicts(me, accepted_ids, data, ignore_event_id=evt.pk)
-            if conflicts:
+            creator_conflicts = [c for c in conflicts if c['user_id'] == me.id]
+            invitee_conflicts = [c for c in conflicts if c['user_id'] != me.id]
+
+            creator_resolution = request.data.get('conflict_resolution')
+            proceed_invitee = bool(request.data.get('proceed_invitee_conflicts', False))
+            needs_creator_decision = bool(creator_conflicts) and creator_resolution not in (
+                EventInvite.SKIP_SKIP, EventInvite.SKIP_KEEP_BOTH,
+            )
+            needs_invitee_ack = bool(invitee_conflicts) and not proceed_invitee
+            if needs_creator_decision or needs_invitee_ack:
                 return Response(
-                    {"error": "overlap", "conflicts": conflicts},
+                    {
+                        "error": "overlap",
+                        "conflicts": conflicts,
+                        "creator_conflicts": creator_conflicts,
+                        "invitee_conflicts": invitee_conflicts,
+                    },
                     status=status.HTTP_409_CONFLICT,
                 )
 
         for field, value in data.items():
             setattr(evt, field, value)
         evt.save()
+
+        # The event moved; any prior skips for it are stale (wrong dates). Clear
+        # and re-create the creator's skips if they chose to skip again.
+        if schedule_changed:
+            CourseSkip.objects.filter(user=me, event=evt).delete()
+            EventOccurrenceSkip.objects.filter(user=me, attending_event=evt).delete()
+            if creator_conflicts and request.data.get('conflict_resolution') == EventInvite.SKIP_SKIP:
+                target_days = _target_event_days(
+                    data['date'], data.get('is_repeating', False), data.get('repeat_days', '')
+                )
+                target_date = data['date'] if not data.get('is_repeating', False) else None
+                _apply_skips(me, creator_conflicts, evt, target_days, target_date)
         evt = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=evt.pk)
         return Response(EventSerializer(evt, context={'request': request}).data)
 
@@ -3395,31 +3537,65 @@ class EventInviteRespondView(APIView):
 
         evt = invite.event
         # Determine who is allowed to act, based on the row's current status.
+        # is_requester_flow distinguishes the two accept paths: a PENDING invitee
+        # resolves their OWN clash now; a host accepting a REQUESTED row applies
+        # the requester's stored skip_preference on the requester's behalf.
         if invite.status == EventInvite.STATUS_PENDING:
             if invite.invitee_id != me.id:
                 return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
             joiner = invite.invitee
+            is_requester_flow = False
         elif invite.status == EventInvite.STATUS_REQUESTED:
             if evt.creator_id != me.id:
                 return Response({"detail": "not found"}, status=status.HTTP_404_NOT_FOUND)
             joiner = invite.invitee
+            is_requester_flow = True
         else:
             return Response(
                 {"detail": "invite already responded"},
                 status=status.HTTP_409_CONFLICT,
             )
 
+        target_days = _target_event_days(evt.date, evt.is_repeating, evt.repeat_days)
+        target_date = evt.date if not evt.is_repeating else None
+
+        # Compute the joiner's clashes ONCE, before flipping the row to ACCEPTED —
+        # afterwards `evt` would count as the joiner's own commitment and match
+        # itself. We reuse this list both to gate the accept and to record skips.
+        clashes = []
+        skip_resolution = None
+        if action == 'accept':
+            clashes = _conflict_for_user(joiner, target_days, evt.start_time, evt.end_time, target_date)
+            # A PENDING invitee resolves their own clash now; the host accepting a
+            # REQUESTED row relies on the requester's already-stored preference.
+            if not is_requester_flow and clashes:
+                skip_resolution = request.data.get('conflict_resolution')
+                if skip_resolution not in (EventInvite.SKIP_SKIP, EventInvite.SKIP_KEEP_BOTH):
+                    tagged = [{**c, "user_id": joiner.id, "username": joiner.username} for c in clashes]
+                    return Response(
+                        {"error": "overlap", "conflicts": tagged},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
         with transaction.atomic():
             if action == 'accept':
                 invite.status = EventInvite.STATUS_ACCEPTED
                 invite.responded_at = timezone.now()
-                invite.save(update_fields=['status', 'responded_at'])
+                # For the host-accepts-request flow, honor the requester's stored
+                # preference; for the invitee flow, persist their fresh choice.
+                if not is_requester_flow and skip_resolution is not None:
+                    invite.skip_preference = skip_resolution
+                invite.save(update_fields=['status', 'responded_at', 'skip_preference'])
 
                 if evt.chat_room_id is not None:
                     ChatRoomMember.objects.get_or_create(
                         room_id=evt.chat_room_id, user=joiner,
                         defaults={'is_admin': False},
                     )
+
+                # Materialize skips if whoever's joining chose to skip clashes.
+                if invite.skip_preference == EventInvite.SKIP_SKIP and clashes:
+                    _apply_skips(joiner, clashes, evt, target_days, target_date)
             else:
                 invite.status = EventInvite.STATUS_DECLINED
                 invite.responded_at = timezone.now()
@@ -3459,22 +3635,102 @@ class EventJoinRequestView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        # Schedule clash check — refuse before the host ever sees the request.
-        my_conflict = _conflict_for_user(
+        # Schedule clash check. Unlike a firm commitment, a join request isn't
+        # binding yet, so a clash doesn't refuse — instead the requester states
+        # how they'd handle it (skip / keep both) and we stash that preference.
+        # It's applied as skip records only if the host later accepts.
+        my_conflicts = _conflict_for_user(
             me,
             _target_event_days(evt.date, evt.is_repeating, evt.repeat_days),
             evt.start_time, evt.end_time,
             evt.date if not evt.is_repeating else None,
         )
-        if my_conflict:
+        resolution = request.data.get('conflict_resolution')
+        if my_conflicts and resolution not in (EventInvite.SKIP_SKIP, EventInvite.SKIP_KEEP_BOTH):
+            tagged = [{**c, "user_id": me.id, "username": me.username} for c in my_conflicts]
             return Response(
-                {"error": "overlap", "conflicts": [{**my_conflict, "user_id": me.id, "username": me.username}]},
+                {"error": "overlap", "conflicts": tagged},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        EventInvite.objects.create(event=evt, invitee=me, status=EventInvite.STATUS_REQUESTED)
+        skip_pref = resolution if (my_conflicts and resolution in (
+            EventInvite.SKIP_SKIP, EventInvite.SKIP_KEEP_BOTH)) else EventInvite.SKIP_NONE
+        EventInvite.objects.create(
+            event=evt, invitee=me, status=EventInvite.STATUS_REQUESTED, skip_preference=skip_pref,
+        )
         evt = Event.objects.select_related('creator').prefetch_related('invites__invitee').get(pk=evt.pk)
         return Response(
             EventSerializer(evt, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class EventRSVPView(APIView):
+    """POST /api/events/<pk>/rsvp/ — accept or decline from an event card in chat.
+    Finds the current user's PENDING invite and responds. Returns the updated
+    event payload so the card can refresh its button state."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        me = request.user
+        new_status = request.data.get('status', '')
+        if new_status not in (EventInvite.STATUS_ACCEPTED, EventInvite.STATUS_DECLINED):
+            return Response({"detail": "status must be 'ACCEPTED' or 'DECLINED'"}, status=status.HTTP_400_BAD_REQUEST)
+
+        invite = EventInvite.objects.select_related('event', 'event__creator').filter(
+            event_id=pk, invitee=me,
+            status__in=[EventInvite.STATUS_PENDING, EventInvite.STATUS_ACCEPTED, EventInvite.STATUS_DECLINED],
+        ).first()
+        if not invite:
+            return Response({"detail": "no invite found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if invite.status == new_status:
+            return Response({"status": new_status})
+
+        invite.status = new_status
+        invite.responded_at = timezone.now()
+        invite.save(update_fields=['status', 'responded_at'])
+
+        if new_status == EventInvite.STATUS_ACCEPTED and invite.event.chat_room_id:
+            ChatRoomMember.objects.get_or_create(
+                room_id=invite.event.chat_room_id, user=me,
+                defaults={'is_admin': False},
+            )
+
+        return Response({"status": new_status})
+
+
+class ScheduleSkipView(APIView):
+    """GET /api/schedule-skips/?week=YYYY-MM-DD — the requesting user's skip
+    records (courses + events they chose to skip in favor of an event) whose
+    date falls in the 7-day window starting at `week`. The schedule renderer
+    uses these to hide the corresponding blocks for that week."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        me = request.user
+        today = timezone.localdate()
+        week_start = _parse_iso_date(request.query_params.get('week'), _week_start_for(today))
+        if week_start is None:
+            return Response({"detail": "week must be YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
+        week_end = week_start + timedelta(days=7)
+
+        course_skips = (
+            CourseSkip.objects
+            .filter(user=me, date__gte=week_start, date__lt=week_end)
+            .select_related('course')
+        )
+        event_skips = (
+            EventOccurrenceSkip.objects
+            .filter(user=me, date__gte=week_start, date__lt=week_end)
+        )
+        return Response({
+            "course_skips": [
+                {"course": s.course_id, "course_code": s.course.course_id, "date": s.date.isoformat()}
+                for s in course_skips
+            ],
+            "event_skips": [
+                {"event": s.skipped_event_id, "date": s.date.isoformat()}
+                for s in event_skips
+            ],
+        })

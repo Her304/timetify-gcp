@@ -67,7 +67,11 @@ const FocusBracket = ({ position }) => (
   />
 );
 
-export default function SnapCaptureModal({ course, friendsList, onClose, onUploaded }) {
+export default function SnapCaptureModal({ course, friendsList, presetAudience, onClose, onUploaded }) {
+  // presetAudience = { friend } locks the snap to a single recipient (the
+  // "snap to @x" flow from the feed). When set, the audience picker is replaced
+  // by a fixed "to @username" chip and visibility is forced to "selected".
+  const lockedFriend = presetAudience?.friend || null;
   const [mode, setMode] = useState("photo");
   const [step, setStep] = useState("capture");
   const [stream, setStream] = useState(null);
@@ -78,8 +82,10 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
   const [previewUrl, setPreviewUrl] = useState(null);
   const [caption, setCaption] = useState("");
   // Audience type: "all" | "selected" | "group".
-  const [audienceType, setAudienceType] = useState("all");
-  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [audienceType, setAudienceType] = useState(lockedFriend ? "selected" : "all");
+  const [selectedIds, setSelectedIds] = useState(
+    lockedFriend ? new Set([lockedFriend.id]) : new Set()
+  );
   const [groups, setGroups] = useState([]);
   const [chatGroups, setChatGroups] = useState([]);
   // selectedGroup holds {kind: 'snap_group' | 'chat', id}; either source feeds
@@ -376,7 +382,11 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
 
   const remainingMs = Math.max(0, MAX_VIDEO_MS - recordingMs);
   const liveNow = isLiveNow(course);
-  const title = liveNow ? `snap ${course.course?.toLowerCase()}` : "snap now";
+  const title = lockedFriend
+    ? `snap to @${lockedFriend.username}`
+    : liveNow
+    ? `snap ${course.course?.toLowerCase()}`
+    : "snap now";
   const friendOptions = (friendsList || [])
     .map((f) => f.friend_details)
     .filter(Boolean);
@@ -625,6 +635,17 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                 </div>
               </div>
 
+              {lockedFriend ? (
+                <div>
+                  <MonoLabel color="rgba(255,255,255,.6)">audience</MonoLabel>
+                  <div
+                    className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+                    style={{ background: T.coral, color: "#fff" }}
+                  >
+                    to @{lockedFriend.username}
+                  </div>
+                </div>
+              ) : (
               <div>
                 <MonoLabel color="rgba(255,255,255,.6)">audience</MonoLabel>
                 <div className="mt-2 flex gap-2 flex-wrap">
@@ -745,6 +766,7 @@ export default function SnapCaptureModal({ course, friendsList, onClose, onUploa
                   </div>
                 )}
               </div>
+              )}
 
               {errorMsg && (
                 <div

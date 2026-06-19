@@ -230,9 +230,11 @@ class ChatRoomMember(models.Model):
 class Message(models.Model):
     MSG_TEXT = 'text'
     MSG_STUDY_INVITE = 'study_invite'
+    MSG_EVENT_CARD = 'event_card'
     MSG_TYPE_CHOICES = [
         (MSG_TEXT, 'Text'),
         (MSG_STUDY_INVITE, 'Study invite'),
+        (MSG_EVENT_CARD, 'Event card'),
     ]
 
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
@@ -563,9 +565,24 @@ class EventInvite(models.Model):
         (STATUS_REQUESTED, 'Requested'),
     ]
 
+    # How the invitee/requester chose to handle a schedule clash at the moment
+    # they accepted / requested. For REQUESTED rows this is the requester's
+    # stated preference, applied (skip records created) only if the host accepts.
+    SKIP_NONE = ''
+    SKIP_SKIP = 'skip'        # suppress the clashing course/event occurrence(s)
+    SKIP_KEEP_BOTH = 'keep_both'  # leave both blocks on the schedule
+    SKIP_PREFERENCE_CHOICES = [
+        (SKIP_NONE, 'None'),
+        (SKIP_SKIP, 'Skip clashing block'),
+        (SKIP_KEEP_BOTH, 'Keep both'),
+    ]
+
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='invites')
     invitee = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='event_invites')
     status = models.CharField(max_length=9, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    skip_preference = models.CharField(
+        max_length=9, choices=SKIP_PREFERENCE_CHOICES, default=SKIP_NONE, blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     responded_at = models.DateTimeField(null=True, blank=True)
 
@@ -575,3 +592,40 @@ class EventInvite(models.Model):
 
     def __str__(self):
         return f"{self.invitee.username} → {self.event.name} [{self.status}]"
+
+
+class CourseSkip(models.Model):
+    """A user's decision to skip one occurrence of a course (on `date`) because
+    they committed to `event` that clashes with it. The schedule renderer hides
+    the course block on that date. CASCADE on both FKs: deleting either the
+    course or the attending event removes the skip (the reason is gone)."""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='course_skips')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='skips')
+    date = models.DateField()
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='course_skips')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'course', 'date')
+        indexes = [models.Index(fields=['user', 'date'])]
+
+    def __str__(self):
+        return f"{self.user.username} skips {self.course.course_id} on {self.date}"
+
+
+class EventOccurrenceSkip(models.Model):
+    """A user's decision to skip one occurrence of `skipped_event` (on `date`)
+    because they committed to `attending_event` that clashes with it. Mirrors
+    CourseSkip for event-vs-event conflicts."""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='event_skips')
+    skipped_event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='occurrence_skips')
+    date = models.DateField()
+    attending_event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='attendance_skips')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'skipped_event', 'date')
+        indexes = [models.Index(fields=['user', 'date'])]
+
+    def __str__(self):
+        return f"{self.user.username} skips event {self.skipped_event_id} on {self.date}"

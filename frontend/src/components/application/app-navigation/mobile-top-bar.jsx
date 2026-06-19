@@ -63,9 +63,10 @@ export const MobileTopBar = ({ currentUser, onRespondToRequest, onRespondToEvent
     fetchNotifications();
   };
 
-  const handleRespondToEventInvite = async (id, action) => {
-    await onRespondToEventInvite?.(id, action);
+  const handleRespondToEventInvite = async (id, action, resolution) => {
+    const result = await onRespondToEventInvite?.(id, action, resolution);
     fetchNotifications();
+    return result;
   };
 
   return (
@@ -118,6 +119,7 @@ export const MobileTopBar = ({ currentUser, onRespondToRequest, onRespondToEvent
               variant="fullscreen"
               notifications={notifications}
               loading={notifLoading}
+              currentUser={currentUser}
               onRespondToRequest={handleRespondToRequest}
               onRespondToEventInvite={handleRespondToEventInvite}
               onRefresh={fetchNotifications}

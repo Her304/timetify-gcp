@@ -109,14 +109,10 @@ export default function GroupChatList({
                     </span>
                     {unread > 0 && (
                       <span
-                        className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold leading-none"
-                        style={{
-                          background: T.coral, color: "#fff",
-                          fontFamily: FF.mono,
-                        }}
-                      >
-                        {unread > 9 ? "9+" : unread}
-                      </span>
+                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ background: T.coral }}
+                        aria-label="unread messages"
+                      />
                     )}
                   </div>
                   <div

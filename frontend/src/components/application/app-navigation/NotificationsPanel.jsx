@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { T, FF, Avatar, Icon, ProfileAvatar } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
+import ConflictSheet from "@/components/events/ConflictSheet";
 
 const AVATAR_PALETTE = [T.lime, T.lilac, "#f0c4a8", "#b8d8c2", T.coral];
 const colorFor = (name) => {
@@ -212,7 +213,7 @@ const ReportDocPreview = ({ doc }) => {
   );
 };
 
-export const NotificationsPanel = ({ notifications, loading, onRespondToRequest, onRespondToEventInvite, onClose, onRefresh, variant = "dropdown" }) => {
+export const NotificationsPanel = ({ notifications, loading, currentUser, onRespondToRequest, onRespondToEventInvite, onClose, onRefresh, variant = "dropdown" }) => {
   const navigate = useNavigate();
   const isFullscreen = variant === "fullscreen";
   const shellCls = isFullscreen
@@ -223,6 +224,21 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
     : { maxHeight: "80vh", overflowY: "auto" };
 
   const [appealingReportId, setAppealingReportId] = useState(null);
+  // When accepting an invite returns a 409 clash, hold it so the user can pick
+  // skip / keep both / decline before we re-send the accept.
+  const [inviteConflict, setInviteConflict] = useState(null); // { id, conflicts }
+  const [resolving, setResolving] = useState(false);
+
+  const acceptEventInvite = async (id, resolution) => {
+    setResolving(true);
+    const r = await onRespondToEventInvite?.(id, "accept", resolution);
+    setResolving(false);
+    if (r && !r.ok && r.data?.error === "overlap") {
+      setInviteConflict({ id, conflicts: Array.isArray(r.data.conflicts) ? r.data.conflicts : [] });
+    } else {
+      setInviteConflict(null);
+    }
+  };
 
   if (loading || !notifications) {
     return (
@@ -288,6 +304,7 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
   };
 
   return (
+    <>
     <div className={shellCls} style={scrollShellStyle}>
       <div className="px-4 py-3 border-b border-ink-8 flex items-center justify-between sticky top-0 bg-white z-10">
         <span style={{ fontFamily: FF.serif, letterSpacing: -0.4 }} className="text-xl text-ink lowercase">
@@ -391,7 +408,7 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
                 <div className="flex gap-1.5 flex-shrink-0">
                   <button
                     type="button"
-                    onClick={() => onRespondToEventInvite?.(inv.id, "accept")}
+                    onClick={() => acceptEventInvite(inv.id)}
                     aria-label="accept event invite"
                     className="w-8 h-8 rounded-full flex items-center justify-center"
                     style={{ background: T.coral }}
@@ -795,5 +812,24 @@ export const NotificationsPanel = ({ notifications, loading, onRespondToRequest,
         />
       )}
     </div>
+
+    {inviteConflict && (
+      <ConflictSheet
+        variant="self"
+        conflicts={inviteConflict.conflicts}
+        currentUserId={currentUser?.id}
+        busy={resolving}
+        declineLabel="decline invite"
+        onSkip={() => acceptEventInvite(inviteConflict.id, "skip")}
+        onKeepBoth={() => acceptEventInvite(inviteConflict.id, "keep_both")}
+        onDecline={async () => {
+          const id = inviteConflict.id;
+          setInviteConflict(null);
+          await onRespondToEventInvite?.(id, "decline");
+        }}
+        onClose={() => setInviteConflict(null)}
+      />
+    )}
+    </>
   );
 };

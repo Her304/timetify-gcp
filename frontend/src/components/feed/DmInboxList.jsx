@@ -3,6 +3,14 @@ import { timeAgo, colorForUser } from "./utils";
 
 const DM_CAP = 10;
 
+// First two shared course codes, "…" past two. Empty string when none.
+const sharedClassLabel = (friend) => {
+  const codes = friend?.shared_courses || [];
+  if (codes.length === 0) return "";
+  const head = codes.slice(0, 2).join(", ");
+  return codes.length > 2 ? `${head} …` : head;
+};
+
 export default function DmInboxList({
   inboxRows,
   filteredRows,
@@ -21,7 +29,7 @@ export default function DmInboxList({
       {inboxRows.length === 0 ? (
         <div className="bg-white border border-ink-8 rounded-2xl p-10 text-center">
           <p className="text-ink-60 text-sm lowercase">
-            no friends yet. add some on the friends page.
+            no friends yet. search above to find people.
           </p>
         </div>
       ) : visibleRows.length === 0 ? (
@@ -34,6 +42,7 @@ export default function DmInboxList({
             const lm = t.chat?.last_message;
             const unread = t.chat?.unread_count || 0;
             const busy = creatingDmFor === t.username;
+            const classes = sharedClassLabel(t.friend);
             let preview;
             if (lm) {
               if (lm.is_removed) {
@@ -81,15 +90,10 @@ export default function DmInboxList({
                     </div>
                     {unread > 0 && (
                       <span
-                        className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold leading-none"
-                        style={{
-                          background: T.coral,
-                          color: "#fff",
-                          fontFamily: FF.mono,
-                        }}
-                      >
-                        {unread > 9 ? "9+" : unread}
-                      </span>
+                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ background: T.coral }}
+                        aria-label="unread messages"
+                      />
                     )}
                   </div>
                   <div
@@ -100,7 +104,7 @@ export default function DmInboxList({
                       color: unread > 0 ? T.ink : T.ink60,
                     }}
                   >
-                    {preview}
+                    {classes || preview}
                   </div>
                 </div>
                 {busy ? (

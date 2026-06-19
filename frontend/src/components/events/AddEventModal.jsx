@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { T, FF, Avatar, Icon, MonoLabel } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
+import ConflictSheet from "./ConflictSheet";
 
 const NAME_MAX = 100;
 const LOC_MAX = 200;
@@ -42,6 +43,12 @@ export default function AddEventModal({ friendsList = [], currentUser, onClose, 
   const [allowJoinRequests, setAllowJoinRequests] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  // Conflict resolution: holds the latest 409 payload + the choices made so far,
+  // so a re-submit carries them. Creator resolves their own clash first, then
+  // the host acknowledges any invitee clashes.
+  const [conflictData, setConflictData] = useState(null); // { creator: [], invitee: [] }
+  const [creatorResolution, setCreatorResolution] = useState(null); // 'skip'|'keep_both'
+  const [proceedInvitee, setProceedInvitee] = useState(false);
 
   const friends = useMemo(
     () => friendsList.map((f) => f.friend_details).filter(Boolean),
@@ -76,10 +83,12 @@ export default function AddEventModal({ friendsList = [], currentUser, onClose, 
     startTime < endTime;
   const step2Valid = !isRepeating || repeatDays.size > 0;
 
-  const submit = async () => {
+  const submit = async (override = {}) => {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
+    const resolution = override.conflict_resolution ?? creatorResolution;
+    const proceed = override.proceed_invitee_conflicts ?? proceedInvitee;
     const payload = {
       name: name.trim(),
       date,
@@ -92,6 +101,8 @@ export default function AddEventModal({ friendsList = [], currentUser, onClose, 
       allow_join_requests: visibility === "PUBLIC" ? allowJoinRequests : false,
       invite_user_ids: Array.from(selectedFriends),
       create_chat: createChat,
+      ...(resolution ? { conflict_resolution: resolution } : {}),
+      ...(proceed ? { proceed_invitee_conflicts: true } : {}),
     };
     try {
       const res = await authenticatedFetch(
@@ -100,15 +111,12 @@ export default function AddEventModal({ friendsList = [], currentUser, onClose, 
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.error === "overlap" && Array.isArray(data.conflicts)) {
-          const lines = data.conflicts.map((c) => {
-            const who = c.user_id === currentUser?.id ? "you" : c.username;
-            const what = c.kind === "course"
-              ? `${c.course_id}`
-              : `“${c.event_name}”`;
-            return `${who} · ${what} on ${c.day} ${c.start_time}–${c.end_time}`;
+        if (data.error === "overlap") {
+          // Hand off to the ConflictSheet rather than a flat error string.
+          setConflictData({
+            creator: Array.isArray(data.creator_conflicts) ? data.creator_conflicts : [],
+            invitee: Array.isArray(data.invitee_conflicts) ? data.invitee_conflicts : [],
           });
-          setError(`time conflict — ${lines.join(" · ")}`);
         }
         else if (data.detail === "not_friends") setError("some picks aren't your friends");
         else if (data.detail) setError(String(data.detail));
@@ -124,6 +132,21 @@ export default function AddEventModal({ friendsList = [], currentUser, onClose, 
       setSubmitting(false);
     }
   };
+
+  // Back to the time picker; drop any half-made conflict choices.
+  const changeTiming = () => {
+    setConflictData(null);
+    setCreatorResolution(null);
+    setProceedInvitee(false);
+    setSubmitting(false);
+    setStep(1);
+  };
+
+  // Which conflict sheet (if any) to show. Creator resolves their own clash
+  // first; once that's chosen, any invitee clashes need the host's ack.
+  const showCreatorSheet = !!conflictData && conflictData.creator.length > 0 && !creatorResolution;
+  const showHostSheet =
+    !!conflictData && !showCreatorSheet && conflictData.invitee.length > 0 && !proceedInvitee;
 
   const goNext = () => {
     setError(null);
@@ -452,7 +475,7 @@ export default function AddEventModal({ friendsList = [], currentUser, onClose, 
             {step === 1 ? "cancel" : "back"}
           </button>
           <button
-            onClick={step === 3 ? submit : goNext}
+            onClick={step === 3 ? () => submit() : goNext}
             disabled={submitting || (step === 1 && !step1Valid) || (step === 2 && !step2Valid)}
             className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold lowercase disabled:opacity-40"
             style={{ background: T.coral, color: "#fff" }}
@@ -461,6 +484,31 @@ export default function AddEventModal({ friendsList = [], currentUser, onClose, 
           </button>
         </div>
       </div>
+
+      {showCreatorSheet && (
+        <ConflictSheet
+          variant="creator"
+          conflicts={conflictData.creator}
+          currentUserId={currentUser?.id}
+          busy={submitting}
+          onSkip={() => { setCreatorResolution("skip"); submit({ conflict_resolution: "skip" }); }}
+          onKeepBoth={() => { setCreatorResolution("keep_both"); submit({ conflict_resolution: "keep_both" }); }}
+          onChangeTiming={changeTiming}
+          onClose={() => { setConflictData(null); setSubmitting(false); }}
+        />
+      )}
+      {showHostSheet && (
+        <ConflictSheet
+          variant="host"
+          conflicts={conflictData.invitee}
+          currentUserId={currentUser?.id}
+          busy={submitting}
+          onLetDecide={() => { setProceedInvitee(true); submit({ proceed_invitee_conflicts: true }); }}
+          onChangeTiming={changeTiming}
+          onDelete={onClose}
+          onClose={() => { setConflictData(null); setSubmitting(false); }}
+        />
+      )}
     </div>
   );
 }

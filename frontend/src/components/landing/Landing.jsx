@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import {
   motion,
   useScroll,
@@ -34,9 +34,13 @@ const chatMessages = [
 
 const agreeMessages = [
   { id: 1, author: 'maya', text: 'yes!!! 🎉', mine: false, at: 0.82 },
-  { id: 2, author: 'priya', text: '✅', mine: false, at: 0.85 },
-  { id: 3, author: 'jayden', text: '👍🙌', mine: false, at: 0.88 },
-  { id: 4, author: 'alex', text: "FINALLY. let's go", mine: false, at: 0.91 },
+  { id: 2, author: 'priya', text: '✅', mine: false, at: 0.84 },
+  { id: 3, author: 'jayden', text: '👍🙌', mine: false, at: 0.86 },
+  { id: 4, author: 'alex', text: "FINALLY. let's go", mine: false, at: 0.88 },
+  { id: 5, author: 'maya', text: "ok who's getting snacks 👀", mine: false, at: 0.90 },
+  { id: 6, author: 'me', text: 'i got drinks 🥤', mine: true, at: 0.92 },
+  { id: 7, author: 'priya', text: "i'll bring chips + dip", mine: false, at: 0.94 },
+  { id: 8, author: 'jayden', text: "this is already the best plan we've ever made lol", mine: false, at: 0.96 },
 ];
 
 const authorColors = {
@@ -63,7 +67,6 @@ const hangoutBlock = { day: 5, start: 16, end: 19, label: 'hangout! 🎉', isEve
 const MIN_H = 8;
 const MAX_H = 20;
 const TOTAL_H = MAX_H - MIN_H;
-const CELL_PX = 36;
 
 function hourLabel(h) {
   if (h === 12) return '12pm';
@@ -71,7 +74,10 @@ function hourLabel(h) {
   return `${h - 12}pm`;
 }
 
-function TimetableView({ blockReveal, hangoutReveal }) {
+function TimetableView({ blockReveal, hangoutReveal, compact = false }) {
+  const cellPx = compact ? 19 : 36;
+  const gridLabels = compact ? [8, 12, 16, 20] : [8, 10, 12, 14, 16, 18, 20];
+
   return (
     <div
       style={{
@@ -81,7 +87,6 @@ function TimetableView({ blockReveal, hangoutReveal }) {
         border: `1px solid ${T.ink15}`,
         boxShadow: '0 8px 40px rgba(31,26,34,0.12)',
         width: '100%',
-        maxWidth: 700,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: `1px solid ${T.ink08}` }}>
@@ -119,16 +124,16 @@ function TimetableView({ blockReveal, hangoutReveal }) {
           gridTemplateColumns: '36px repeat(7, 1fr)',
           padding: '0 10px 10px',
           position: 'relative',
-          height: TOTAL_H * CELL_PX,
+          height: TOTAL_H * cellPx,
         }}
       >
         <div style={{ position: 'relative' }}>
-          {[8, 10, 12, 14, 16, 18, 20].map((h) => (
+          {gridLabels.map((h) => (
             <div
               key={h}
               style={{
                 position: 'absolute',
-                top: (h - MIN_H) * CELL_PX - 6,
+                top: (h - MIN_H) * cellPx - 6,
                 right: 6,
                 fontFamily: "'Geist Mono', monospace",
                 fontSize: 8,
@@ -142,14 +147,14 @@ function TimetableView({ blockReveal, hangoutReveal }) {
           ))}
         </div>
 
-        {[8, 10, 12, 14, 16, 18, 20].map((h) => (
+        {gridLabels.map((h) => (
           <div
             key={h}
             style={{
               position: 'absolute',
               left: 36,
               right: 10,
-              top: (h - MIN_H) * CELL_PX,
+              top: (h - MIN_H) * cellPx,
               height: 1,
               background: T.ink08,
             }}
@@ -161,8 +166,8 @@ function TimetableView({ blockReveal, hangoutReveal }) {
             {calBlocks
               .filter((b) => b.day === di)
               .map((b, bi) => {
-                const top = (b.start - MIN_H) * CELL_PX;
-                const h = (b.end - b.start) * CELL_PX - 2;
+                const top = (b.start - MIN_H) * cellPx;
+                const h = (b.end - b.start) * cellPx - 2;
                 return (
                   <motion.div
                     key={bi}
@@ -198,8 +203,8 @@ function TimetableView({ blockReveal, hangoutReveal }) {
                   position: 'absolute',
                   left: 2,
                   right: 2,
-                  top: (hangoutBlock.start - MIN_H) * CELL_PX,
-                  height: (hangoutBlock.end - hangoutBlock.start) * CELL_PX - 2,
+                  top: (hangoutBlock.start - MIN_H) * cellPx,
+                  height: (hangoutBlock.end - hangoutBlock.start) * cellPx - 2,
                   borderRadius: 6,
                   background: T.coral,
                   padding: '6px 5px',
@@ -226,6 +231,14 @@ function TimetableView({ blockReveal, hangoutReveal }) {
 function HeroSection() {
   const containerRef = useRef(null);
   const [progress, setProgress] = useState(0);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 1024);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 1024);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  const chatEndRef = useRef(null);
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -269,6 +282,10 @@ function HeroSection() {
 
   const visibleChat = chatMessages.filter((m) => progress >= m.at);
   const visibleAgree = agreeMessages.filter((m) => progress >= m.at);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [visibleAgree.length]);
 
   const showChat = progress < 0.50;
   const showTable = progress > 0.60;
@@ -465,9 +482,9 @@ function HeroSection() {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
-            padding: '80px 20px 32px',
-            gap: 16,
+            justifyContent: isMobile ? 'flex-start' : 'center',
+            padding: isMobile ? '60px 16px 16px' : '80px 20px 32px',
+            gap: isMobile ? 10 : 16,
             pointerEvents: showTable ? 'auto' : 'none',
           }}
         >
@@ -484,28 +501,32 @@ function HeroSection() {
             </div>
           </motion.div>
 
-          {/* timetable + chatroom (side-by-side) */}
+          {/* timetable + chatroom (side-by-side desktop, stacked mobile) */}
           <div
             style={{
               display: 'flex',
-              gap: 20,
+              flexDirection: isMobile ? 'column' : 'row',
+              flexWrap: isMobile ? undefined : 'wrap',
+              gap: isMobile ? 10 : 20,
               width: '100%',
-              maxWidth: 1080,
+              maxWidth: isMobile ? 600 : 1080,
               alignItems: 'stretch',
               justifyContent: 'center',
-              flexShrink: 1,
+              flex: isMobile ? 1 : undefined,
               minHeight: 0,
             }}
           >
-            <motion.div style={{ flex: '1 1 660px', minWidth: 0, opacity: timetableOpacity, y: timetableY }}>
-              <TimetableView blockReveal={blockReveal} hangoutReveal={hangoutReveal} />
+            <motion.div style={{ flex: isMobile ? '0 0 auto' : '1 1 320px', minWidth: 0, opacity: timetableOpacity, y: timetableY }}>
+              <TimetableView blockReveal={blockReveal} hangoutReveal={hangoutReveal} compact={isMobile} />
             </motion.div>
 
             <motion.div
               style={{
                 opacity: myMsgOpacity,
                 y: myMsgY,
-                flex: '0 0 300px',
+                flex: isMobile ? 1 : '1 1 280px',
+                maxWidth: isMobile ? undefined : 420,
+                minHeight: 0,
                 display: 'flex',
                 flexDirection: 'column',
               }}
@@ -560,6 +581,7 @@ function HeroSection() {
                     flexDirection: 'column',
                     gap: 6,
                     flex: 1,
+                    overflowY: 'auto',
                   }}
                 >
                   {/* "me" message */}
@@ -609,7 +631,7 @@ function HeroSection() {
                     ))}
                   </AnimatePresence>
 
-                  {progress >= 0.93 && (
+                  {progress >= 0.97 && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -633,6 +655,7 @@ function HeroSection() {
                       all going
                     </motion.div>
                   )}
+                  <div ref={chatEndRef} />
                 </div>
               </div>
             </motion.div>
