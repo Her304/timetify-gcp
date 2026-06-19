@@ -163,9 +163,32 @@ const dateStrToDayKey = (iso) => {
   return JS_TO_KEY[dt.getDay()];
 };
 
-export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsChanged, respondToEventInvite }) => {
+const toLocalIso = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+export const WeekView = ({ allClasses = [], events = [], scheduleSkips = { course_skips: [], event_skips: [] }, currentUser, onEventsChanged, respondToEventInvite }) => {
   const dates = useMemo(() => weekDates(), []);
   const todayKey = JS_TO_KEY[new Date().getDay()];
+
+  // Skip lookup: `${coursePk}|${iso}` and `${eventId}|${iso}` of blocks the
+  // user chose to drop in favor of an event, so we hide them this week.
+  const dayKeyToIso = useMemo(() => {
+    const out = {};
+    DAYS.forEach((k) => { if (dates[k]) out[k] = toLocalIso(dates[k]); });
+    return out;
+  }, [dates]);
+  const courseSkipSet = useMemo(
+    () => new Set((scheduleSkips.course_skips || []).map((s) => `${s.course}|${s.date}`)),
+    [scheduleSkips]
+  );
+  const eventSkipSet = useMemo(
+    () => new Set((scheduleSkips.event_skips || []).map((s) => `${s.event}|${s.date}`)),
+    [scheduleSkips]
+  );
 
   // Live clock — updates the header pill every 30s.
   const [now, setNow] = useState(() => new Date());
@@ -202,6 +225,8 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
     allClasses.forEach((c) => {
       const k = normalizeDayKey(c.day);
       if (!k) return;
+      // Hide this occurrence if the user skipped their own course on this date.
+      if (c.id != null && courseSkipSet.has(`${c.id}|${dayKeyToIso[k]}`)) return;
       const mapKey = `${k}|${c.course}|${c.start_time}|${c.classroom}`;
       if (seen.has(mapKey)) {
         const existing = seen.get(mapKey);
@@ -233,7 +258,7 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
     });
     DAYS.forEach((k) => out[k].sort((a, b) => (a.start ?? 0) - (b.start ?? 0)));
     return out;
-  }, [allClasses]);
+  }, [allClasses, courseSkipSet, dayKeyToIso]);
 
   const eventsByDay = useMemo(() => {
     const out = {};
@@ -241,6 +266,8 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
     events.forEach((e) => {
       // Hide events the user has declined (not creator)
       if (!e.is_mine && e.my_invite_status === "DECLINED") return;
+      // Hide an event occurrence the user chose to skip for another event.
+      if (eventSkipSet.has(`${e.id}|${e.occurrence_date}`)) return;
       const k = dateStrToDayKey(e.occurrence_date);
       if (!k) return;
       const start = toMinutes(e.start_time);
@@ -250,7 +277,7 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
     });
     DAYS.forEach((k) => out[k].sort((a, b) => a.start - b.start));
     return out;
-  }, [events]);
+  }, [events, eventSkipSet]);
 
   // Auto-clamp the visible hour range to data, falling back to 8–18.
   const { startHour, endHour } = useMemo(() => {
@@ -562,6 +589,7 @@ export const WeekView = ({ allClasses = [], events = [], currentUser, onEventsCh
       {selectedEventCluster && (
         <EventDetailsModal
           cluster={selectedEventCluster}
+          currentUser={currentUser}
           onClose={() => setSelectedEventCluster(null)}
           onChanged={onEventsChanged}
         />

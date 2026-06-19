@@ -10,7 +10,6 @@ import { ClassDetails } from "@/components/class/class";
 import Register from "@/components/register/register";
 import Login from "@/components/login/login";
 import { HeaderNavigationBase } from "@/components/application/app-navigation/header-navigation";
-import SearchFriend from "@/components/friend/friend";
 import Add from "@/components/add/add";
 import Profile from "@/components/user/profile";
 import * as Sentry from "@sentry/react";
@@ -47,6 +46,9 @@ const App = () => {
   const [snapsByCourse, setSnapsByCourse] = useState({});
   const [isErrorReportModalOpen, setIsErrorReportModalOpen] = useState(false);
   const [events, setEvents] = useState([]);
+  // Per-occurrence skips: course/event blocks the user chose to drop in favor
+  // of an event. The week view hides the matching tiles.
+  const [scheduleSkips, setScheduleSkips] = useState({ course_skips: [], event_skips: [] });
 
   useEffect(() => { initLogger(); }, []);
 
@@ -135,7 +137,30 @@ const App = () => {
     fetchFriendsData();
     fetchSnapFeed();
     fetchEvents();
+    fetchScheduleSkips();
   }, [token]);
+
+  const currentMonday = () => {
+    const d = new Date();
+    const day = d.getDay(); // 0 = Sun
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  };
+
+  const fetchScheduleSkips = async () => {
+    try {
+      const res = await authenticatedFetch(
+        `${import.meta.env.VITE_API_URL}/api/schedule-skips/?week=${currentMonday()}`
+      );
+      if (res.ok) setScheduleSkips(await res.json());
+    } catch (err) {
+      Sentry.captureException(err);
+    }
+  };
 
   const fetchEvents = async () => {
     try {
@@ -151,21 +176,33 @@ const App = () => {
       })();
       const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/events/?week=${monday}`);
       if (res.ok) setEvents(await res.json());
+      // Skips can change whenever events do (create/accept/edit), keep in sync.
+      fetchScheduleSkips();
     } catch (err) {
       Sentry.captureException(err);
     }
   };
 
-  const respondToEventInvite = async (inviteId, action) => {
+  const respondToEventInvite = async (inviteId, action, resolution) => {
     try {
       const res = await authenticatedFetch(
         `${import.meta.env.VITE_API_URL}/api/events/invites/${inviteId}/`,
-        { method: "PATCH", body: JSON.stringify({ action }) }
+        {
+          method: "PATCH",
+          body: JSON.stringify(
+            resolution ? { action, conflict_resolution: resolution } : { action }
+          ),
+        }
       );
-      if (res.ok) await fetchEvents();
-      return res.ok;
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        await fetchEvents();
+        fetchScheduleSkips();
+      }
+      // Surface the 409 conflict payload so the caller can prompt skip/keep.
+      return { ok: res.ok, status: res.status, data };
     } catch (err) {
-      return false;
+      return { ok: false, status: 0, data: {} };
     }
   };
 
@@ -347,6 +384,7 @@ const App = () => {
       isErrorReportModalOpen={isErrorReportModalOpen}
       setIsErrorReportModalOpen={setIsErrorReportModalOpen}
       events={events}
+      scheduleSkips={scheduleSkips}
       respondToEventInvite={respondToEventInvite}
       onEventsChanged={fetchEvents}
       fetchEvents={fetchEvents}
@@ -385,6 +423,7 @@ const AppShell = ({
   isErrorReportModalOpen,
   setIsErrorReportModalOpen,
   events,
+  scheduleSkips,
   respondToEventInvite,
   onEventsChanged,
   fetchEvents,
@@ -485,6 +524,7 @@ const AppShell = ({
                     <WeekView
                       allClasses={allClasses}
                       events={events}
+                      scheduleSkips={scheduleSkips}
                       currentUser={currentUser}
                       onEventsChanged={onEventsChanged}
                       respondToEventInvite={respondToEventInvite}
@@ -504,6 +544,10 @@ const AppShell = ({
                     personalSchedule={personalSchedule}
                     allMyCourses={totalClasses}
                     friendsList={friendsList}
+                    friendRequests={friendRequests}
+                    searchfriends={searchFriends}
+                    sendFriendRequest={sendFriendRequest}
+                    respondToFriendRequest={respondToFriendRequest}
                     currentUser={currentUser}
                     onSnapsChanged={fetchSnapFeed}
                   />
@@ -518,21 +562,6 @@ const AppShell = ({
                     currentUser={currentUser}
                     allClasses={allClasses}
                     snapsByCourse={snapsByCourse}
-                  />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/friend"
-              element={
-                <ProtectedRoute currentUser={currentUser}>
-                  <SearchFriend
-                    searchfriends={searchFriends}
-                    sendFriendRequest={sendFriendRequest}
-                    friendsList={friendsList}
-                    friendRequests={friendRequests}
-                    respondToFriendRequest={respondToFriendRequest}
-                    currentUser={currentUser}
                   />
                 </ProtectedRoute>
               }
@@ -591,7 +620,7 @@ const AppShell = ({
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
-        <div className="hidden md:block">
+        <div className={isLandingRoute ? "" : "hidden md:block"}>
           <Footer currentUser={currentUser} />
         </div>
       </main>

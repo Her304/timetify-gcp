@@ -33,8 +33,8 @@ export const Today_friend = ({ Class_details }) => {
           ))
         )}
       </div>
-      <a href="/friend#schedule" className="mt-4 text-xs text-coral font-semibold hover:text-coral-dark lowercase">
-        ↳ view schedules together
+      <a href="/feed" className="mt-4 text-xs text-coral font-semibold hover:text-coral-dark lowercase">
+        ↳ find friends & chats
       </a>
     </div>
   );

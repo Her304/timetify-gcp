@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { T, FF, Icon, MonoLabel, ProfileAvatar } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
+import ConflictSheet from "./ConflictSheet";
 
 const fmtDate = (iso) => {
   if (!iso) return "";
@@ -47,12 +48,13 @@ const colorForUser = (name) => AVATAR_BG[hashStr(name) % AVATAR_BG.length];
  *   onClose     – dismiss handler
  *   onChanged   – called after a mutation (delete) so the parent can refetch
  */
-function EventDetailsContent({ event, onClose, onChanged }) {
+function EventDetailsContent({ event, currentUser, onClose, onChanged }) {
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState(null);
+  const [joinConflicts, setJoinConflicts] = useState(null); // [] from a 409
 
   if (!event) return null;
 
@@ -94,24 +96,31 @@ function EventDetailsContent({ event, onClose, onChanged }) {
     onClose && onClose();
   };
 
-  const handleRequestJoin = async () => {
+  const handleRequestJoin = async (resolution) => {
     if (requesting) return;
     setRequesting(true);
     setError(null);
     try {
       const res = await authenticatedFetch(
         `${import.meta.env.VITE_API_URL}/api/events/${event.id}/request-join/`,
-        { method: "POST" }
+        { method: "POST", body: JSON.stringify(resolution ? { conflict_resolution: resolution } : {}) }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.error === "overlap") setError("you have a time conflict — can't request");
+        if (data.error === "overlap") {
+          // Surface the clash; the requester states how they'd handle it and
+          // we re-send with that preference (applied only if the host accepts).
+          setJoinConflicts(Array.isArray(data.conflicts) ? data.conflicts : []);
+          setRequesting(false);
+          return;
+        }
         else if (data.detail === "already_invited") setError("already requested");
         else if (data.detail) setError(String(data.detail).toLowerCase().replace(/_/g, " "));
         else setError("couldn't send request");
         setRequesting(false);
         return;
       }
+      setJoinConflicts(null);
       onChanged && onChanged();
       onClose && onClose();
     } catch {
@@ -126,6 +135,7 @@ function EventDetailsContent({ event, onClose, onChanged }) {
       : null;
 
   return (
+    <>
       <div className="flex flex-col h-full w-full max-w-md mx-auto" style={{ background: T.ink, color: "#fff", borderRadius: "1.5rem", overflow: "hidden" }}>
         {/* header */}
         <div
@@ -283,7 +293,7 @@ function EventDetailsContent({ event, onClose, onChanged }) {
             </button>
           ) : canRequestJoin ? (
             <button
-              onClick={handleRequestJoin}
+              onClick={() => handleRequestJoin()}
               disabled={requesting}
               className="ml-auto px-4 py-2.5 rounded-full text-sm lowercase font-semibold disabled:opacity-40"
               style={{ background: T.coral, color: "#fff" }}
@@ -309,6 +319,21 @@ function EventDetailsContent({ event, onClose, onChanged }) {
           )}
         </div>
       </div>
+
+      {joinConflicts && (
+        <ConflictSheet
+          variant="self"
+          conflicts={joinConflicts}
+          currentUserId={currentUser?.id}
+          busy={requesting}
+          declineLabel="cancel request"
+          onSkip={() => handleRequestJoin("skip")}
+          onKeepBoth={() => handleRequestJoin("keep_both")}
+          onDecline={() => setJoinConflicts(null)}
+          onClose={() => setJoinConflicts(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -351,7 +376,7 @@ const EventRow = ({ evt, active, onSelect }) => {
   );
 };
 
-export default function EventDetailsModal({ event, cluster, onClose, onChanged }) {
+export default function EventDetailsModal({ event, cluster, currentUser, onClose, onChanged }) {
   const [selected, setSelected] = useState(event || (cluster && cluster[0]));
 
   if (!selected) return null;
@@ -399,7 +424,7 @@ export default function EventDetailsModal({ event, cluster, onClose, onChanged }
             </aside>
           )}
           <div className={isCluster ? "h-full min-h-[500px]" : "h-full"}>
-            <EventDetailsContent event={selected} onClose={onClose} onChanged={onChanged} />
+            <EventDetailsContent event={selected} currentUser={currentUser} onClose={onClose} onChanged={onChanged} />
           </div>
         </div>
       </div>

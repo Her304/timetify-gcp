@@ -7,6 +7,8 @@ import ReportModal from "@/components/shared/ReportModal";
 import GroupInfoModal from "@/components/chat/GroupInfoModal";
 import StudyInviteBubble from "@/components/study/StudyInviteBubble";
 import FindTimeSheet from "@/components/study/FindTimeSheet";
+import { SlashCommandMenu, ChatEventWizard } from "@/components/chat/ChatEventWizard";
+import EventCardBubble from "@/components/chat/EventCardBubble";
 
 const MAX_LEN = 2000;
 const COUNTER_THRESHOLD = 1800;
@@ -338,6 +340,9 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
   // POST /api/chats/<id>/messages/ returns 403 with `detail='restricted'`.
   const [restriction, setRestriction] = useState(null);
 
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
   const textareaRef = useRef(null);
   const topSentinelRef = useRef(null);
   const scrollContainerRef = useRef(null);
@@ -632,10 +637,59 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
   };
 
   const onKeyDown = (e) => {
+    if (e.key === "Escape") {
+      setSlashMenuOpen(false);
+      setWizardOpen(false);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (!slashMenuOpen && !wizardOpen) handleSend();
     }
+  };
+
+  const handleTextChange = (e) => {
+    const val = e.target.value.slice(0, MAX_LEN);
+    setText(val);
+    if (val === "/") {
+      setSlashMenuOpen(true);
+      setWizardOpen(false);
+    } else if (val === "" || !val.startsWith("/")) {
+      setSlashMenuOpen(false);
+    }
+  };
+
+  const handleSlashSelect = (type) => {
+    setSlashMenuOpen(false);
+    setText("");
+    if (type === "event") setWizardOpen(true);
+  };
+
+  const handleWizardCreated = (eventData) => {
+    setWizardOpen(false);
+    // The backend already posted the event_card message; next poll picks it up.
+    // For instant feedback, inject an optimistic card into the message list.
+    const meta = eventData || {};
+    const cardMsg = {
+      id: `event-card-${Date.now()}`,
+      sender_id: currentUser?.id,
+      sender_username: currentUser?.username,
+      message_type: "event_card",
+      metadata: {
+        event_id: meta.id,
+        name: meta.name,
+        date: meta.date,
+        start_time: meta.start_time,
+        end_time: meta.end_time,
+        location: meta.location || "",
+        creator_username: currentUser?.username,
+        my_rsvp_status: "ACCEPTED",
+      },
+      content: meta.name || "",
+      is_removed: false,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [cardMsg, ...prev]);
   };
 
   // Precompute which bubbles get a timestamp underneath:
@@ -907,6 +961,12 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
                     setMessages((prev) => prev.map((x) => x.id === updated.id ? updated : x))
                   }
                 />
+              ) : m.message_type === "event_card" ? (
+                <EventCardBubble
+                  key={m.id}
+                  msg={m}
+                  currentUserId={currentUser?.id}
+                />
               ) : (
                 <Bubble
                   key={m.id}
@@ -940,9 +1000,27 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
         <ChatRestrictionBanner restriction={restriction} />
       ) : (
         <div
-          className="border-t px-3 py-2"
+          className="border-t px-3 py-2 relative"
           style={{ borderColor: T.ink08, background: "#fff" }}
         >
+          {slashMenuOpen && !wizardOpen && (
+            <SlashCommandMenu
+              onSelect={handleSlashSelect}
+              onDismiss={() => setSlashMenuOpen(false)}
+            />
+          )}
+          {wizardOpen && (
+            <ChatEventWizard
+              roomId={roomId}
+              memberIds={
+                isGroup
+                  ? (room?.members || []).map((m) => m.id).filter((id) => id !== currentUser?.id)
+                  : otherUser ? [otherUser.id] : []
+              }
+              onClose={() => setWizardOpen(false)}
+              onCreated={handleWizardCreated}
+            />
+          )}
           {replyDraft && (
             <div
               className="mb-1.5 px-2.5 py-1.5 rounded-xl flex items-center gap-2"
@@ -981,7 +1059,7 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
             <textarea
               ref={textareaRef}
               value={text}
-              onChange={(e) => setText(e.target.value.slice(0, MAX_LEN))}
+              onChange={handleTextChange}
               onKeyDown={onKeyDown}
               placeholder={
                 isGroup

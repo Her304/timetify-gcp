@@ -38,7 +38,6 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
 
   const isSchedule = path === "/";
   const isFeed = path === "/feed";
-  const isFriends = path === "/friend";
 
   const avatarLetter = (currentUser?.username?.[0] || currentUser?.email?.[0] || "U").toLowerCase();
 
@@ -75,9 +74,10 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
     fetchNotifications();
   };
 
-  const handleRespondToEventInvite = async (id, action) => {
-    await onRespondToEventInvite?.(id, action);
+  const handleRespondToEventInvite = async (id, action, resolution) => {
+    const result = await onRespondToEventInvite?.(id, action, resolution);
     fetchNotifications();
+    return result;
   };
 
   // Bell badge counts actionable items the user can still act on:
@@ -122,7 +122,6 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
           badge={isFeed ? 0 : unreadChatCount}
         />
         <NavItem active={isSchedule} href="/" icon="schedule" label="schedule" />
-        <NavItem active={isFriends} href="/friend" icon="friends" label="friends" />
       </nav>
 
       {/* Right cluster */}
@@ -176,6 +175,7 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
             <NotificationsPanel
               notifications={notifications}
               loading={notifLoading}
+              currentUser={currentUser}
               onRespondToRequest={handleRespondToRequest}
               onRespondToEventInvite={handleRespondToEventInvite}
               onRefresh={fetchNotifications}

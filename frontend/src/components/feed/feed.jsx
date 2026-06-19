@@ -9,24 +9,32 @@ import { authenticatedFetch } from "@/utils/api";
 import { isLiveSnap, todayLabel, toMins } from "./utils";
 import FilterChip from "./FilterChip";
 import AvatarRow from "./AvatarRow";
-import ChatSearch from "./ChatSearch";
+import PeopleSearch from "./PeopleSearch";
+import RequestsBanner from "./RequestsBanner";
 import GroupChatList from "./GroupChatList";
 import DmInboxList from "./DmInboxList";
 import CoursePickerModal from "./CoursePickerModal";
 import { useChats } from "./hooks/useChats";
 import { useOrderedTiles } from "./hooks/useOrderedTiles";
 import { useMyStatus } from "./hooks/useMyStatus";
+import { useFriendsAvailability } from "./hooks/useFriendsAvailability";
 
 export const Feed = ({
   snapsByCourse = {},
   personalSchedule = [],
   allMyCourses = [],
   friendsList = [],
+  friendRequests = [],
+  searchfriends,
+  sendFriendRequest,
+  respondToFriendRequest,
   currentUser,
   onSnapsChanged,
 }) => {
   const [filter, setFilter] = useState("today"); // today | my_classes | friends
   const [captureCourse, setCaptureCourse] = useState(null);
+  // Friend a snap is being targeted at (null = normal all-friends/audience flow).
+  const [snapTargetFriend, setSnapTargetFriend] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [viewerSnapIdx, setViewerSnapIdx] = useState(null);
   const [creatingDmFor, setCreatingDmFor] = useState(null);
@@ -34,13 +42,16 @@ export const Feed = ({
   const [search, setSearch] = useState("");
   const [groupsExpanded, setGroupsExpanded] = useState(false);
   const [dmsExpanded, setDmsExpanded] = useState(false);
+  const [connectToast, setConnectToast] = useState(false);
 
   const navigate = useNavigate();
 
   const { chatsByFriendId, groupChats } = useChats();
+  const { statusByUsername } = useFriendsAvailability();
 
   // Create-or-get a DM with this friend and route to /chat/<id>.
-  // Same handler powers inbox row clicks and no-snap avatar tile clicks.
+  // Same handler powers inbox row clicks, no-snap avatar tile clicks, and the
+  // search "chat" action.
   const openChat = async (friend) => {
     if (!friend || !friend.id) return;
     if (creatingDmFor) return;
@@ -62,6 +73,17 @@ export const Feed = ({
     } catch {
       setCreatingDmFor(null);
     }
+  };
+
+  // Connect = send a friend request from the people-search "new people" list.
+  const handleConnect = async (id) => {
+    if (!id) return;
+    await sendFriendRequest(id);
+    setConnectToast(true);
+    setTimeout(() => {
+      setConnectToast(false);
+      window.location.reload();
+    }, 1200);
   };
 
   // For the snap-add flow we want every personal course (so the + tile still
@@ -114,7 +136,9 @@ export const Feed = ({
     [snapTiles]
   );
 
-  const handleAddClick = () => {
+  // Course resolution shared by the "+" snap button and the friend-targeted
+  // snap action: pick a single obvious course, else open the picker.
+  const resolveSnapCourse = () => {
     if (myCourses.length === 0) return;
     if (myCourses.length === 1) {
       setCaptureCourse(myCourses[0]);
@@ -148,6 +172,19 @@ export const Feed = ({
     setPickerOpen(true);
   };
 
+  const handleAddClick = () => {
+    setSnapTargetFriend(null);
+    resolveSnapCourse();
+  };
+
+  // Snap aimed at one friend (from the people-search). Pre-targets the audience,
+  // then runs the same course resolution as the "+" flow.
+  const handleSnapTo = (friend) => {
+    if (!friend?.id || myCourses.length === 0) return;
+    setSnapTargetFriend(friend);
+    resolveSnapCourse();
+  };
+
   const handleTileClick = (tile) => {
     if (tile.hasSnap) {
       const idx = snapTiles.findIndex((t) => t.username === tile.username);
@@ -158,9 +195,21 @@ export const Feed = ({
   };
 
   // Inbox rows = orderedTiles annotated with the DM row (if any), then re-sorted
-  // by the locked rule: unread → recent message → snap-havers → alphabetical.
-  // "All friends always show" is preserved — empty-DM friends keep a row.
+  // by the locked rule: unread → free now → last active. "All friends always
+  // show" is preserved — empty-DM friends keep a row.
   const inboxRows = useMemo(() => {
+    const lastActiveTs = (row) => {
+      const msgTs = row.chat?.last_message?.created_at
+        ? new Date(row.chat.last_message.created_at).getTime()
+        : 0;
+      const snapTs = row.friend?.last_snap_at
+        ? new Date(row.friend.last_snap_at).getTime()
+        : 0;
+      const seenTs = row.friend?.last_seen
+        ? new Date(row.friend.last_seen).getTime()
+        : 0;
+      return Math.max(msgTs, snapTs, seenTs);
+    };
     const rows = orderedTiles.map((t) => ({
       ...t,
       chat: t.friend?.id ? chatsByFriendId[t.friend.id] || null : null,
@@ -169,42 +218,15 @@ export const Feed = ({
       const aUnread = (a.chat?.unread_count || 0) > 0 ? 1 : 0;
       const bUnread = (b.chat?.unread_count || 0) > 0 ? 1 : 0;
       if (aUnread !== bUnread) return bUnread - aUnread;
-      const aTs = a.chat?.last_message?.created_at
-        ? new Date(a.chat.last_message.created_at).getTime()
-        : 0;
-      const bTs = b.chat?.last_message?.created_at
-        ? new Date(b.chat.last_message.created_at).getTime()
-        : 0;
-      if (aTs !== bTs) return bTs - aTs;
-      const aSnap = a.hasSnap ? 1 : 0;
-      const bSnap = b.hasSnap ? 1 : 0;
-      if (aSnap !== bSnap) return bSnap - aSnap;
-      return a.username.localeCompare(b.username);
+      const aFree = statusByUsername.get(a.username) === "free" ? 1 : 0;
+      const bFree = statusByUsername.get(b.username) === "free" ? 1 : 0;
+      if (aFree !== bFree) return bFree - aFree;
+      return lastActiveTs(b) - lastActiveTs(a);
     });
     return rows;
-  }, [orderedTiles, chatsByFriendId]);
+  }, [orderedTiles, chatsByFriendId, statusByUsername]);
 
-  const q = search.trim().toLowerCase();
-
-  const filteredGroups = useMemo(() => {
-    if (!q) return groupChats;
-    return groupChats.filter((g) => {
-      if ((g.name || "").toLowerCase().includes(q)) return true;
-      if ((g.last_message?.content || "").toLowerCase().includes(q)) return true;
-      if (g.last_message?.sender_username?.toLowerCase().includes(q)) return true;
-      if ((g.members_preview || []).some((u) => (u.username || "").toLowerCase().includes(q))) return true;
-      return false;
-    });
-  }, [groupChats, q]);
-
-  const filteredRows = useMemo(() => {
-    if (!q) return inboxRows;
-    return inboxRows.filter((t) => {
-      if ((t.username || "").toLowerCase().includes(q)) return true;
-      if ((t.chat?.last_message?.content || "").toLowerCase().includes(q)) return true;
-      return false;
-    });
-  }, [inboxRows, q]);
+  const searching = search.trim().length > 0;
 
   const activeTile = viewerSnapIdx != null ? snapTiles[viewerSnapIdx] : null;
   const prevTile = viewerSnapIdx != null && viewerSnapIdx > 0 ? snapTiles[viewerSnapIdx - 1] : null;
@@ -215,6 +237,15 @@ export const Feed = ({
 
   return (
     <>
+      {connectToast && (
+        <div
+          className="fixed top-4 right-4 px-5 py-3 rounded-full shadow-xl z-50 text-sm font-semibold"
+          style={{ background: T.coral, color: "#fff" }}
+        >
+          friend request sent!
+        </div>
+      )}
+
       <div className="flex flex-col gap-6 pb-24">
         <div className="flex items-end justify-between flex-wrap gap-3">
           <div>
@@ -228,57 +259,77 @@ export const Feed = ({
           <MonoLabel fs={13} ls={1.6}>{todayLabel()}</MonoLabel>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <FilterChip value="today" label="today" dot={T.lime} active={filter === "today"} onSelect={setFilter} />
-          <FilterChip value="my_classes" label="my classes" dot={T.coral} active={filter === "my_classes"} onSelect={setFilter} />
-          <FilterChip value="friends" label="friends" dot={T.lilac} active={filter === "friends"} onSelect={setFilter} />
-          {liveCount > 0 && (
-            <span
-              className="inline-flex flex-col items-center justify-center w-11 h-11 rounded-full ml-auto"
-              style={{
-                background: "#F6D9C1",
-                color: T.coralDk,
-                fontFamily: FF.mono,
-                letterSpacing: 0.4,
-                lineHeight: 1,
-              }}
-            >
-              <span className="text-sm font-semibold">{liveCount}</span>
-              <span className="text-[10px] opacity-70 mt-0.5">on</span>
-            </span>
-          )}
-        </div>
-
-        <AvatarRow
-          orderedTiles={orderedTiles}
-          currentUser={currentUser}
-          myStatus={myStatus}
-          addDisabled={myCourses.length === 0}
-          onAddClick={handleAddClick}
-          onTileClick={handleTileClick}
-        />
-
-        <ChatSearch value={search} onChange={setSearch} />
-
-        <GroupChatList
-          groupChats={groupChats}
-          filteredGroups={filteredGroups}
-          search={search}
-          expanded={groupsExpanded}
-          onToggleExpanded={() => setGroupsExpanded((v) => !v)}
-          onOpenChat={(id) => navigate(`/chat/${id}`)}
-          onOpenCreate={() => setGroupCreateOpen(true)}
-        />
-
-        <DmInboxList
-          inboxRows={inboxRows}
-          filteredRows={filteredRows}
-          search={search}
-          expanded={dmsExpanded}
-          onToggleExpanded={() => setDmsExpanded((v) => !v)}
-          onOpenChat={openChat}
+        <PeopleSearch
+          value={search}
+          onChange={setSearch}
+          searchfriends={searchfriends}
+          acceptedFriends={acceptedFriends}
+          onChat={openChat}
+          onSnap={handleSnapTo}
+          onConnect={handleConnect}
           creatingDmFor={creatingDmFor}
         />
+
+        {!searching && (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <FilterChip value="today" label="today" dot={T.lime} active={filter === "today"} onSelect={setFilter} />
+              <FilterChip value="my_classes" label="my classes" dot={T.coral} active={filter === "my_classes"} onSelect={setFilter} />
+              <FilterChip value="friends" label="friends" dot={T.lilac} active={filter === "friends"} onSelect={setFilter} />
+              {liveCount > 0 && (
+                <span
+                  className="inline-flex flex-col items-center justify-center w-11 h-11 rounded-full ml-auto"
+                  style={{
+                    background: "#F6D9C1",
+                    color: T.coralDk,
+                    fontFamily: FF.mono,
+                    letterSpacing: 0.4,
+                    lineHeight: 1,
+                  }}
+                >
+                  <span className="text-sm font-semibold">{liveCount}</span>
+                  <span className="text-[10px] opacity-70 mt-0.5">on</span>
+                </span>
+              )}
+            </div>
+
+            <AvatarRow
+              orderedTiles={orderedTiles}
+              currentUser={currentUser}
+              myStatus={myStatus}
+              addDisabled={myCourses.length === 0}
+              onAddClick={handleAddClick}
+              onTileClick={handleTileClick}
+            />
+
+            <RequestsBanner
+              friendRequests={friendRequests}
+              onRespond={respondToFriendRequest}
+            />
+
+            <div className="border-t border-ink-15" />
+
+            <GroupChatList
+              groupChats={groupChats}
+              filteredGroups={groupChats}
+              search=""
+              expanded={groupsExpanded}
+              onToggleExpanded={() => setGroupsExpanded((v) => !v)}
+              onOpenChat={(id) => navigate(`/chat/${id}`)}
+              onOpenCreate={() => setGroupCreateOpen(true)}
+            />
+
+            <DmInboxList
+              inboxRows={inboxRows}
+              filteredRows={inboxRows}
+              search=""
+              expanded={dmsExpanded}
+              onToggleExpanded={() => setDmsExpanded((v) => !v)}
+              onOpenChat={openChat}
+              creatingDmFor={creatingDmFor}
+            />
+          </>
+        )}
       </div>
 
       {pickerOpen && (
@@ -289,7 +340,10 @@ export const Feed = ({
             setPickerOpen(false);
             setCaptureCourse(c);
           }}
-          onClose={() => setPickerOpen(false)}
+          onClose={() => {
+            setPickerOpen(false);
+            setSnapTargetFriend(null);
+          }}
         />
       )}
 
@@ -298,8 +352,10 @@ export const Feed = ({
           course={captureCourse}
           friendsList={friendsList}
           currentUser={currentUser}
+          presetAudience={snapTargetFriend ? { friend: snapTargetFriend } : null}
           onClose={() => {
             setCaptureCourse(null);
+            setSnapTargetFriend(null);
             window.location.reload();
           }}
           onUploaded={() => onSnapsChanged && onSnapsChanged()}
