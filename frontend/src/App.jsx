@@ -26,6 +26,17 @@ import Terms from "@/components/terms/terms";
 import Community from "@/components/community/community";
 import Landing from "@/components/landing/Landing";
 import AddEventPage from "@/components/events/AddEventPage";
+import OnboardingTour from "@/components/onboarding/OnboardingTour";
+
+// New-user coach-mark tour. Each step spotlights a real nav anchor
+// (data-tour="…") in the header / bottom bar, in the order the user meets them.
+const ONBOARDING_STEPS = [
+  { target: "schedule", title: "your schedule", body: "your week at a glance — every class and event lives right here." },
+  { target: "bell", title: "notifications", body: "friend requests, event invites and snaps all land in here." },
+  { target: "profile", title: "your profile", body: "tweak your details and profile picture anytime you like." },
+  { target: "add", title: "add & upload", body: "tap + to add classes or events. start by uploading your schedule — we'll parse it for you." },
+  { target: "feed", title: "the feed", body: "your social hub — friends, snaps and study plans. jump in!" },
+];
 
 const simpleItems = [];
 const HeaderNavigationSimpleDemo = () => <HeaderNavigationBase activeUrl="/" items={simpleItems} />;
@@ -246,15 +257,43 @@ const App = () => {
 
   const registerUser = async (formData) => {
     try {
+      // Step 2 sends a FormData (multipart) when an avatar is attached; otherwise
+      // a plain object goes up as JSON. Let the browser set the multipart boundary.
+      const isFormData = formData instanceof FormData;
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/register/`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        headers: isFormData ? {} : { "Content-Type": "application/json" },
+        body: isFormData ? formData : JSON.stringify(formData),
       });
       const data = await response.json();
       if (response.ok) {
         setRegistrationErrors({});
-        window.location.href = "/";
+        // Auto-login with the credentials we just registered so the user lands
+        // signed in rather than bouncing to /login. Pull them from whichever
+        // shape came in (multipart when an avatar was attached, else JSON).
+        const username = isFormData ? formData.get("username") : formData.username;
+        const password = isFormData ? formData.get("password") : formData.password;
+        try {
+          const loginRes = await fetch(`${import.meta.env.VITE_API_URL}/api/login/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          if (loginRes.ok) {
+            const loginData = await loginRes.json();
+            localStorage.setItem("access_token", loginData.access);
+            localStorage.setItem("refresh_token", loginData.refresh);
+            localStorage.setItem("user", JSON.stringify(loginData.user));
+            setToken(loginData.access);
+            setCurrentUser(loginData.user);
+            window.location.href = "/";
+            return;
+          }
+        } catch (err) {
+          console.error("Auto-login after registration failed:", err);
+        }
+        // Account exists but auto-login didn't take — send them to sign in.
+        window.location.href = "/login";
       } else {
         setRegistrationErrors(data);
       }
@@ -478,6 +517,30 @@ const AppShell = ({
     };
   }, [currentUser, location.pathname]);
 
+  // Show the tour for freshly-registered users. Persist completion so it never
+  // reappears; update optimistically so the overlay closes instantly.
+  const completeOnboarding = async () => {
+    setCurrentUser((prev) => {
+      const updated = { ...prev, onboarding_completed: true };
+      localStorage.setItem("user", JSON.stringify(updated));
+      return updated;
+    });
+    try {
+      await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/user/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ onboarding_completed: true }),
+      });
+    } catch {
+      // Non-fatal: the optimistic local flag still dismisses the tour.
+    }
+  };
+
+  // Chat threads hide the mobile nav, so its anchors are missing there — gate the
+  // tour to routes where the nav is fully present.
+  const showOnboarding =
+    !!currentUser && currentUser.onboarding_completed === false && !loading && !isChatThread;
+
   return (
     <div className={`flex flex-col w-full ${currentUser ? "bg-cream" : "bg-white"} ${isLandingRoute ? "min-h-screen" : "h-screen overflow-hidden"}`}>
       {currentUser ? (
@@ -631,6 +694,17 @@ const AppShell = ({
           unreadChatCount={unreadChatCount}
           onAddClass={() => navigate("/Add")}
           onAddEvent={() => navigate("/add-event")}
+        />
+      )}
+
+      {showOnboarding && (
+        <OnboardingTour
+          steps={ONBOARDING_STEPS}
+          onFinish={async () => {
+            await completeOnboarding();
+            navigate("/Add");
+          }}
+          onSkip={completeOnboarding}
         />
       )}
 

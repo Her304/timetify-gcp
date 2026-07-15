@@ -1,0 +1,27 @@
+{% extends "emails/layout.html" %}
+
+{% block title %}{{ title|default:"Timetify" }}{% endblock %}
+{% block preheader %}{{ preheader|default:title }}{% endblock %}
+{% block eyebrow %}{{ eyebrow|default:"TIMETIFY" }}{% endblock %}
+
+{% block content %}
+{% if title %}<h1 class="title">{{ title }}</h1>{% endif %}
+{% for block in blocks %}
+  {% if block.type == "callout" %}
+<div style="background-color: rgba(31, 26, 34, 0.03); border: 1px solid rgba(31, 26, 34, 0.08); border-radius: 12px; padding: 16px 18px; margin: 0 0 16px;">
+  <p style="font-family: 'Geist', -apple-system, sans-serif; font-size: 14px; line-height: 1.6; color: rgba(31, 26, 34, 0.75); margin: 0; white-space: pre-line;">{{ block.text }}</p>
+</div>
+  {% else %}
+<p class="body-text" style="white-space: pre-line;">{{ block.text }}</p>
+  {% endif %}
+{% endfor %}
+{% if cta_url %}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin: 8px 0 4px;">
+  <tr>
+    <td>
+      <a href="{{ cta_url }}" class="button">{{ cta_label|default:"OPEN TIMETIFY" }}</a>
+    </td>
+  </tr>
+</table>
+{% endif %}
+{% endblock %}

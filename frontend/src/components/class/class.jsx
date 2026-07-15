@@ -1,9 +1,164 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
-import { T, FF, MonoLabel, Icon } from "@/components/shared/brand";
+import { T, FF, MonoLabel, Icon, PillBtn } from "@/components/shared/brand";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+const editInputCls = "w-full px-3 py-2 text-sm rounded-xl border border-ink-15 bg-cream focus:outline-none focus:border-coral";
+
+const EditorSectionHead = ({ label, onAdd }) => (
+  <div className="flex justify-between items-center border-b border-ink-8 pb-1">
+    <MonoLabel>{label}</MonoLabel>
+    <button type="button" onClick={onAdd} className="text-xs font-semibold text-coral hover:text-coral-dark lowercase flex items-center gap-1">
+      <Icon name="plus" size={12} stroke={2.6} />
+      add
+    </button>
+  </div>
+);
+
+// Inline editor for a saved course: core fields + add/edit/delete of weeks,
+// exams and assignments. Kept at module scope so it isn't re-created each render.
+const CourseEditor = ({ draft, setDraft, onSave, onCancel, saving, error, onDelete, dropping }) => {
+  const [confirmDrop, setConfirmDrop] = useState(false);
+  const setField = (f, v) => setDraft((d) => ({ ...d, [f]: v }));
+  const setItem = (kind, i, f, v) => setDraft((d) => {
+    const arr = [...d[kind]];
+    arr[i] = { ...arr[i], [f]: v };
+    return { ...d, [kind]: arr };
+  });
+  const removeItem = (kind, i) => setDraft((d) => ({ ...d, [kind]: d[kind].filter((_, idx) => idx !== i) }));
+  const addItem = (kind) => setDraft((d) => {
+    const blank = kind === "weeks"
+      ? { week_number: d.weeks.reduce((m, w) => Math.max(m, Number(w.week_number) || 0), 0) + 1, week_topic: "", week_date: d.start_date || "" }
+      : kind === "exams"
+        ? { exam_topic: "", exam_date: "", exam_details: "" }
+        : { assignment_topic: "", assignment_due: "", assignment_detail: "" };
+    return { ...d, [kind]: [...d[kind], blank] };
+  });
+
+  return (
+    <div className="bg-white border border-ink-8 rounded-2xl p-5 space-y-6 shadow-sm">
+      {/* core info */}
+      <div className="space-y-3">
+        <MonoLabel>class info</MonoLabel>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="block space-y-1">
+            <span className="text-xs text-ink-60 lowercase">name</span>
+            <input className={editInputCls} value={draft.course_name} onChange={(e) => setField("course_name", e.target.value)} />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs text-ink-60 lowercase">classroom</span>
+            <input className={editInputCls} value={draft.classroom} onChange={(e) => setField("classroom", e.target.value)} placeholder="e.g. SB212" />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs text-ink-60 lowercase">days</span>
+            <input className={editInputCls} value={draft.rep_date} onChange={(e) => setField("rep_date", e.target.value)} placeholder="Monday,Wednesday" />
+          </label>
+          <div className="block space-y-1">
+            <span className="text-xs text-ink-60 lowercase">time</span>
+            <div className="flex items-center gap-2">
+              <input className={editInputCls} value={draft.start_time} onChange={(e) => setField("start_time", e.target.value)} placeholder="13:30" />
+              <span className="text-ink-40">→</span>
+              <input className={editInputCls} value={draft.end_time} onChange={(e) => setField("end_time", e.target.value)} placeholder="15:30" />
+            </div>
+          </div>
+          <label className="block space-y-1">
+            <span className="text-xs text-ink-60 lowercase">starts</span>
+            <input type="date" className={editInputCls} value={draft.start_date} onChange={(e) => setField("start_date", e.target.value)} />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs text-ink-60 lowercase">ends</span>
+            <input type="date" className={editInputCls} value={draft.end_date} onChange={(e) => setField("end_date", e.target.value)} />
+          </label>
+        </div>
+      </div>
+
+      {/* weeks */}
+      <div className="space-y-2">
+        <EditorSectionHead label="weeks" onAdd={() => addItem("weeks")} />
+        {draft.weeks.map((w, i) => (
+          <div key={i} className="flex gap-2 items-center">
+            <span className="text-xs text-ink-60 w-12 shrink-0" style={{ fontFamily: FF.mono }}>wk {w.week_number}</span>
+            <input className={`${editInputCls} flex-1`} placeholder="topic" value={w.week_topic} onChange={(e) => setItem("weeks", i, "week_topic", e.target.value)} />
+            <input type="date" className={`${editInputCls} w-40 shrink-0`} value={w.week_date} onChange={(e) => setItem("weeks", i, "week_date", e.target.value)} />
+            <button type="button" onClick={() => removeItem("weeks", i)} className="text-coral-dark shrink-0"><Icon name="trash" size={14} /></button>
+          </div>
+        ))}
+        {draft.weeks.length === 0 && <p className="text-xs text-ink-40">no weeks.</p>}
+      </div>
+
+      {/* exams */}
+      <div className="space-y-2">
+        <EditorSectionHead label="exams" onAdd={() => addItem("exams")} />
+        {draft.exams.map((e, i) => (
+          <div key={i} className="bg-cream rounded-xl p-3 border border-ink-8 space-y-2">
+            <div className="flex gap-2 items-center">
+              <input className={`${editInputCls} flex-1`} placeholder="exam title" value={e.exam_topic} onChange={(ev) => setItem("exams", i, "exam_topic", ev.target.value)} />
+              <input type="date" className={`${editInputCls} w-40 shrink-0`} value={e.exam_date} onChange={(ev) => setItem("exams", i, "exam_date", ev.target.value)} />
+              <button type="button" onClick={() => removeItem("exams", i)} className="text-coral-dark shrink-0"><Icon name="trash" size={14} /></button>
+            </div>
+            <input className={editInputCls} placeholder="details (optional)" value={e.exam_details || ""} onChange={(ev) => setItem("exams", i, "exam_details", ev.target.value)} />
+          </div>
+        ))}
+        {draft.exams.length === 0 && <p className="text-xs text-ink-40">no exams.</p>}
+      </div>
+
+      {/* assignments */}
+      <div className="space-y-2">
+        <EditorSectionHead label="assignments" onAdd={() => addItem("assignments")} />
+        {draft.assignments.map((a, i) => (
+          <div key={i} className="bg-cream rounded-xl p-3 border border-ink-8 space-y-2">
+            <div className="flex gap-2 items-center">
+              <input className={`${editInputCls} flex-1`} placeholder="assignment title" value={a.assignment_topic} onChange={(ev) => setItem("assignments", i, "assignment_topic", ev.target.value)} />
+              <input type="date" className={`${editInputCls} w-40 shrink-0`} value={a.assignment_due} onChange={(ev) => setItem("assignments", i, "assignment_due", ev.target.value)} />
+              <button type="button" onClick={() => removeItem("assignments", i)} className="text-coral-dark shrink-0"><Icon name="trash" size={14} /></button>
+            </div>
+            <input className={editInputCls} placeholder="details (optional)" value={a.assignment_detail || ""} onChange={(ev) => setItem("assignments", i, "assignment_detail", ev.target.value)} />
+          </div>
+        ))}
+        {draft.assignments.length === 0 && <p className="text-xs text-ink-40">no assignments.</p>}
+      </div>
+
+      {/* footer */}
+      <div className="flex flex-col gap-2 pt-4 border-t border-ink-8">
+        {error && <p className="text-xs text-coral-dark lowercase" style={{ fontFamily: FF.mono }}>{error}</p>}
+        <div className="flex gap-3">
+          <PillBtn onClick={onCancel} bg="#fff" fg={T.ink60} size="lg" style={{ flex: 1, border: `1px solid ${T.ink15}` }}>
+            cancel
+          </PillBtn>
+          <PillBtn onClick={onSave} disabled={saving} bg={T.ink} fg={T.cream} size="lg" style={{ flex: 2 }}>
+            {saving ? "saving…" : "save all →"}
+          </PillBtn>
+        </div>
+
+        {/* drop / delete the whole course */}
+        {!confirmDrop ? (
+          <button
+            type="button"
+            onClick={() => setConfirmDrop(true)}
+            className="flex items-center justify-center gap-1.5 text-xs font-semibold text-coral-dark hover:text-coral lowercase mt-1"
+          >
+            <Icon name="trash" size={13} />
+            drop this class
+          </button>
+        ) : (
+          <div className="flex flex-col items-center gap-2 mt-1 bg-cream rounded-xl p-3 border border-ink-8">
+            <p className="text-xs text-ink-60 lowercase text-center">this permanently removes the class and all its weeks, exams &amp; assignments.</p>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => setConfirmDrop(false)} className="text-xs font-semibold text-ink-40 hover:text-ink-60 lowercase">
+                keep it
+              </button>
+              <PillBtn onClick={onDelete} disabled={dropping} bg={T.coral} fg="#fff" size="sm">
+                {dropping ? "dropping…" : "yes, drop it"}
+              </PillBtn>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const AccordionSection = ({ title, children }) => {
   const [open, setOpen] = useState(false);
@@ -29,8 +184,105 @@ const AccordionSection = ({ title, children }) => {
 
 export const ClassDetails = ({ Class_details = [] }) => {
   const { courseName } = useParams();
+  const navigate = useNavigate();
   const [fetchedCourse, setFetchedCourse] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+
+  const startEdit = () => {
+    const c = fetchedCourse;
+    if (!c) return;
+    setDraft({
+      id: c.id,
+      course_name: c.course_name || "",
+      classroom: c.classroom || "",
+      start_time: c.start_time || "",
+      end_time: c.end_time || "",
+      rep_date: c.rep_date || "",
+      start_date: c.start_date || "",
+      end_date: c.end_date || "",
+      weeks: (c.weeks || []).map((w) => ({ id: w.id, week_number: w.week_number, week_topic: w.week_topic || "", week_date: (w.week_date || "").slice(0, 10) })),
+      exams: (c.exams || []).map((e) => ({ id: e.id, exam_topic: e.exam_topic || "", exam_date: (e.exam_date || "").slice(0, 10), exam_details: e.exam_details || "" })),
+      assignments: (c.assignments || []).map((a) => ({ id: a.id, assignment_topic: a.assignment_topic || "", assignment_due: (a.assignment_due || "").slice(0, 10), assignment_detail: a.assignment_detail || "" })),
+    });
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => { setEditing(false); setDraft(null); setSaveError(null); };
+
+  const [dropping, setDropping] = useState(false);
+  const dropCourse = async () => {
+    if (!draft?.id) return;
+    setDropping(true);
+    setSaveError(null);
+    const base = import.meta.env.VITE_API_URL;
+    try {
+      // DELETE cascades to child courses, weeks, exams and assignments server-side.
+      await req(`${base}/api/courses/${draft.id}/`, "DELETE");
+      window.location.href = "/class";
+    } catch (err) {
+      console.error("Failed to drop course", err);
+      setSaveError("couldn't drop this class. please try again.");
+      setDropping(false);
+    }
+  };
+
+  const req = async (url, method, body) => {
+    const res = await authenticatedFetch(url, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error(`${method} ${url} -> ${res.status}`);
+    return res;
+  };
+
+  const saveEdit = async () => {
+    const d = draft;
+    const bad =
+      d.weeks.some((w) => !w.week_topic.trim() || !w.week_date) ||
+      d.exams.some((e) => !e.exam_topic.trim() || !e.exam_date) ||
+      d.assignments.some((a) => !a.assignment_topic.trim() || !a.assignment_due);
+    if (bad) { setSaveError("every week, exam and assignment needs a title and a date."); return; }
+    setSaving(true);
+    setSaveError(null);
+    const base = import.meta.env.VITE_API_URL;
+    const toDT = (s) => `${s}T00:00:00Z`;
+    try {
+      await req(`${base}/api/courses/${d.id}/`, "PATCH", {
+        course_name: d.course_name,
+        classroom: d.classroom,
+        start_time: d.start_time,
+        end_time: d.end_time,
+        rep_date: d.rep_date,
+        start_date: d.start_date || null,
+        end_date: d.end_date || null,
+      });
+      const sync = async (kind, orig, arr, payload) => {
+        const keptIds = new Set(arr.filter((x) => x.id).map((x) => x.id));
+        for (const o of (orig || [])) {
+          if (!keptIds.has(o.id)) await req(`${base}/api/${kind}/${o.id}/`, "DELETE");
+        }
+        for (const it of arr) {
+          const p = payload(it);
+          if (it.id) await req(`${base}/api/${kind}/${it.id}/`, "PATCH", p);
+          else await req(`${base}/api/${kind}/`, "POST", p);
+        }
+      };
+      await sync("weeks", fetchedCourse.weeks, d.weeks, (w) => ({ course: d.id, week_number: Number(w.week_number) || 1, week_topic: w.week_topic, week_date: w.week_date }));
+      await sync("exams", fetchedCourse.exams, d.exams, (e) => ({ course: d.id, exam_topic: e.exam_topic, exam_date: toDT(e.exam_date), exam_details: e.exam_details || "" }));
+      await sync("assignments", fetchedCourse.assignments, d.assignments, (a) => ({ course: d.id, assignment_topic: a.assignment_topic, assignment_due: toDT(a.assignment_due), assignment_detail: a.assignment_detail || "" }));
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to save course edits", err);
+      setSaveError("couldn't save changes. please try again.");
+      setSaving(false);
+    }
+  };
 
   const displayClasses = courseName
     ? Class_details.filter((cls) => cls.base_course === courseName)
@@ -124,17 +376,43 @@ export const ClassDetails = ({ Class_details = [] }) => {
 
   return (
     <div className="space-y-8 pb-12">
-      <div>
-        <MonoLabel>my classes</MonoLabel>
-        <h1 className="text-4xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
-          {courseName ? courseName.toLowerCase() : 'pick a class'}
-        </h1>
-        {fetchedCourse?.course_name && (
-          <p className="text-ink-60 text-sm mt-1 lowercase">{fetchedCourse.course_name}</p>
+      <div className="flex justify-between items-start gap-3">
+        <div>
+          <MonoLabel>my classes</MonoLabel>
+          <h1 className="text-4xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
+            {courseName ? courseName.toLowerCase() : 'pick a class'}
+          </h1>
+          {fetchedCourse?.course_name && (
+            <p className="text-ink-60 text-sm mt-1 lowercase">{fetchedCourse.course_name}</p>
+          )}
+        </div>
+        {courseName && fetchedCourse && !editing && (
+          <PillBtn onClick={startEdit} bg="#fff" fg={T.coral} size="sm" style={{ border: `1px solid ${T.coral}` }}>
+            <Icon name="edit" size={14} />
+            edit
+          </PillBtn>
         )}
       </div>
 
       {courseName ? (
+        editing && draft ? (
+          <CourseEditor draft={draft} setDraft={setDraft} onSave={saveEdit} onCancel={cancelEdit} saving={saving} error={saveError} onDelete={dropCourse} dropping={dropping} />
+        ) : !loading && !fetchedCourse && displayClasses.length === 0 ? (
+          <div className="bg-white border border-ink-8 rounded-2xl p-8 flex flex-col items-center text-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-cream border border-ink-8 flex items-center justify-center">
+              <Icon name="plus" size={20} color={T.coral} stroke={2.4} />
+            </div>
+            <h2 className="text-2xl text-ink lowercase" style={{ fontFamily: FF.serif, letterSpacing: -0.5 }}>
+              {courseName.toLowerCase()} isn't on your timetify yet
+            </h2>
+            <p className="text-sm text-ink-60 lowercase max-w-sm">
+              you haven't added this class. add it to your schedule and we'll parse your outline into weeks, exams and assignments for you.
+            </p>
+            <PillBtn onClick={() => navigate("/Add")} bg={T.coral} fg="#fff" size="lg" style={{ marginTop: 8 }}>
+              add {courseName.toLowerCase()} →
+            </PillBtn>
+          </div>
+        ) : (
         <div className="space-y-5">
           <div className="bg-white border border-ink-8 rounded-2xl p-5 space-y-4">
             {loading ? (
@@ -289,6 +567,7 @@ export const ClassDetails = ({ Class_details = [] }) => {
             )}
           </div>
         </div>
+        )
       ) : (
         <div className="space-y-4">
           <p className="text-ink-60 text-sm lowercase">select a course from the sidebar to view details.</p>

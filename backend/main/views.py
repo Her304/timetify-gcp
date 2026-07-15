@@ -1,3 +1,4 @@
+import json
 import logging
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
@@ -23,6 +24,7 @@ from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, 
 from datetime import datetime, timedelta, time as dt_time
 from django.contrib.auth import get_user_model
 from main.utils import send_email
+from main.account_email import send_welcome_email
 
 User = get_user_model()
 
@@ -193,6 +195,7 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
+            send_welcome_email(user)
             return Response({
                 'message': 'User created successfully',
                 'user': {
@@ -205,7 +208,27 @@ class RegisterView(APIView):
                 }
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
+
+class RegistrationAvailabilityView(APIView):
+    """Pre-flight check for sign-up step 1: reports whether a username / email is
+    already taken so the client can catch it on 'next' instead of after the whole
+    flow. Matched case-insensitively to mirror how login resolves usernames
+    (username__iexact) and normal email semantics. Never authoritative — the
+    RegisterView serializer still enforces uniqueness on final submit."""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        errors = {}
+        username = (request.data.get('username') or '').strip()
+        email = (request.data.get('email') or '').strip()
+        if username and User.objects.filter(username__iexact=username).exists():
+            errors['username'] = ["that username is already taken."]
+        if email and User.objects.filter(email__iexact=email).exists():
+            errors['email'] = ["an account with this email already exists."]
+        return Response(errors)
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         # Username should not be case sensitive
@@ -378,6 +401,23 @@ class CourseAnalyzeView(APIView):
                     status=status.HTTP_429_TOO_MANY_REQUESTS,
                 )
 
+        # Optional "refine" context: once the student confirms a term start date
+        # on the review page, we pass it back so the model can resolve
+        # week-relative deadlines into concrete dates. Untrusted input — only the
+        # start/end dates are extracted and normalised.
+        user_context = None
+        raw_context = request.data.get('context')
+        if raw_context:
+            try:
+                parsed_ctx = json.loads(raw_context) if isinstance(raw_context, str) else raw_context
+            except (ValueError, TypeError):
+                parsed_ctx = None
+            if isinstance(parsed_ctx, dict) and parsed_ctx.get('start_date'):
+                user_context = {
+                    'start_date': convert_date(parsed_ctx.get('start_date')),
+                    'end_date': convert_date(parsed_ctx.get('end_date')),
+                }
+
         file_obj = request.FILES['course_outline']
 
         if file_obj.size > MAX_UPLOAD_SIZE:
@@ -417,7 +457,7 @@ class CourseAnalyzeView(APIView):
                 for chunk in file_obj.chunks():
                     destination.write(chunk)
 
-            result = process_course_outline(temp_path)
+            result = process_course_outline(temp_path, user_context=user_context)
             # Only log a reparse AFTER a successful analysis. Failed attempts
             # shouldn't burn the user's daily quota.
             if is_reparse:
@@ -451,6 +491,38 @@ def _parse_rep_days(rep):
     if not rep:
         return set()
     return {d.strip().capitalize() for d in str(rep).split(',') if d.strip()}
+
+
+_WEEKDAY_INDEX = {
+    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+    'friday': 4, 'saturday': 5, 'sunday': 6,
+}
+
+
+def _weekly_occurrences(start_str, end_str, weekday, max_count=40):
+    """Every date on `weekday` between start and end (inclusive), as ISO strings.
+
+    Used to expand a recurring weekly assignment (e.g. homework due each Sunday)
+    into one dated instance per week. Bounded by max_count as a safety cap.
+    """
+    if not start_str or not end_str or not weekday:
+        return []
+    idx = _WEEKDAY_INDEX.get(str(weekday).strip().lower())
+    if idx is None:
+        return []
+    try:
+        start = datetime.strptime(start_str, '%Y-%m-%d')
+        end = datetime.strptime(end_str, '%Y-%m-%d')
+    except (ValueError, TypeError):
+        return []
+    if end < start:
+        return []
+    cur = start + timedelta(days=(idx - start.weekday()) % 7)
+    out = []
+    while cur <= end and len(out) < max_count:
+        out.append(cur.strftime('%Y-%m-%d'))
+        cur += timedelta(days=7)
+    return out
 
 
 def _find_overlap_day(days_a, sa, ea, days_b, sb, eb):
@@ -582,6 +654,7 @@ class CourseFinalizeView(APIView):
                     
                     # Create details for THIS course (whether main or secondary)
                     course_start_date = convert_date(course_data.get('start_date')) or start_date_str
+                    course_end_date = convert_date(course_data.get('end_date')) or convert_date(main_course_data.get('end_date'))
                     if course_start_date:
                         start_datetime = datetime.strptime(course_start_date, '%Y-%m-%d')
                         for w in course_data.get("weeks", []):
@@ -607,17 +680,38 @@ class CourseFinalizeView(APIView):
                                 exam_details=e_item.get("exam_details", "")
                             )
 
-                    # Create assignments for THIS course
+                    # Create assignments for THIS course. A weekly recurring
+                    # assignment (e.g. homework due each Sunday) has no single
+                    # due date, so expand it into one instance per week across
+                    # the term; everything else stays a single dated assignment.
                     for a_item in course_data.get("assignments", []):
-                        due_date = convert_date(a_item.get('assignment_due')) or course_start_date
-                        if due_date:
-                            Assignment.objects.create(
-                                user=request.user,
-                                course=current_course,
-                                assignment_due=f"{due_date}T00:00:00Z",
-                                assignment_topic=a_item.get("assignment_topic", ""),
-                                assignment_detail=a_item.get("assignment_detail", "")
+                        topic = a_item.get("assignment_topic", "")
+                        detail = a_item.get("assignment_detail", "")
+                        is_weekly = str(a_item.get("recurrence") or "").strip().lower() == "weekly"
+                        occurrences = []
+                        if is_weekly:
+                            occurrences = _weekly_occurrences(
+                                course_start_date, course_end_date, a_item.get("recurrence_weekday")
                             )
+                        if occurrences:
+                            for occ in occurrences:
+                                Assignment.objects.create(
+                                    user=request.user,
+                                    course=current_course,
+                                    assignment_due=f"{occ}T00:00:00Z",
+                                    assignment_topic=topic,
+                                    assignment_detail=detail,
+                                )
+                        else:
+                            due_date = convert_date(a_item.get('assignment_due')) or course_start_date
+                            if due_date:
+                                Assignment.objects.create(
+                                    user=request.user,
+                                    course=current_course,
+                                    assignment_due=f"{due_date}T00:00:00Z",
+                                    assignment_topic=topic,
+                                    assignment_detail=detail,
+                                )
 
             return Response({"success": True}, status=status.HTTP_201_CREATED)
         except Exception:
@@ -647,7 +741,7 @@ class WeekListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-class WeekDetailView(generics.RetrieveUpdateAPIView):
+class WeekDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = WeekSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -664,7 +758,7 @@ class ExamListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-class ExamDetailView(generics.RetrieveUpdateAPIView):
+class ExamDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ExamSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -681,7 +775,7 @@ class AssignmentListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-class AssignmentDetailView(generics.RetrieveUpdateAPIView):
+class AssignmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = AssignmentSerializer
     permission_classes = [permissions.IsAuthenticated]
     

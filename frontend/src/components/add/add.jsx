@@ -67,6 +67,68 @@ const StepIndicator = ({ step }) => {
     );
 };
 
+// --- Refine merge helpers ------------------------------------------------
+// After the user confirms a start date and asks the AI to refine, we get a
+// fresh parse back. We MERGE it into what the user already has rather than
+// replacing: keep every manual edit, only fill fields the user left blank
+// (mostly dates the AI can now resolve) and append genuinely new items.
+const _norm = (s) => String(s ?? "").trim().toLowerCase();
+
+const fillBlanks = (target, src, keys) => {
+    const merged = { ...target };
+    for (const k of keys) {
+        const cur = merged[k];
+        const isBlank = cur == null || String(cur).trim() === "";
+        const hasSrc = src[k] != null && String(src[k]).trim() !== "";
+        if (isBlank && hasSrc) merged[k] = src[k];
+    }
+    return merged;
+};
+
+// Merge two item lists: for each existing item, find its match in the AI list
+// (by isMatch) and fill blank fillKeys from it; then append unmatched AI items.
+const mergeList = (existingArr, aiArr, isMatch, fillKeys) => {
+    const ai = aiArr || [];
+    const used = new Set();
+    const out = (existingArr || []).map((item) => {
+        const idx = ai.findIndex((a, i) => !used.has(i) && isMatch(a, item));
+        if (idx === -1) return item;
+        used.add(idx);
+        return fillBlanks(item, ai[idx], fillKeys);
+    });
+    ai.forEach((a, i) => { if (!used.has(i)) out.push(a); });
+    return out;
+};
+
+const mergeRefinedCourses = (existing, refined) => {
+    const ai = refined || [];
+    return (existing || []).map((cur) => {
+        const match =
+            ai.find((r) => r.course_id && r.course_id === cur.course_id) ||
+            ai.find((r) => _norm(r.course_name) === _norm(cur.course_name));
+        if (!match) return cur;
+        const merged = fillBlanks(cur, match, [
+            "classroom", "start_time", "end_time", "rep_date", "start_date", "end_date", "term",
+        ]);
+        merged.weeks = mergeList(
+            cur.weeks, match.weeks,
+            (a, b) => a.week_number === b.week_number,
+            ["week_topic", "week_date"],
+        );
+        merged.exams = mergeList(
+            cur.exams, match.exams,
+            (a, b) => _norm(a.exam_topic) === _norm(b.exam_topic),
+            ["exam_date", "exam_details"],
+        );
+        merged.assignments = mergeList(
+            cur.assignments, match.assignments,
+            (a, b) => _norm(a.assignment_topic) === _norm(b.assignment_topic),
+            ["assignment_due", "assignment_detail", "recurrence", "recurrence_weekday"],
+        );
+        return merged;
+    });
+};
+
 export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors = {} }) {
     const [formData, setFormData] = useState({
         course_name: "",
@@ -82,6 +144,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     const [selectedFile, setSelectedFile] = useState(null);
     const [status, setStatus] = useState("manual");
     const [viewState, setViewState] = useState("initial");
+    const [isDragging, setIsDragging] = useState(false);
     const [analysisResult, setAnalysisResult] = useState(null);
     const [isSuccess, setIsSuccess] = useState(false);
     const [selectedDays, setSelectedDays] = useState([]);
@@ -104,6 +167,29 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     const handleFileChange = (files) => {
         if (!files || files.length === 0) { setSelectedFile(null); return; }
         setSelectedFile(files[0]);
+    };
+
+    const isDropDisabled = () => viewState === "analyzing";
+
+    const handleDropZoneDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDropDisabled()) setIsDragging(true);
+    };
+
+    const handleDropZoneDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDropZoneDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        if (!isDropDisabled() && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleFileChange(e.dataTransfer.files);
+        }
     };
 
     const handleChange = (e) => {
@@ -167,6 +253,47 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         } else {
             setReparseError("reparse failed. try again in a moment.");
             setViewState("confirming");
+        }
+    };
+
+    // Re-run the AI with the start date the user confirmed, so week-relative
+    // deadlines resolve to real dates. Result is MERGED into current edits.
+    const handleRefine = async () => {
+        if (!selectedFile) {
+            setReparseError("can't refine — try uploading again from step 1.");
+            return;
+        }
+        if (reparseRemaining !== null && reparseRemaining <= 0) return;
+        const anchor = analysisResult.courses.find((c) => c.start_date && String(c.start_date).trim());
+        if (!anchor) {
+            setReparseError("add a start date first, then refine to fill in deadlines.");
+            return;
+        }
+        setReparseError(null);
+        const prevCourses = analysisResult.courses;
+        setViewState("analyzing");
+        const data = new FormData();
+        data.append("course_outline", selectedFile);
+        data.append("is_reparse", "true");
+        data.append("context", JSON.stringify({
+            start_date: anchor.start_date,
+            end_date: anchor.end_date || null,
+        }));
+        const result = await analyzeCourse(data);
+        if (result && result.success) {
+            const merged = mergeRefinedCourses(prevCourses, result.data.courses);
+            setAnalysisResult({ ...result.data, courses: merged });
+            if (typeof result.data.reparse_remaining === "number") {
+                setReparseRemaining(result.data.reparse_remaining);
+            }
+            setViewState("editing");
+        } else if (result && result.rateLimited) {
+            setReparseRemaining(0);
+            setReparseError(result.data?.details || "daily reparse limit reached.");
+            setViewState("editing");
+        } else {
+            setReparseError("refine failed. try again in a moment.");
+            setViewState("editing");
         }
     };
 
@@ -278,9 +405,9 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
 
     if (viewState === "analyzing") {
         return (
-            <div className="min-h-full flex items-center justify-center py-12 px-4">
-                <div className="w-full max-w-2xl bg-white p-10 rounded-3xl border border-ink-8 text-center space-y-8">
-                    <StepIndicator step={2}/>
+            <div className="space-y-8 pb-12">
+                <StepIndicator step={2}/>
+                <div className="bg-white rounded-3xl border border-ink-8 shadow-sm text-center space-y-8 p-10">
                     <div className="relative w-24 h-24 mx-auto">
                         <div className="absolute inset-0 border-4 border-ink-8 rounded-full"></div>
                         <div className="absolute inset-0 border-4 rounded-full border-t-transparent animate-spin" style={{ borderColor: T.coral, borderTopColor: 'transparent' }}></div>
@@ -291,7 +418,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                     <div className="space-y-2">
                         <MonoLabel>step 2 of 4</MonoLabel>
                         <h3 className="text-3xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
-                            parsing ur pdfs… one sec.
+                            parsing ur outlines… one sec.
                         </h3>
                         <p className="text-ink-60 text-sm">reading text · extracting times…</p>
                     </div>
@@ -458,13 +585,14 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
             if (!c.start_time || !String(c.start_time).trim()) out.push("start_time");
             if (!c.end_time || !String(c.end_time).trim()) out.push("end_time");
             if (!c.classroom || !String(c.classroom).trim()) out.push("classroom");
+            if (!c.start_date || !String(c.start_date).trim()) out.push("start_date");
+            if (!c.end_date || !String(c.end_date).trim()) out.push("end_date");
             return out;
         });
         const anyMissing = missingFieldsByCourse.some((m) => m.length > 0);
         const canReparse = !!selectedFile && (reparseRemaining === null || reparseRemaining > 0);
         return (
-            <div className="min-h-full py-12 px-4 sm:px-6 lg:px-8">
-                <div className="w-full max-w-4xl mx-auto space-y-8 bg-white p-10 rounded-3xl border border-ink-8">
+            <div className="max-w-4xl mx-auto w-full space-y-8 pb-12">
                     <StepIndicator step={3}/>
                     <div>
                         <MonoLabel>step 3 of 4 · we found {analysisResult.courses.length} class{analysisResult.courses.length === 1 ? '' : 'es'}</MonoLabel>
@@ -492,6 +620,19 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                           : `ask ai to reparse (${reparseRemaining} left today)`}
                                 </PillBtn>
                             )}
+                            {selectedFile && (
+                                <PillBtn
+                                    onClick={handleRefine}
+                                    disabled={!canReparse}
+                                    bg={canReparse ? T.coral : "#fff"}
+                                    fg={canReparse ? "#fff" : T.ink60}
+                                    size="sm"
+                                    style={{ border: `1px solid ${canReparse ? T.coral : T.ink15}` }}
+                                >
+                                    <Icon name="calendar" size={14} color={canReparse ? "#fff" : T.ink60}/>
+                                    refine with my dates
+                                </PillBtn>
+                            )}
                         </div>
                         {reparseError && (
                             <p className="mt-2 text-xs text-coral-dark lowercase" style={{ fontFamily: FF.mono }}>
@@ -515,7 +656,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
 
                     <div className="space-y-6">
                         {analysisResult.courses.map((course, cIdx) => (
-                            <div key={cIdx} className="p-6 bg-cream rounded-2xl border border-ink-8 space-y-5">
+                            <div key={cIdx} className="p-6 bg-white rounded-2xl border border-ink-8 shadow-sm space-y-5">
                                 <div className="flex justify-between items-start flex-wrap gap-3">
                                     <div className="min-w-0">
                                         <MonoLabel>{course.course_id}</MonoLabel>
@@ -580,6 +721,49 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                     </div>
                                 </div>
 
+                                {/* Course dates — start date drives every week + deadline calc */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <MonoLabel>starts</MonoLabel>
+                                        {isEdit ? (
+                                            <input
+                                                type="date"
+                                                className={`w-full px-3 py-2 text-sm border rounded-full bg-white ${course.start_date ? "border-ink-15" : "border-coral"}`}
+                                                value={course.start_date || ""}
+                                                onChange={(e) => handleUpdateCourse(cIdx, 'start_date', e.target.value)}
+                                            />
+                                        ) : course.start_date ? (
+                                            <p className="font-medium text-ink" style={{ fontFamily: FF.mono }}>{course.start_date}</p>
+                                        ) : (
+                                            <p className="text-sm text-coral-dark lowercase italic" style={{ fontFamily: FF.mono }}>
+                                                missing — click <b>edit</b> to add
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-1">
+                                        <MonoLabel>ends</MonoLabel>
+                                        {isEdit ? (
+                                            <input
+                                                type="date"
+                                                className={`w-full px-3 py-2 text-sm border rounded-full bg-white ${course.end_date ? "border-ink-15" : "border-coral"}`}
+                                                value={course.end_date || ""}
+                                                onChange={(e) => handleUpdateCourse(cIdx, 'end_date', e.target.value)}
+                                            />
+                                        ) : course.end_date ? (
+                                            <p className="font-medium text-ink" style={{ fontFamily: FF.mono }}>{course.end_date}</p>
+                                        ) : (
+                                            <p className="text-sm text-coral-dark lowercase italic" style={{ fontFamily: FF.mono }}>
+                                                missing — click <b>edit</b> to add
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                                {isEdit && (
+                                    <p className="text-[10px] text-ink-60 lowercase -mt-3" style={{ fontFamily: FF.mono, letterSpacing: 0.4 }}>
+                                        week dates + deadlines are built from the start date. set it, then hit <b>refine with my dates</b> to fill in week-based due dates.
+                                    </p>
+                                )}
+
                                 {/* Weeks */}
                                 {(course.weeks && course.weeks.length > 0 || isEdit) && (
                                     <div className="space-y-3">
@@ -629,7 +813,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
                                             {course.exams.map((exam, eIdx) => (
-                                                <div key={eIdx} className="bg-white p-3 rounded-xl border border-ink-8 group">
+                                                <div key={eIdx} className="bg-cream p-3 rounded-xl border border-ink-8 group">
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
                                                             <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral bg-transparent" value={exam.exam_topic} onChange={(e) => handleUpdateItem(cIdx, 'exams', eIdx, 'exam_topic', e.target.value)} />
@@ -673,7 +857,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
                                             {course.assignments.map((assignment, aIdx) => (
-                                                <div key={aIdx} className="bg-white p-3 rounded-xl border border-ink-8 group">
+                                                <div key={aIdx} className="bg-cream p-3 rounded-xl border border-ink-8 group">
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
                                                             <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral w-full bg-transparent" value={assignment.assignment_topic} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_topic', e.target.value)} />
@@ -691,14 +875,37 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                     ) : (
                                                         <p className="text-xs text-ink-60 mb-2">{assignment.assignment_detail}</p>
                                                     )}
-                                                    <div className="flex gap-2 text-xs items-center">
-                                                        <span className="font-semibold text-coral-dark">due:</span>
-                                                        {isEdit ? (
-                                                            <input type="date" className="border border-ink-15 rounded-full px-2 py-0.5 bg-white" value={assignment.assignment_due} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_due', e.target.value)} />
-                                                        ) : (
-                                                            <span style={{ fontFamily: FF.mono }} className="text-ink">{assignment.assignment_due}</span>
-                                                        )}
-                                                    </div>
+                                                    {_norm(assignment.recurrence) === "weekly" ? (
+                                                        <div className="flex gap-2 text-xs items-center flex-wrap">
+                                                            <span className="inline-flex items-center gap-1 font-semibold text-coral-dark bg-coral-light/40 border border-coral rounded-full px-2 py-0.5 lowercase" style={{ fontFamily: FF.mono }}>
+                                                                <Icon name="bolt" size={11} color={T.coralDk}/>
+                                                                weekly
+                                                            </span>
+                                                            {isEdit ? (
+                                                                <>
+                                                                    <span className="text-ink-60">on</span>
+                                                                    <input className="w-28 px-2 py-0.5 border border-ink-15 rounded-full bg-white" placeholder="Sunday" value={assignment.recurrence_weekday || ""} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence_weekday', e.target.value)} />
+                                                                    <button onClick={() => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence', "")} className="text-ink-60 hover:text-ink underline lowercase">make one-off</button>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-ink-60 lowercase" style={{ fontFamily: FF.mono }}>
+                                                                    {assignment.recurrence_weekday ? `every ${assignment.recurrence_weekday.toLowerCase()}` : "every week"} · one deadline per week
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex gap-2 text-xs items-center flex-wrap">
+                                                            <span className="font-semibold text-coral-dark">due:</span>
+                                                            {isEdit ? (
+                                                                <>
+                                                                    <input type="date" className="border border-ink-15 rounded-full px-2 py-0.5 bg-white" value={assignment.assignment_due || ""} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_due', e.target.value)} />
+                                                                    <button onClick={() => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence', "weekly")} className="text-ink-60 hover:text-ink underline lowercase">repeats weekly?</button>
+                                                                </>
+                                                            ) : (
+                                                                <span style={{ fontFamily: FF.mono }} className="text-ink">{assignment.assignment_due}</span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             ))}
                                             {isEdit && course.assignments.length === 0 && (
@@ -727,7 +934,6 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                         </div>
                     </div>
                 </div>
-            </div>
         );
     }
 
@@ -850,8 +1056,11 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                 ) : (
                     <form className="space-y-5" onSubmit={handleSubmit}>
                         <div
-                            className="rounded-2xl p-8 text-center relative overflow-hidden"
-                            style={{ border: `2px dashed ${T.coral}`, background: T.coralLt + "55" }}
+                            onDragOver={handleDropZoneDragOver}
+                            onDragLeave={handleDropZoneDragLeave}
+                            onDrop={handleDropZoneDrop}
+                            className="rounded-2xl p-8 text-center relative overflow-hidden transition-colors"
+                            style={{ border: `2px dashed ${T.coral}`, background: T.coralLt + (isDragging ? "aa" : "55") }}
                         >
                             <Star color={T.lime} size={28} style={{ position: 'absolute', top: 16, left: 24, transform: 'rotate(-15deg)' }}/>
                             <Blob color={T.lilac} size={70} seed={2} style={{ position: 'absolute', top: 14, right: 18, opacity: 0.6 }}/>
@@ -859,7 +1068,6 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                 {[
                                     { ext: 'PDF', c: T.coral, fg: '#fff', rot: -6 },
                                     { ext: 'DOCX', c: T.lilac, fg: T.ink, rot: 0 },
-                                    { ext: 'JPG', c: T.lime, fg: T.ink, rot: 6 },
                                 ].map((f) => (
                                     <div
                                         key={f.ext}
@@ -879,9 +1087,6 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                             </h3>
                             <p className="text-sm text-ink-60 mb-4">pdf, docx · up to 20mb</p>
                             <InputFile
-                                isRequired
-                                label="browse files"
-                                hint=""
                                 onChange={handleFileChange}
                                 isLoading={viewState === "analyzing"}
                             />

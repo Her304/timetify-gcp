@@ -22,6 +22,32 @@ _SIG_PNG = b"\x89PNG\r\n\x1a\n"
 _SIG_RIFF = b"RIFF"
 _SIG_WEBP = b"WEBP"
 
+
+def validate_profile_picture_file(value):
+    """Shared guard for uploaded avatars: size cap + extension/content match.
+    Used by both the profile-edit and sign-up serializers."""
+    if value is None:
+        return value
+    if value.size > PROFILE_PICTURE_MAX_SIZE:
+        raise serializers.ValidationError("Image must be 5 MB or smaller.")
+    name = (getattr(value, 'name', '') or '').lower()
+    ext = name[name.rfind('.'):] if '.' in name else ''
+    if ext not in PROFILE_PICTURE_ALLOWED_EXT:
+        raise serializers.ValidationError("Only JPG, PNG, or WebP images are allowed.")
+    head = value.read(16)
+    value.seek(0)
+    if ext in ('.jpg', '.jpeg'):
+        ok = head.startswith(_SIG_JPEG)
+    elif ext == '.png':
+        ok = head.startswith(_SIG_PNG)
+    elif ext == '.webp':
+        ok = len(head) >= 12 and head.startswith(_SIG_RIFF) and head[8:12] == _SIG_WEBP
+    else:
+        ok = False
+    if not ok:
+        raise serializers.ValidationError("Image content does not match its extension.")
+    return value
+
 class UserSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
     shared_courses = serializers.SerializerMethodField()
@@ -33,7 +59,7 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'email', 'university', 'major', 'grad_year',
             'status', 'shared_courses', 'last_seen', 'last_snap_at',
-            'profile_picture', 'profile_picture_url',
+            'profile_picture', 'profile_picture_url', 'onboarding_completed',
         ]
         # username and email cannot be PATCHed via this serializer — they are identity
         # fields and require a dedicated flow (e.g. email verification) to change.
@@ -94,27 +120,7 @@ class UserSerializer(serializers.ModelSerializer):
         return url
 
     def validate_profile_picture(self, value):
-        if value is None:
-            return value
-        if value.size > PROFILE_PICTURE_MAX_SIZE:
-            raise serializers.ValidationError("Image must be 5 MB or smaller.")
-        name = (getattr(value, 'name', '') or '').lower()
-        ext = name[name.rfind('.'):] if '.' in name else ''
-        if ext not in PROFILE_PICTURE_ALLOWED_EXT:
-            raise serializers.ValidationError("Only JPG, PNG, or WebP images are allowed.")
-        head = value.read(16)
-        value.seek(0)
-        if ext in ('.jpg', '.jpeg'):
-            ok = head.startswith(_SIG_JPEG)
-        elif ext == '.png':
-            ok = head.startswith(_SIG_PNG)
-        elif ext == '.webp':
-            ok = len(head) >= 12 and head.startswith(_SIG_RIFF) and head[8:12] == _SIG_WEBP
-        else:
-            ok = False
-        if not ok:
-            raise serializers.ValidationError("Image content does not match its extension.")
-        return value
+        return validate_profile_picture_file(value)
 
     def update(self, instance, validated_data):
         # Capture the previous file name as a plain string so we can purge it
@@ -164,10 +170,31 @@ class PublicUserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     password2 = serializers.CharField(write_only=True, required=True)
+    # Required consent gate — the client must send True (agreement to the terms,
+    # privacy policy and community guidelines).
+    accepted_terms = serializers.BooleanField(required=True)
 
     class Meta:
         model = User
-        fields = ('username', 'password', 'password2', 'email', 'university', 'major', 'grad_year')
+        fields = (
+            'username', 'password', 'password2', 'email', 'university', 'major', 'grad_year',
+            'profile_picture', 'accepted_terms', 'marketing_opt_in',
+        )
+        extra_kwargs = {
+            # Optional avatar chosen in sign-up step 2; upload-only like the profile edit flow.
+            'profile_picture': {'write_only': True, 'required': False},
+            'marketing_opt_in': {'required': False},
+        }
+
+    def validate_profile_picture(self, value):
+        return validate_profile_picture_file(value)
+
+    def validate_accepted_terms(self, value):
+        if value is not True:
+            raise serializers.ValidationError(
+                "You must accept the terms, privacy policy and community guidelines to sign up."
+            )
+        return value
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:

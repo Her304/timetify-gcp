@@ -14,6 +14,14 @@ class CustomUser(AbstractUser):
     # Indexed so the friends page can sort/filter by recency cheaply.
     last_seen = models.DateTimeField(null=True, blank=True, db_index=True)
     profile_picture = models.ImageField(upload_to='profile_pictures/', null=True, blank=True)
+    # Set at sign-up: a record that the user accepted the terms, privacy policy
+    # and community guidelines (required gate), plus their optional consent to
+    # receive product/blog/promotional emails.
+    accepted_terms = models.BooleanField(default=False)
+    marketing_opt_in = models.BooleanField(default=False)
+    # False until the new-user coach-mark tour is finished/skipped; drives whether
+    # the onboarding overlay shows on load.
+    onboarding_completed = models.BooleanField(default=False)
 
     REQUIRED_FIELDS = ['email', 'university', 'major', 'grad_year']
 

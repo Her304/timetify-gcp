@@ -90,6 +90,7 @@ export const MobileTopBar = ({ currentUser, onRespondToRequest, onRespondToEvent
               setPanelOpen(true);
               fetchNotifications();
             }}
+            data-tour="bell"
             className="relative w-10 h-10 rounded-full bg-white border border-ink-15 flex items-center justify-center hover:bg-ink-8 transition-colors"
             aria-label="notifications"
           >

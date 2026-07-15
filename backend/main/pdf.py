@@ -33,6 +33,10 @@ class ExtractedAssignment(BaseModel):
     assignment_due: Optional[_Date] = None
     assignment_topic: str
     assignment_detail: Optional[str] = None
+    # "weekly" if the assignment repeats every week instead of having a single
+    # due date; recurrence_weekday is the full English weekday it's due/held.
+    recurrence: Optional[str] = None
+    recurrence_weekday: Optional[str] = None
 
 
 class ExtractedCourse(BaseModel):
@@ -179,6 +183,19 @@ When the syllabus contains a schedule or assignment table:
   - Do NOT collapse a 13-row assignment table into 3 generic items.
   - Use the row's literal text for the topic field (don't paraphrase).
 
+## 4b. RECURRING ASSIGNMENTS — REPEAT WEEKLY, NO SINGLE DATE
+
+Some assignments repeat every week rather than having one due date, e.g.
+"weekly online homework, due each Sunday", "lab quizzes every Monday",
+"reading responses due weekly". These have NO single due date. For each such item:
+  - set recurrence = "weekly"
+  - set recurrence_weekday = the full English weekday it is due or held (e.g. "Sunday")
+  - leave assignment_due null (there is no one date — the schedule will be expanded later)
+A normal one-off assignment keeps recurrence and recurrence_weekday null and fills
+assignment_due as usual. Only mark recurrence when the document clearly says it
+repeats every week. If it repeats weekly but names no weekday, still set
+recurrence = "weekly" and leave recurrence_weekday null.
+
 ## 5. REP_DATE — WEEKLY MEETING DAYS
 
 `rep_date` is the day(s) the class meets every week. This field is CRITICAL —
@@ -222,10 +239,39 @@ If unsure whether a secondary or lab section exists, OMIT it.
 """.strip()
 
 
-def process_course_outline(file_path: str, model: str = "gpt-5-mini") -> dict:
+def _refine_section(user_context: dict) -> str:
+    """Extra prompt block used when the student has confirmed a term start date.
+
+    Week-relative deadlines ("week 3", "end of week 5") are impossible to resolve
+    to a concrete date without knowing when week 1 begins. Once the student fills
+    in the start date on the review page we feed it back here so the model can
+    convert those relative deadlines into real ISO dates.
+    """
+    start = user_context.get("start_date")
+    end = user_context.get("end_date")
+    end_clause = f" and end_date to {end}" if end else ""
+    end_line = f" and the term ends {end}." if end else "."
+    return f"""
+## STUDENT-CONFIRMED TERM DATES — RESOLVE DEADLINES WITH THESE
+
+The student confirms the term starts {start}{end_line} Treat these as ground truth:
+- Set each course's start_date to {start}{end_clause} unless the document clearly states a different date for that specific course.
+- Week N begins on start_date + (N-1)*7 days. Use this to convert any week-relative
+  deadline ("week 3", "by end of week 5", "final week") into a concrete ISO date.
+- Fill exam_date and assignment_due where the document gives a week number or
+  relative timing that you previously left null but can now compute.
+Do NOT invent deadlines with no basis in the document — only resolve ones the
+document actually references.""".strip()
+
+
+def process_course_outline(file_path: str, model: str = "gpt-5-mini", user_context: dict = None) -> dict:
     # Reload env so the API key survives `manage.py runserver` autoreloads.
     _load_env()
     client = OpenAI()
+
+    extraction_prompt = EXTRACTION_PROMPT
+    if user_context and user_context.get("start_date"):
+        extraction_prompt = EXTRACTION_PROMPT + "\n\n" + _refine_section(user_context)
 
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".pdf":
@@ -244,7 +290,7 @@ def process_course_outline(file_path: str, model: str = "gpt-5-mini") -> dict:
                         "role": "user",
                         "content": [
                             {"type": "file", "file": {"file_id": uploaded.id}},
-                            {"type": "text", "text": EXTRACTION_PROMPT},
+                            {"type": "text", "text": extraction_prompt},
                         ],
                     },
                 ],
@@ -263,7 +309,7 @@ def process_course_outline(file_path: str, model: str = "gpt-5-mini") -> dict:
             model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": EXTRACTION_PROMPT + "\n\n## Syllabus content:\n" + text[:15000]},
+                {"role": "user", "content": extraction_prompt + "\n\n## Syllabus content:\n" + text[:15000]},
             ],
             response_format=ExtractedCoursesResponse,
         )
