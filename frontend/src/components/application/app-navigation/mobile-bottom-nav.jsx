@@ -8,10 +8,11 @@ import AddMenu from "./AddMenu";
 // two surfaces feel like the same nav. NavIcon's path inherits `currentColor`
 // so we set the wrapper's color to flip between cream (inactive) and white
 // (active on coral disc).
-const TabBtn = ({ active, href, icon, label, badgeDot }) => (
+const TabBtn = ({ active, href, icon, label, badgeDot, tourId }) => (
   <a
     href={href}
     aria-label={label}
+    data-tour={tourId}
     className="flex items-center justify-center flex-1"
   >
     <span
@@ -39,6 +40,7 @@ const AddTab = ({ onClick }) => (
     type="button"
     onClick={onClick}
     aria-label="add"
+    data-tour="add"
     className="flex items-center justify-center flex-1"
   >
     <span
@@ -59,6 +61,7 @@ const AvatarTab = ({ active, currentUser }) => {
     <a
       href="/profile"
       aria-label="profile"
+      data-tour="profile"
       className="flex items-center justify-center flex-1"
     >
       <ProfileAvatar
@@ -100,8 +103,9 @@ export const MobileBottomNav = ({ currentUser, unreadChatCount = 0, onAddClass, 
             icon="feed"
             label="feed"
             badgeDot={unreadChatCount > 0 && !isFeed}
+            tourId="feed"
           />
-          <TabBtn active={isSchedule} href="/" icon="schedule" label="schedule" />
+          <TabBtn active={isSchedule} href="/" icon="schedule" label="schedule" tourId="schedule" />
           <AddTab onClick={() => setAddMenuOpen(true)} />
           <AvatarTab active={isProfile} currentUser={currentUser} />
         </div>

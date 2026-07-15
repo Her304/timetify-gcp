@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>{% block title %}Timetify{% endblock %}</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@500&display=swap" rel="stylesheet">
+<!--[if mso]>
+<style type="text/css">
+  body, table, td { font-family: Arial, sans-serif !important; }
+</style>
+<![endif]-->
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #F8F4ED;
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #1F1A22;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  .preheader {
+    display: none;
+    max-height: 0;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    mso-hide: all;
+  }
+  .wrapper {
+    width: 100%;
+    background-color: #F8F4ED;
+    padding: 40px 16px;
+  }
+  .card {
+    max-width: 560px;
+    margin: 0 auto;
+    background-color: #FCFAF5;
+    border: 1px solid rgba(31, 26, 34, 0.10);
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(31, 26, 34, 0.08);
+  }
+  .header-cell {
+    padding: 28px 32px;
+    border-bottom: 1px solid rgba(31, 26, 34, 0.08);
+  }
+  .logo-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background-color: #ED6A4A;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .logo-mark span {
+    font-family: 'Bricolage Grotesque', Georgia, serif;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 28px;
+  }
+  .wordmark {
+    font-family: 'Bricolage Grotesque', Georgia, serif;
+    font-size: 16px;
+    font-weight: 500;
+    color: #1F1A22;
+    padding-left: 10px;
+  }
+  .eyebrow {
+    font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: rgba(31, 26, 34, 0.4);
+  }
+  .content-cell {
+    padding: 32px;
+  }
+  h1.title {
+    font-family: 'Bricolage Grotesque', Georgia, serif;
+    font-size: 22px;
+    font-weight: 600;
+    color: #1F1A22;
+    margin: 0 0 16px;
+    line-height: 1.3;
+  }
+  p.body-text {
+    font-size: 15px;
+    line-height: 1.65;
+    color: rgba(31, 26, 34, 0.7);
+    margin: 0 0 16px;
+  }
+  .button {
+    display: inline-block;
+    background-color: #ED6A4A;
+    color: #ffffff !important;
+    font-family: 'Geist', -apple-system, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+    padding: 14px 28px;
+    border-radius: 10px;
+  }
+  .footer {
+    padding: 28px 32px 8px;
+    text-align: center;
+  }
+  .footer p {
+    font-family: 'Geist', -apple-system, sans-serif;
+    font-size: 12px;
+    line-height: 1.8;
+    color: rgba(31, 26, 34, 0.4);
+    margin: 0 0 8px;
+  }
+  .footer a {
+    color: rgba(31, 26, 34, 0.6);
+    text-decoration: underline;
+  }
+  @media only screen and (max-width: 600px) {
+    .wrapper { padding: 24px 12px; }
+    .card { border-radius: 16px; }
+    .header-cell, .content-cell { padding: 24px 22px; }
+  }
+</style>
+</head>
+<body>
+  <span class="preheader">{% block preheader %}{% endblock %}</span>
+  <div class="wrapper">
+    <table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td class="header-cell">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td width="28" class="logo-mark"><span>t</span></td>
+              <td class="wordmark">timetify</td>
+              <td class="eyebrow" align="right">{% block eyebrow %}TIMETIFY{% endblock %}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td class="content-cell">
+          {% block content %}{% endblock %}
+        </td>
+      </tr>
+    </table>
+    <div class="footer">
+      {% block footer %}
+      <p>&copy; 2026 Timetify &middot; Made for the way students actually plan.</p>
+      {% endblock %}
+    </div>
+  </div>
+</body>
+</html>

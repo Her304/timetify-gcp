@@ -1,0 +1,70 @@
+{% extends "emails/layout.html" %}
+
+{% block title %}Welcome to Timetify{% endblock %}
+{% block preheader %}Your week, your people, one place to plan it.{% endblock %}
+{% block eyebrow %}WELCOME{% endblock %}
+
+{% block content %}
+<h1 class="title">Hey {{ username }}, you're in 🎉</h1>
+<p class="body-text">
+  Timetify's ready to go. Add your courses, see who's free, and stop the group
+  chat archaeology every time someone wants to hang out.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
+  <tr>
+    <td style="padding: 8px 0;">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td width="10" style="padding-right: 12px;">
+            <div style="width: 10px; height: 10px; border-radius: 50%; background-color: #ED6A4A;"></div>
+          </td>
+          <td style="font-family: 'Geist', -apple-system, sans-serif; font-size: 14px; color: #1F1A22;">
+            Drop in your syllabus &mdash; we'll build your schedule for you
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px 0;">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td width="10" style="padding-right: 12px;">
+            <div style="width: 10px; height: 10px; border-radius: 50%; background-color: #C8B0DF;"></div>
+          </td>
+          <td style="font-family: 'Geist', -apple-system, sans-serif; font-size: 14px; color: #1F1A22;">
+            See exactly when your friends are actually free
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px 0;">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td width="10" style="padding-right: 12px;">
+            <div style="width: 10px; height: 10px; border-radius: 50%; background-color: #C9EE6F;"></div>
+          </td>
+          <td style="font-family: 'Geist', -apple-system, sans-serif; font-size: 14px; color: #1F1A22;">
+            Lock in a plan and get everyone on the same page
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin: 8px 0 4px;">
+  <tr>
+    <td>
+      <a href="{{ frontend_url }}" class="button">OPEN TIMETIFY</a>
+    </td>
+  </tr>
+</table>
+
+<p class="body-text" style="font-size: 13px; margin-top: 28px;">
+  Questions or feedback? Just reply to this email &mdash; a real person reads these.
+</p>
+{% endblock %}

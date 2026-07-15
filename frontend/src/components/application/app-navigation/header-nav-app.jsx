@@ -6,9 +6,10 @@ import { NotificationsPanel } from "./NotificationsPanel";
 import { NavIcon } from "./nav-icons";
 import AddMenu from "./AddMenu";
 
-const NavItem = ({ active, href, icon, label, badge }) => (
+const NavItem = ({ active, href, icon, label, badge, tourId }) => (
   <a
     href={href}
+    data-tour={tourId}
     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
       active ? "bg-ink text-cream" : "text-ink-60 hover:text-ink"
     }`}
@@ -120,8 +121,9 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
           icon="feed"
           label="feed"
           badge={isFeed ? 0 : unreadChatCount}
+          tourId="feed"
         />
-        <NavItem active={isSchedule} href="/" icon="schedule" label="schedule" />
+        <NavItem active={isSchedule} href="/" icon="schedule" label="schedule" tourId="schedule" />
       </nav>
 
       {/* Right cluster */}
@@ -131,6 +133,7 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
           <button
             type="button"
             onClick={() => setAddMenuOpen((v) => !v)}
+            data-tour="add"
             className="w-10 h-10 rounded-full flex items-center justify-center transition-opacity hover:opacity-90"
             style={{ background: T.coral }}
             aria-label="add"
@@ -157,6 +160,7 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
               setPanelOpen(next);
               if (next) fetchNotifications();
             }}
+            data-tour="bell"
             className="w-10 h-10 rounded-full bg-white border border-ink-15 flex items-center justify-center hover:bg-ink-8 transition-colors"
             aria-label="notifications"
           >
@@ -184,7 +188,7 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
           )}
         </div>
 
-        <a href="/profile" className="hover:opacity-90 transition-opacity">
+        <a href="/profile" data-tour="profile" className="hover:opacity-90 transition-opacity">
           <ProfileAvatar
             profilePictureUrl={currentUser?.profile_picture_url}
             name={avatarLetter}

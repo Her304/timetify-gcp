@@ -15,6 +15,7 @@ import logging
 
 from django.conf import settings
 from django.core.mail import send_mail
+from django.template.loader import render_to_string
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +26,38 @@ def _from_email() -> str:
     )
 
 
+def _blocks_from_body(body: str) -> list[dict]:
+    """Split a plain-text email body into template blocks, promoting the AI
+    assessment section (if present) to a highlighted callout box."""
+    marker = '--- AI assessment ---'
+    blocks = []
+    for para in body.split('\n\n'):
+        para = para.strip('\n')
+        if not para:
+            continue
+        if para.startswith(marker):
+            blocks.append({'type': 'callout', 'text': para[len(marker):].strip('\n')})
+        else:
+            blocks.append({'type': 'text', 'text': para})
+    return blocks
+
+
 def _send(to_email: str, subject: str, body: str) -> bool:
     if not to_email:
         return False
     try:
+        html_body = render_to_string('emails/transactional.html', {
+            'title': subject,
+            'eyebrow': 'MODERATION',
+            'blocks': _blocks_from_body(body),
+        })
         send_mail(
             subject=subject,
             message=body,
             from_email=_from_email(),
             recipient_list=[to_email],
             fail_silently=False,
+            html_message=html_body,
         )
         return True
     except Exception:

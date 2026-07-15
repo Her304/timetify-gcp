@@ -271,6 +271,10 @@ CORS_ALLOW_CREDENTIALS = True
 APPEND_SLASH = False
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+# Canonical public host for backend-rendered pages (e.g. the password reset
+# email link) — used instead of whatever Cloud Run hostname a request
+# happened to arrive on (the ugly *.run.app URL vs. the timetify.net alias).
+CANONICAL_DOMAIN = os.environ.get("CANONICAL_DOMAIN", "timetify.net")
 
 AUTH_USER_MODEL = 'main.CustomUser'
 
@@ -292,6 +296,7 @@ ANYMAIL = {
 }
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "onboarding@resend.dev")
 MODERATION_FROM_EMAIL = os.environ.get("MODERATION_FROM_EMAIL") or DEFAULT_FROM_EMAIL
+WELCOME_FROM_EMAIL = os.environ.get("WELCOME_FROM_EMAIL") or "hello@timetify.net"
 MODERATION_ADMIN_EMAIL = os.environ.get("MODERATION_ADMIN_EMAIL")
 PASSWORD_RESET_TIMEOUT = 86400
 

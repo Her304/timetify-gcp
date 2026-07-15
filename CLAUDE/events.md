@@ -1,0 +1,12 @@
+# Events
+
+- Endpoints: `GET/POST /api/events/?week=YYYY-MM-DD`, `GET/PATCH/DELETE /api/events/<pk>/` (creator-only), `PATCH /api/events/invites/<pk>/`, `POST /api/events/<pk>/request-join/`, `POST /api/events/<pk>/rsvp/`.
+- **`/rsvp/`**: lightweight accept/decline from a chat event card — finds the caller's invite by event PK, no invite PK needed. Body: `{status: "ACCEPTED"|"DECLINED"}`.
+- **`/create` slash command in chat**: typing `/` in the chat input opens `SlashCommandMenu`; selecting "event" opens `ChatEventWizard` (2-step: name/date/time → location). On submit, calls `POST /api/events/` with `source_chat_room_id` + all chat member IDs as `invite_user_ids`. Backend auto-posts an `event_card` message to that room. Frontend injects an optimistic card immediately. `EventCardBubble` renders going/can't-go RSVP buttons calling `/rsvp/`. Components: `components/chat/{ChatEventWizard,EventCardBubble}.jsx`.
+- **Repeating events expand** in list response — each occurrence has `occurrence_date` set; frontend places tiles by that.
+- **Visibility**: PRIVATE/SEMI → creator + ACCEPTED invitees; PUBLIC → accepted friends of creator. PENDING invitees see bell invite only.
+- **Chat room**: created eagerly if `create_chat=True` (default); no lazy fallback. Accept adds member; delete event → room's events SET_NULL but room stays.
+- **Join requests**: PUBLIC + `allow_join_requests=True` only. Host accepts/declines via invites endpoint.
+- **Conflict resolution**: overlap → `409 {error:"overlap", creator_conflicts, invitee_conflicts}`. Resend with `conflict_resolution` (`skip`|`keep_both`) + `proceed_invitee_conflicts`. Skip records (`CourseSkip`, `EventOccurrenceSkip`) CASCADE-delete with course/event.
+- **Schedule skips**: `GET /api/schedule-skips/?week=YYYY-MM-DD` returns `{course_skips, event_skips}`.
+- Frontend: `components/events/{AddEventModal,EventBlock,EventDetailsModal,ConflictSheet}.jsx`. `EventBlock` lilac, `z-index: 10`. `ConflictSheet.jsx` variants: `creator`, `self`, `host`.
