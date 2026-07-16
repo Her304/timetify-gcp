@@ -9,6 +9,8 @@ import { ChatThread } from "@/components/chat/ChatThread";
 import { ClassDetails } from "@/components/class/class";
 import Register from "@/components/register/register";
 import Login from "@/components/login/login";
+import ForgotPassword from "@/components/login/ForgotPassword";
+import ResetPasswordConfirm from "@/components/login/ResetPasswordConfirm";
 import { HeaderNavigationBase } from "@/components/application/app-navigation/header-navigation";
 import Add from "@/components/add/add";
 import Profile from "@/components/user/profile";
@@ -20,6 +22,8 @@ import NotFound from "@/components/shared/NotFound";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
 import { Footer } from "@/components/application/footer/footer";
 import About from "@/components/about/about";
+import Blog from "@/components/blog/Blog";
+import BlogPost from "@/components/blog/BlogPost";
 import Help from "@/components/help/help";
 import Privacy from "@/components/privacy/privacy";
 import Terms from "@/components/terms/terms";
@@ -567,7 +571,7 @@ const AppShell = ({
       )}
 
       <main ref={mainRef} className={`flex-1 ${isLandingRoute ? "pt-16" : "overflow-y-auto"} flex flex-col`}>
-        <div className={`flex-1 ${(currentUser && location.pathname !== "/add-event") || ["/about", "/help", "/privacy", "/terms", "/community"].includes(location.pathname) ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
+        <div className={`flex-1 ${(currentUser && location.pathname !== "/add-event") || ["/about", "/help", "/privacy", "/terms", "/community"].includes(location.pathname) || location.pathname.startsWith("/blog") ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
           <Routes>
             <Route
               path="/"
@@ -647,6 +651,8 @@ const AppShell = ({
             />
             <Route path="/register" element={<Register registerUser={registerUser} errors={registrationErrors} />} />
             <Route path="/login" element={<Login loginUser={loginUser} errors={loginErrors} />} />
+            <Route path="/reset-password" element={<ForgotPassword />} />
+            <Route path="/reset-password/:uid/:token" element={<ResetPasswordConfirm />} />
             <Route
               path="/Add"
               element={
@@ -676,6 +682,8 @@ const AppShell = ({
               }
             />
             <Route path="/about" element={<About />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
             <Route path="/help" element={<Help />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
@@ -683,7 +691,7 @@ const AppShell = ({
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
-        <div className={isLandingRoute ? "" : "hidden md:block"}>
+        <div className={currentUser ? "hidden md:block" : ""}>
           <Footer currentUser={currentUser} />
         </div>
       </main>

@@ -7,7 +7,7 @@ from .models import (
     ChatRoom, ChatRoomMember, Message,
     Report, AiReport, Appeal, UserBlock, FunctionRestriction,
     NotificationPreference, SnapGroup, SnapGroupMember,
-    Event, EventInvite,
+    Event, EventInvite, BlogPost,
 )
 
 User = get_user_model()
@@ -47,6 +47,36 @@ def validate_profile_picture_file(value):
     if not ok:
         raise serializers.ValidationError("Image content does not match its extension.")
     return value
+
+
+BLOG_COVER_MAX_SIZE = 5 * 1024 * 1024  # 5 MB, matches profile picture cap
+
+
+def validate_blog_cover_image(value):
+    """Same size/extension/magic-byte guard as validate_profile_picture_file,
+    applied to BlogPost.cover_image uploads from the admin authoring form."""
+    if value is None:
+        return value
+    if value.size > BLOG_COVER_MAX_SIZE:
+        raise serializers.ValidationError("Image must be 5 MB or smaller.")
+    name = (getattr(value, 'name', '') or '').lower()
+    ext = name[name.rfind('.'):] if '.' in name else ''
+    if ext not in PROFILE_PICTURE_ALLOWED_EXT:
+        raise serializers.ValidationError("Only JPG, PNG, or WebP images are allowed.")
+    head = value.read(16)
+    value.seek(0)
+    if ext in ('.jpg', '.jpeg'):
+        ok = head.startswith(_SIG_JPEG)
+    elif ext == '.png':
+        ok = head.startswith(_SIG_PNG)
+    elif ext == '.webp':
+        ok = len(head) >= 12 and head.startswith(_SIG_RIFF) and head[8:12] == _SIG_WEBP
+    else:
+        ok = False
+    if not ok:
+        raise serializers.ValidationError("Image content does not match its extension.")
+    return value
+
 
 class UserSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
@@ -205,7 +235,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         validated_data.pop('password2')
         user = User.objects.create_user(**validated_data)
         return user
-    
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    new_password1 = serializers.CharField(write_only=True, required=True, validators=[validate_password])
+    new_password2 = serializers.CharField(write_only=True, required=True)
+
+    def validate(self, attrs):
+        if attrs['new_password1'] != attrs['new_password2']:
+            raise serializers.ValidationError({"new_password2": "The two password fields didn't match."})
+        return attrs
+
+
 class WeekSerializer(serializers.ModelSerializer):
     class Meta:
         model = Week
@@ -797,3 +838,16 @@ class EventCreateSerializer(serializers.ModelSerializer):
         ids = list({uid for uid in attrs.get('invite_user_ids', []) if uid != creator_id})
         attrs['invite_user_ids'] = ids
         return attrs
+
+
+class BlogPostListSerializer(serializers.ModelSerializer):
+    author_username = serializers.CharField(source='author.username', default=None, read_only=True)
+
+    class Meta:
+        model = BlogPost
+        fields = ['slug', 'title', 'excerpt', 'cover_image', 'author_username', 'published_at']
+
+
+class BlogPostDetailSerializer(BlogPostListSerializer):
+    class Meta(BlogPostListSerializer.Meta):
+        fields = BlogPostListSerializer.Meta.fields + ['content']

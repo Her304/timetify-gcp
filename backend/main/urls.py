@@ -6,6 +6,8 @@ urlpatterns = [
     path('api/register/', views.RegisterView.as_view(), name='register'),
     path('api/register/check/', views.RegistrationAvailabilityView.as_view(), name='register-check'),
     path('api/login/', views.LoginView.as_view(), name='login'),
+    path('api/password-reset/', views.PasswordResetRequestView.as_view(), name='password-reset-request'),
+    path('api/password-reset/confirm/<str:uidb64>/<str:token>/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('api/courses/', views.CourseListCreateView.as_view(), name='course-list'),
     path('api/courses/<int:pk>/', views.CourseDetailView.as_view(), name='course-detail'),
     path('api/weeks/', views.WeekListCreateView.as_view(), name='week-list'),
@@ -65,6 +67,9 @@ urlpatterns = [
     path('api/events/<int:pk>/request-join/', views.EventJoinRequestView.as_view(), name='event-request-join'),
     path('api/events/<int:pk>/rsvp/', views.EventRSVPView.as_view(), name='event-rsvp'),
     path('api/schedule-skips/', views.ScheduleSkipView.as_view(), name='schedule-skips'),
+    # Blog
+    path('api/blog/', views.BlogPostListView.as_view(), name='blog-list'),
+    path('api/blog/<slug:slug>/', views.BlogPostDetailView.as_view(), name='blog-detail'),
     path('api/events/<int:pk>/', views.EventDetailView.as_view(), name='event-detail'),
     # Moderation: admin + cron
     path('api/admin/reports/', views.AdminReportListView.as_view(), name='admin-reports'),

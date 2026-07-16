@@ -25,10 +25,7 @@ from rest_framework_simplejwt.views import (
 from django.conf import settings
 from django.conf.urls.static import static
 
-from django.contrib.auth import views as auth_views
-
 from main.admin import site as admin_site
-from main.forms import CustomPasswordResetForm
 
 urlpatterns = [
     # Project sets APPEND_SLASH=False (for SPA API parity), so bare /admin and
@@ -39,21 +36,4 @@ urlpatterns = [
     path("", include("main.urls")),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-
-    # Password Reset URLs
-    path('password_reset/', auth_views.PasswordResetView.as_view(
-        form_class=CustomPasswordResetForm,
-        html_email_template_name='registration/password_reset_email.html',
-        email_template_name='registration/password_reset_email.txt',
-        extra_context={'frontend_url': settings.FRONTEND_URL},
-    ), name='password_reset'),
-    path('password_reset/done/', auth_views.PasswordResetDoneView.as_view(
-        extra_context={'frontend_url': settings.FRONTEND_URL},
-    ), name='password_reset_done'),
-    path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(
-        extra_context={'frontend_url': settings.FRONTEND_URL},
-    ), name='password_reset_confirm'),
-    path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
-        extra_context={'frontend_url': settings.FRONTEND_URL},
-    ), name='password_reset_complete'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

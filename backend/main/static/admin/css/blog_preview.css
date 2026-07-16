@@ -1,0 +1,44 @@
+/* Live preview panel on the BlogPost admin form. Approximates the public
+   article layout (frontend/src/components/blog) so staff can sanity-check
+   copy/photo before publishing, without leaving the admin. */
+
+.tt-blog-preview { max-width: 720px; }
+.tt-blog-preview-body { padding: 20px 24px 28px; }
+
+.tt-blog-preview-cover {
+  width: 100%;
+  aspect-ratio: 16 / 7;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--tt-secondary);
+  margin-bottom: 18px;
+}
+.tt-blog-preview-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tt-blog-preview-title {
+  font-family: 'DM Serif Text', serif;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+  color: var(--tt-ink);
+  margin: 0 0 8px;
+}
+
+.tt-blog-preview-excerpt {
+  font-size: 14px;
+  color: var(--tt-mute);
+  margin-bottom: 16px;
+}
+
+.tt-blog-preview-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--tt-ink);
+}
+.tt-blog-preview-content p { margin: 0 0 14px; }
+.tt-blog-preview-content p:last-child { margin-bottom: 0; }

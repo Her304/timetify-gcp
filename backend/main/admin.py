@@ -10,13 +10,16 @@ from django.http import JsonResponse, HttpResponseBadRequest, HttpResponsePerman
 from django.urls import path, resolve, Resolver404
 from django.utils import timezone
 
+from django import forms
+
 from .models import (
     CustomUser, Course, Week, Exam, Assignment, Friend, BackendLog, ErrorReport,
     Snap, SnapAudience, ChatRoom, ChatRoomMember, Message,
     Report, AiReport, SimilarityCheck, Appeal, FunctionRestriction, UserBlock,
-    Event, EventInvite,
+    Event, EventInvite, BlogPost,
 )
 from .moderation_pipeline import admin_remove, admin_dismiss
+from .serializers import validate_blog_cover_image
 
 
 class TimetifyAdminSite(AdminSite):
@@ -385,3 +388,40 @@ class UserBlockAdmin(admin.ModelAdmin):
     list_display = ('id', 'blocker', 'blocked', 'reason', 'created_at')
     list_filter = ('reason', 'created_at')
     search_fields = ('blocker__username', 'blocked__username')
+
+
+# --- Blog admin ---------------------------------------------------------------
+
+class BlogPostAdminForm(forms.ModelForm):
+    class Meta:
+        model = BlogPost
+        fields = ['title', 'cover_image', 'excerpt', 'content', 'is_published']
+
+    def clean_cover_image(self):
+        return validate_blog_cover_image(self.cleaned_data.get('cover_image'))
+
+
+@admin.register(BlogPost, site=site)
+class BlogPostAdmin(admin.ModelAdmin):
+    form = BlogPostAdminForm
+    list_display = ('title', 'author', 'is_published', 'published_at', 'updated_at')
+    list_filter = ('is_published',)
+    search_fields = ('title', 'content')
+    readonly_fields = ('slug', 'created_at', 'updated_at', 'published_at')
+    actions = ['action_publish']
+    change_form_template = 'admin/main/blogpost/change_form.html'
+
+    def save_model(self, request, obj, form, change):
+        if not change or obj.author_id is None:
+            obj.author = request.user
+        super().save_model(request, obj, form, change)
+
+    def action_publish(self, request, queryset):
+        count = 0
+        for post in queryset:
+            if not post.is_published:
+                post.is_published = True
+                post.save()
+                count += 1
+        self.message_user(request, f"Published {count} post(s).")
+    action_publish.short_description = "Publish selected posts"

@@ -2,6 +2,8 @@ from datetime import time
 
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.utils.text import slugify
+from django.utils import timezone
 
 class CustomUser(AbstractUser):
     university = models.CharField(max_length=100, blank=False)
@@ -637,3 +639,44 @@ class EventOccurrenceSkip(models.Model):
 
     def __str__(self):
         return f"{self.user.username} skips event {self.skipped_event_id} on {self.date}"
+
+
+def blog_cover_upload_path(instance, filename):
+    import uuid, os
+    ext = os.path.splitext(filename)[1].lower()
+    return f"blog/{uuid.uuid4().hex}{ext}"
+
+
+class BlogPost(models.Model):
+    author = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='blog_posts')
+    title = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=220, unique=True, blank=True)
+    cover_image = models.ImageField(upload_to=blog_cover_upload_path, null=True, blank=True)
+    excerpt = models.CharField(max_length=300, blank=True)
+    content = models.TextField(blank=True)
+    is_published = models.BooleanField(default=False)
+    # Stamped once, the first time is_published flips True; not reset on unpublish.
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-published_at', '-created_at']
+        indexes = [models.Index(fields=['is_published', '-published_at'])]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.title)[:220] or 'post'
+            slug = base_slug
+            n = 2
+            while BlogPost.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                suffix = f'-{n}'
+                slug = f'{base_slug[:220 - len(suffix)]}{suffix}'
+                n += 1
+            self.slug = slug
+        if self.is_published and not self.published_at:
+            self.published_at = timezone.now()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.title} ({'published' if self.is_published else 'draft'})"

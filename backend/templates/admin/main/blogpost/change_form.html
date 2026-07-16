@@ -1,0 +1,73 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/blog_preview.css' %}">
+{% endblock %}
+
+{% block after_field_sets %}
+{{ block.super }}
+<div class="tt-card tt-blog-preview">
+  <div class="tt-card-head"><div class="tt-card-title">Live preview</div></div>
+  <div class="tt-blog-preview-body">
+    <div id="ttBlogPreviewCover" class="tt-blog-preview-cover" style="display:none;">
+      <img id="ttBlogPreviewCoverImg" alt="">
+    </div>
+    <h1 id="ttBlogPreviewTitle" class="tt-blog-preview-title">Untitled post</h1>
+    <div id="ttBlogPreviewExcerpt" class="tt-blog-preview-excerpt"></div>
+    <div id="ttBlogPreviewContent" class="tt-blog-preview-content"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  function $(id) { return document.getElementById(id); }
+  var titleField = $('id_title');
+  var excerptField = $('id_excerpt');
+  var contentField = $('id_content');
+  var coverField = $('id_cover_image');
+  if (!titleField || !contentField) return;
+
+  function escapeHtml(s) {
+    var div = document.createElement('div');
+    div.textContent = s || '';
+    return div.innerHTML;
+  }
+
+  function renderContent(text) {
+    var paragraphs = (text || '').split(/\n\s*\n/).map(function(p) { return p.trim(); }).filter(Boolean);
+    return paragraphs.map(function(p) {
+      return '<p>' + escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+  }
+
+  function update() {
+    $('ttBlogPreviewTitle').textContent = titleField.value || 'Untitled post';
+    $('ttBlogPreviewExcerpt').textContent = excerptField ? excerptField.value : '';
+    $('ttBlogPreviewContent').innerHTML = renderContent(contentField.value);
+  }
+
+  titleField.addEventListener('input', update);
+  contentField.addEventListener('input', update);
+  if (excerptField) excerptField.addEventListener('input', update);
+
+  if (coverField) {
+    coverField.addEventListener('change', function() {
+      var file = coverField.files && coverField.files[0];
+      var wrap = $('ttBlogPreviewCover');
+      var img = $('ttBlogPreviewCoverImg');
+      if (!file) { wrap.style.display = 'none'; return; }
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        img.src = e.target.result;
+        wrap.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  update();
+})();
+</script>
+{% endblock %}
