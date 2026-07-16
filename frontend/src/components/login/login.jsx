@@ -95,12 +95,12 @@ export default function Login({ loginUser, errors = {} }) {
                             />
                             {renderError("password")}
                             <div className="flex justify-end mt-1">
-                                <a
-                                    href={`${import.meta.env.VITE_API_URL}/password_reset/`}
+                                <Link
+                                    to="/reset-password"
                                     className="text-xs font-semibold text-coral hover:text-coral-dark transition-colors"
                                 >
                                     forgot password?
-                                </a>
+                                </Link>
                             </div>
                         </div>
                     </div>

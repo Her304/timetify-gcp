@@ -19,6 +19,7 @@ export const Footer = ({ currentUser }) => {
                 </>
               )}
               <Link to="/about" className="hover:text-coral transition-colors lowercase">about</Link>
+              <Link to="/blog" className="hover:text-coral transition-colors lowercase">blog</Link>
               <Link to="/help" className="hover:text-coral transition-colors lowercase">help</Link>
               <a href="https://github.com/Her304/timetify-gcp" className="hover:text-coral transition-colors lowercase">github</a>
             </nav>

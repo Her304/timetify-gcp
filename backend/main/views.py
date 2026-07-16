@@ -16,15 +16,20 @@ from .serializers import (
     FriendRequestSerializer, UserSerializer, PublicUserSerializer, SnapSerializer,
     MessageSerializer, ChatRoomListSerializer, ChatRoomDetailSerializer,
     EventSerializer, EventInviteSerializer, EventCreateSerializer,
+    PasswordResetConfirmSerializer,
+    BlogPostListSerializer, BlogPostDetailSerializer,
 )
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog, ExternalCalendarEvent, UserBlock, Event, EventInvite, CourseSkip, EventOccurrenceSkip
+from .models import Course, Week, Exam, Assignment, Friend, Snap, SnapAudience, ChatRoom, ChatRoomMember, Message, SnapGroup, SnapGroupMember, ReparseLog, ExternalCalendarEvent, UserBlock, Event, EventInvite, CourseSkip, EventOccurrenceSkip, BlogPost
 from datetime import datetime, timedelta, time as dt_time
 from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from main.utils import send_email
-from main.account_email import send_welcome_email
+from main.account_email import send_welcome_email, send_password_reset_email
 
 User = get_user_model()
 
@@ -227,6 +232,55 @@ class RegistrationAvailabilityView(APIView):
         if email and User.objects.filter(email__iexact=email).exists():
             errors['email'] = ["an account with this email already exists."]
         return Response(errors)
+
+
+def _user_from_uidb64(uidb64):
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        return User.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        return None
+
+
+class PasswordResetRequestView(APIView):
+    """Kicks off the SPA password-reset flow: emails a link to the React
+    confirm page (build_password_reset_link) instead of a Django view, so the
+    backend's Cloud Run hostname never shows up in the browser."""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = (request.data.get('email') or '').strip()
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response(
+                {'email': ["There is no user registered with this email address."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        send_password_reset_email(user)
+        return Response({'detail': 'Password reset email sent.'})
+
+
+class PasswordResetConfirmView(APIView):
+    """GET checks link validity up front so the React page can show an
+    'expired link' state before rendering the password form; POST performs
+    the actual reset and re-validates the token regardless."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, uidb64, token):
+        user = _user_from_uidb64(uidb64)
+        valid = bool(user and default_token_generator.check_token(user, token))
+        return Response({'valid': valid})
+
+    def post(self, request, uidb64, token):
+        user = _user_from_uidb64(uidb64)
+        if not user or not default_token_generator.check_token(user, token):
+            return Response({'detail': 'This reset link is invalid or has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(serializer.validated_data['new_password1'])
+        user.save()
+        return Response({'detail': 'Password reset successfully.'})
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -3828,3 +3882,18 @@ class ScheduleSkipView(APIView):
                 for s in event_skips
             ],
         })
+
+
+class BlogPostListView(generics.ListAPIView):
+    """GET /api/blog/ — published posts, newest first. Public, no auth."""
+    serializer_class = BlogPostListSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = BlogPost.objects.filter(is_published=True)
+
+
+class BlogPostDetailView(generics.RetrieveAPIView):
+    """GET /api/blog/<slug>/ — a single published post. Public, no auth."""
+    serializer_class = BlogPostDetailSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = BlogPost.objects.filter(is_published=True)
+    lookup_field = 'slug'
