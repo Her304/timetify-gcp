@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { T, FF, Avatar, Icon, MonoLabel } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar, Icon, MonoLabel } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 
 const NAME_MAX = 80;
@@ -234,7 +234,8 @@ export default function GroupInfoModal({
                 className="flex items-center gap-2.5 px-2 py-2 rounded-2xl"
                 style={{ background: "rgba(255,255,255,.06)" }}
               >
-                <Avatar
+                <ProfileAvatar
+                  profilePictureUrl={m.profile_picture_url}
                   name={m.username.slice(0, 2).toLowerCase()}
                   bg={colorForUser(m.username)}
                   fg={colorForUser(m.username) === T.coral ? "#fff" : T.ink}
@@ -287,7 +288,8 @@ export default function GroupInfoModal({
                       style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.85)",
                                border: "1px solid rgba(255,255,255,.12)" }}
                     >
-                      <Avatar
+                      <ProfileAvatar
+                        profilePictureUrl={f.profile_picture_url}
                         name={f.username.slice(0, 2).toLowerCase()}
                         bg={colorForUser(f.username)}
                         fg={colorForUser(f.username) === T.coral ? "#fff" : T.ink}

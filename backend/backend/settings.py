@@ -224,10 +224,11 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# Storage: GCS for user media when GS_BUCKET_NAME is set, otherwise local FS.
+# Storage: GCS for user media whenever GS_BUCKET_NAME is set, in every environment.
 # Cloud Run filesystem is ephemeral, so prod must have GS_BUCKET_NAME configured.
-# Bucket has allUsers:objectViewer at IAM level, so we disable per-object ACLs and
-# emit public unsigned URLs.
+# Local dev sets it too (with ADC creds) so uploads/reads share the one bucket and
+# never diverge between disk and GCS. Bucket has allUsers:objectViewer at IAM level,
+# so we disable per-object ACLs and emit public unsigned URLs.
 GS_BUCKET_NAME = os.environ.get("GS_BUCKET_NAME", "").strip()
 if GS_BUCKET_NAME:
     STORAGES = {

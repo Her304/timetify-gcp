@@ -1,4 +1,4 @@
-import { T, FF, Avatar, MonoLabel } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar, MonoLabel } from "@/components/shared/brand";
 import { timeAgo, colorForUser } from "./utils";
 
 const DM_CAP = 10;
@@ -74,7 +74,8 @@ export default function DmInboxList({
                   i > 0 ? "border-t border-ink-8" : ""
                 }`}
               >
-                <Avatar
+                <ProfileAvatar
+                  profilePictureUrl={t.friend?.profile_picture_url}
                   name={t.username.slice(0, 2).toLowerCase()}
                   bg={colorForUser(t.username)}
                   fg={colorForUser(t.username) === T.coral ? "#fff" : T.ink}
