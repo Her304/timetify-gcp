@@ -1023,7 +1023,7 @@ class InviteQRView(APIView):
         from django.http import HttpResponse
 
         code = request.user.get_or_create_invite_code()
-        base = settings.FRONTEND_URL.rstrip('/')
+        base = f"https://{settings.CANONICAL_DOMAIN}"
         link = f"{base}/invite/{code}"
         img = qrcode.make(link, box_size=10, border=2)
         buf = io.BytesIO()
