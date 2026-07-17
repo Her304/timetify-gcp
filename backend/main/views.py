@@ -28,8 +28,18 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
+from django.core import signing
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
+from django.shortcuts import render
 from main.utils import send_email
-from main.account_email import send_welcome_email, send_password_reset_email
+from main.account_email import send_welcome_email, send_password_reset_email, send_email_change_verification
+
+# Salt + lifetime for the signed email-change token. The token itself carries
+# {uid, email}, so no DB token row is needed — signing.loads() with this salt
+# and max_age both authenticates and expires the link.
+EMAIL_CHANGE_SALT = "email-change"
+EMAIL_CHANGE_MAX_AGE = 60 * 60 * 24  # 24 hours
 
 User = get_user_model()
 
@@ -281,6 +291,87 @@ class PasswordResetConfirmView(APIView):
         user.set_password(serializer.validated_data['new_password1'])
         user.save()
         return Response({'detail': 'Password reset successfully.'})
+
+
+class ChangeEmailRequestView(APIView):
+    """Start an email change: validate the new address and email a signed
+    confirmation link to it. The account's live email is left untouched — it's
+    only swapped once the user clicks through VerifyEmailChangeView, proving they
+    control the new inbox. Per product decision, no password re-auth is required;
+    control of the new mailbox is the gate."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        new_email = (request.data.get('email') or '').strip()
+
+        if not new_email:
+            return Response({'email': ["email can't be blank."]}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_email(new_email)
+        except DjangoValidationError:
+            return Response({'email': ["enter a valid email address."]}, status=status.HTTP_400_BAD_REQUEST)
+        if new_email.lower() == (user.email or '').lower():
+            return Response({'email': ["that's already your email."]}, status=status.HTTP_400_BAD_REQUEST)
+        # Case-insensitive uniqueness against confirmed emails, excluding self.
+        if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
+            return Response({'email': ["an account with this email already exists."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Stage the pending value (drives the "pending confirmation" UI hint) and
+        # mint a token that carries the address itself, so a stale/tampered link
+        # can't retarget the change.
+        user.pending_email = new_email
+        user.save(update_fields=['pending_email'])
+
+        token = signing.dumps({'uid': user.id, 'email': new_email}, salt=EMAIL_CHANGE_SALT)
+        if settings.DEBUG:
+            scheme = 'https' if request.is_secure() else 'http'
+            domain = request.get_host()
+        else:
+            # Match CustomPasswordResetForm: never leak the Cloud Run hostname.
+            scheme = 'https'
+            domain = settings.CANONICAL_DOMAIN
+        verify_url = f"{scheme}://{domain}/verify-email/{token}/"
+
+        send_email_change_verification(user, new_email, verify_url)
+        return Response({'message': 'verification link sent', 'pending_email': new_email})
+
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def verify_email_change(request, token):
+    """Server-rendered landing for the emailed confirmation link. No session
+    required — the signed token carries identity — because the user often opens
+    the link on a different device. Applies pending_email -> email on success."""
+    ctx = {'frontend_url': settings.FRONTEND_URL}
+    try:
+        data = signing.loads(token, salt=EMAIL_CHANGE_SALT, max_age=EMAIL_CHANGE_MAX_AGE)
+    except signing.SignatureExpired:
+        ctx['error'] = "This link has expired. Request a new email change from your profile."
+        return render(request, 'registration/email_change_result.html', ctx)
+    except signing.BadSignature:
+        ctx['error'] = "This link is invalid or has already been used."
+        return render(request, 'registration/email_change_result.html', ctx)
+
+    user = User.objects.filter(pk=data.get('uid')).first()
+    new_email = data.get('email')
+    if not user or not new_email:
+        ctx['error'] = "This link is invalid or has already been used."
+        return render(request, 'registration/email_change_result.html', ctx)
+
+    # Re-check uniqueness at confirm time — someone else may have registered the
+    # address in the window between request and click.
+    if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
+        user.pending_email = None
+        user.save(update_fields=['pending_email'])
+        ctx['error'] = "That address is now in use by another account. No change was made."
+        return render(request, 'registration/email_change_result.html', ctx)
+
+    user.email = new_email
+    user.pending_email = None
+    user.save(update_fields=['email', 'pending_email'])
+    ctx['new_email'] = new_email
+    return render(request, 'registration/email_change_result.html', ctx)
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -880,6 +971,66 @@ class FriendRequestUpdateView(generics.UpdateAPIView):
         else:
             return Response({'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
 
+
+def _friend_users(a, b):
+    """Idempotently record an accepted (both-directions) friendship between two
+    users. Mirrors the reciprocal-row shape the friend-request accept flow uses."""
+    for x, y in ((a, b), (b, a)):
+        Friend.objects.update_or_create(
+            user=x, friend=y, defaults={'status': Friend.ACCEPTED},
+        )
+
+
+class InviteInfoView(APIView):
+    """GET /api/invite/<code>/ — public lookup so the invite landing page can show
+    '@user invited you to Timetify!'. Exposes only the inviter's public fields."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, code):
+        inviter = User.objects.filter(invite_code=code).first()
+        if not inviter:
+            return Response({'detail': 'invite not found'}, status=status.HTTP_404_NOT_FOUND)
+        data = PublicUserSerializer(inviter, context={'request': request}).data
+        # The invite is an explicit share (the person handed over their QR/link),
+        # so surfacing university here is fine even though stranger-search hides it.
+        data['university'] = inviter.university
+        return Response({'inviter': data})
+
+
+class InviteAcceptView(APIView):
+    """POST /api/invite/<code>/accept/ — for an already-logged-in user who opens
+    an invite link: friend them with the inviter immediately (idempotent)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, code):
+        inviter = User.objects.filter(invite_code=code).first()
+        if not inviter:
+            return Response({'detail': 'invite not found'}, status=status.HTTP_404_NOT_FOUND)
+        if inviter.id == request.user.id:
+            return Response({'detail': "that's your own invite link."}, status=status.HTTP_400_BAD_REQUEST)
+        _friend_users(inviter, request.user)
+        return Response({'message': 'connected', 'inviter_username': inviter.username})
+
+
+class InviteQRView(APIView):
+    """GET /api/invite/qr/ — PNG QR of the caller's personal invite link. Rendered
+    server-side (qrcode lib); the client fetches it as a blob and shows it inline."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        import io
+        import qrcode
+        from django.http import HttpResponse
+
+        code = request.user.get_or_create_invite_code()
+        base = settings.FRONTEND_URL.rstrip('/')
+        link = f"{base}/invite/{code}"
+        img = qrcode.make(link, box_size=10, border=2)
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return HttpResponse(buf.getvalue(), content_type='image/png')
+
+
 class FriendListView(generics.ListAPIView):
     serializer_class = FriendSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -938,6 +1089,22 @@ class FriendListView(generics.ListAPIView):
             last_snap_by_user_id = {row['uploader_id']: row['latest'] for row in agg}
         ctx['last_snap_by_user_id'] = last_snap_by_user_id
         return ctx
+
+
+class FriendDeleteView(APIView):
+    """DELETE /api/friends/<pk>/ — unfriend, where `pk` is the OTHER user's id
+    (the friends list flattens to user objects, so that's what the client has).
+    Friendships are stored as two reciprocal rows, so delete BOTH directions
+    (idempotent — returns 204 even if there was no friendship)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk):
+        me = request.user
+        models.Friend.objects.filter(
+            Q(user=me, friend_id=pk) | Q(user_id=pk, friend=me),
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class SearchFriend(generics.ListAPIView):
     # Use the stripped PublicUserSerializer so search results never disclose
@@ -1378,6 +1545,16 @@ class NotificationsView(APIView):
         current_day = day_map[now.weekday()]
         current_time_str = now.strftime("%H:%M")
 
+        # Absolute URL for a user's profile photo, or None. Shared by every
+        # section below so avatars fall back to a real picture when present.
+        def _abs_pic(user):
+            if not user or not getattr(user, 'profile_picture', None):
+                return None
+            try:
+                return request.build_absolute_uri(user.profile_picture.url)
+            except Exception:
+                return None
+
         # 1. Pending friend requests (me = recipient)
         pending = Friend.objects.filter(
             friend=me, status=Friend.PENDING
@@ -1387,6 +1564,7 @@ class NotificationsView(APIView):
                 "id": req.id,
                 "user_id": req.user.id,
                 "username": req.user.username,
+                "profile_picture_url": _abs_pic(req.user),
                 "major": req.user.major,
                 "grad_year": req.user.grad_year,
             }
@@ -1424,6 +1602,7 @@ class NotificationsView(APIView):
                     "id": snap.id,
                     "uploader_id": snap.uploader_id,
                     "uploader_username": snap.uploader.username,
+                    "uploader_profile_picture_url": _abs_pic(snap.uploader),
                     "course_code": snap.course.course_id,
                     "course_name": snap.course.course_name,
                     "media_type": snap.media_type,
@@ -1458,13 +1637,13 @@ class NotificationsView(APIView):
                         end_date__gte=today,
                     ).select_related("user")
                 )
-                # Group by course_id → {user_id: username}, filtered to live right now
+                # Group by course_id → {user_id: user}, filtered to live right now
                 course_to_friends: dict = {}
                 for fc in friend_courses:
                     days = [d.strip().upper()[:3] for d in fc.rep_date.split(",")]
                     if current_day in days and fc.start_time.strftime("%H:%M") <= current_time_str < fc.end_time.strftime("%H:%M"):
                         bucket = course_to_friends.setdefault(fc.course_id, {})
-                        bucket[fc.user.id] = fc.user.username
+                        bucket[fc.user.id] = fc.user
 
                 for course in my_live:
                     friends_map = course_to_friends.get(course.course_id, {})
@@ -1474,8 +1653,12 @@ class NotificationsView(APIView):
                             "course_name": course.course_name,
                             "friend_count": len(friends_map),
                             "friends": [
-                                {"id": uid, "username": uname}
-                                for uid, uname in list(friends_map.items())[:5]
+                                {
+                                    "id": u.id,
+                                    "username": u.username,
+                                    "profile_picture_url": _abs_pic(u),
+                                }
+                                for u in list(friends_map.values())[:5]
                             ],
                         })
 
@@ -1540,13 +1723,6 @@ class NotificationsView(APIView):
             logger.exception("notifications: moderation summary failed")
 
         # 5. Pending event invites addressed to me.
-        def _abs_pic(user):
-            if not user or not getattr(user, 'profile_picture', None):
-                return None
-            try:
-                return request.build_absolute_uri(user.profile_picture.url)
-            except Exception:
-                return None
 
         event_invites_data = []
         event_invite_qs = (
@@ -1868,8 +2044,31 @@ class ChatDetailView(APIView):
         if room.room_type == ChatRoom.ROOM_GROUP and blocked_ids:
             msg_qs = msg_qs.exclude(sender_id__in=blocked_ids)
         msgs = list(msg_qs.order_by('-created_at')[:INITIAL_MESSAGE_PAGE])
-        ctx = {'request': request, 'initial_messages': msgs}
+        ctx = {
+            'request': request,
+            'initial_messages': msgs,
+            'my_rsvp_by_event_id': _rsvp_map_for_messages(me, msgs),
+        }
         return Response(ChatRoomDetailSerializer(room, context=ctx).data)
+
+
+def _rsvp_map_for_messages(user, messages):
+    """event_id → the user's EventInvite status, for every event_card message in
+    `messages`. Feeds MessageSerializer's per-viewer `my_rsvp_status` injection
+    so an event card renders the viewer's RSVP after a reload (the stored
+    metadata blob is shared and carries no per-viewer status)."""
+    event_ids = [
+        (m.metadata or {}).get('event_id')
+        for m in messages
+        if m.message_type == Message.MSG_EVENT_CARD
+    ]
+    event_ids = [eid for eid in event_ids if eid]
+    if not event_ids:
+        return {}
+    return dict(
+        EventInvite.objects.filter(invitee=user, event_id__in=event_ids)
+        .values_list('event_id', 'status')
+    )
 
 
 class MessageListCreateView(APIView):
@@ -1923,7 +2122,8 @@ class MessageListCreateView(APIView):
                 return Response({"detail": "anchor not found"}, status=status.HTTP_400_BAD_REQUEST)
 
         msgs = list(qs[:limit])
-        data = MessageSerializer(msgs, many=True, context={'request': request}).data
+        ctx = {'request': request, 'my_rsvp_by_event_id': _rsvp_map_for_messages(me, msgs)}
+        data = MessageSerializer(msgs, many=True, context=ctx).data
         return Response({"messages": data})
 
     def post(self, request, pk):
@@ -2554,7 +2754,32 @@ class BlockListView(APIView):
 
     def get(self, request):
         qs = UserBlock.objects.filter(blocker=request.user).select_related('blocked')
-        return Response({'blocks': UserBlockSerializer(qs, many=True).data})
+        return Response({'blocks': UserBlockSerializer(qs, many=True, context={'request': request}).data})
+
+    def post(self, request):
+        """POST /api/blocks/ {user_id} — manually block a user. Also severs the
+        friendship in both directions (a block implies you're no longer friends)."""
+        me = request.user
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return Response({'detail': 'user_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        if str(user_id) == str(me.id):
+            return Response({'detail': "you can't block yourself."}, status=status.HTTP_400_BAD_REQUEST)
+        target = User.objects.filter(id=user_id).first()
+        if not target:
+            return Response({'detail': 'user_not_found'}, status=status.HTTP_404_NOT_FOUND)
+        block, _ = UserBlock.objects.get_or_create(
+            blocker=me, blocked=target,
+            defaults={'reason': UserBlock.REASON_MANUAL},
+        )
+        # A block implies severing any existing friendship (both directions).
+        models.Friend.objects.filter(
+            Q(user=me, friend=target) | Q(user=target, friend=me),
+        ).delete()
+        return Response(
+            UserBlockSerializer(block, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BlockDeleteView(APIView):
@@ -2935,6 +3160,20 @@ class SharedGapsView(APIView):
         except (TypeError, ValueError):
             return Response({"error": "Invalid parameters."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Optional single-day mode: the event wizard passes a specific `date`
+        # (which may be further out than the 14-day days_ahead cap) and wants
+        # free slots for just that day.
+        single_date = request.data.get('date')
+        if single_date:
+            try:
+                target = datetime.strptime(single_date, "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                return Response({"error": "Invalid date."}, status=status.HTTP_400_BAD_REQUEST)
+            days = [target]
+        else:
+            today = timezone.now().date()
+            days = [today + timedelta(days=offset) for offset in range(days_ahead)]
+
         # Always include self; validate the rest are accepted friends, and
         # subtract anyone on either side of a UserBlock so a blocked friend's
         # busy/free pattern can't be inferred by listing them in user_ids.
@@ -2942,10 +3181,8 @@ class SharedGapsView(APIView):
         valid_ids = list({user.id} | (set(user_ids) & visible_friends))
 
         all_gaps = []
-        today = timezone.now().date()
 
-        for offset in range(days_ahead):
-            day = today + timedelta(days=offset)
+        for day in days:
             window_start, window_end = _get_day_window(day)
 
             courses_qs = Course.objects.filter(

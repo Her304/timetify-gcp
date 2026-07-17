@@ -1,4 +1,4 @@
-import { T, FF, Avatar, ProfileAvatar } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar } from "@/components/shared/brand";
 import { timeAgo, colorForUser, isLiveSnap } from "./utils";
 
 const resolveMediaUrl = (url) => {
@@ -46,7 +46,8 @@ function SnapPreviewCard({ tile, onClick }) {
           <div className="w-full h-full" style={{ background: bg, opacity: 0.4 }} />
         )}
         <div className="absolute bottom-1 right-1">
-          <Avatar
+          <ProfileAvatar
+            profilePictureUrl={tile.friend?.profile_picture_url}
             name={tile.username.slice(0, 2).toLowerCase()}
             bg={bg}
             fg={bg === T.coral ? "#fff" : T.ink}

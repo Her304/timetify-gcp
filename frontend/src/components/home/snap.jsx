@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import SnapCaptureModal from "@/components/snap/SnapCaptureModal";
 import SnapViewerModal from "@/components/snap/SnapViewerModal";
-import { T, FF, MonoLabel, Avatar, Icon } from "@/components/shared/brand";
+import { T, FF, MonoLabel, ProfileAvatar, Icon } from "@/components/shared/brand";
 
 const toMinutes = (hhmm) => {
   if (!hhmm || typeof hhmm !== "string") return null;
@@ -46,6 +46,18 @@ export const Snap = ({
     [personalClasses]
   );
 
+  // The schedule endpoints label owners with a bare username string (no user object),
+  // so build a username → profile-picture-url map from friends + the current user.
+  const picByUsername = useMemo(() => {
+    const map = {};
+    for (const f of friendsList) {
+      const d = f.friend_details;
+      if (d?.username) map[d.username] = d.profile_picture_url || null;
+    }
+    if (currentUser?.username) map[currentUser.username] = currentUser.profile_picture_url || null;
+    return map;
+  }, [friendsList, currentUser]);
+
   // Flatten all snaps and group by uploader (one tile per friend / me)
   const tiles = useMemo(() => {
     const byUploader = new Map();
@@ -53,7 +65,12 @@ export const Snap = ({
       for (const snap of list) {
         const k = snap.uploader_username;
         if (!byUploader.has(k)) {
-          byUploader.set(k, { username: k, isMine: !!snap.is_mine, snaps: [] });
+          byUploader.set(k, {
+            username: k,
+            isMine: !!snap.is_mine,
+            photo: snap.uploader_profile_picture_url || null,
+            snaps: [],
+          });
         }
         byUploader.get(k).snaps.push(snap);
       }
@@ -106,7 +123,7 @@ export const Snap = ({
                     key={`${c.owner}-${c.id || idx}`}
                     className="bg-cream rounded-xl p-3 flex items-center gap-3 border border-ink-8"
                   >
-                    <Avatar name={initial.toLowerCase()} bg={avatarBg} fg={avatarFg} size={44} />
+                    <ProfileAvatar profilePictureUrl={picByUsername[ownerName]} name={initial.toLowerCase()} bg={avatarBg} fg={avatarFg} size={44} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <h4 className="text-sm font-semibold text-ink leading-tight truncate lowercase">
@@ -170,7 +187,8 @@ export const Snap = ({
                 title={`${t.snaps.length} snap${t.snaps.length === 1 ? "" : "s"}`}
                 className="flex flex-col items-center gap-1.5 flex-shrink-0 hover:opacity-80 transition-opacity"
               >
-                <Avatar
+                <ProfileAvatar
+                  profilePictureUrl={t.photo}
                   name={t.username[0].toLowerCase()}
                   bg={t.isMine ? T.coral : T.lilac}
                   fg={t.isMine ? '#fff' : T.ink}

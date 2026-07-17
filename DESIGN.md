@@ -139,20 +139,25 @@ Hand-drawn underline SVG — coral stroke, used for emphasis on landing page hea
 - **Avatar:** `ProfileAvatar size={40}` → `/profile`.
 
 ### Mobile Bottom Nav (`mobile-bottom-nav.jsx`)
-`md:hidden` — fixed, bottom-4, floating pill, ink background, `z-40`.
+`md:hidden` — fixed, bottom-4, `z-40`. Two **liquid-glass** pods spread edge-to-edge via `justify-between px-4`: a frosted pill on the left, a standalone coral `+` disc on the right.
 
 Layout (left → right):
 ```
-[feed]  [schedule]  [⊕ coral disc]  [friends]  [avatar]
+┌─ frosted pill ──────────────────┐        ┌──────┐
+│ [icon feed] [icon schedule] [◍] │        │  +   │
+└─────────────────────────────────┘        └──────┘
 ```
 
-- **Inactive tabs:** `color: T.cream`, transparent background.
-- **Active tab:** coral disc (44×44px) behind icon, white icon.
-- **Center `⊕`:** raised coral disc (48×48px) with box-shadow — always stands out regardless of active page.
-- **`⊕` action:** opens `AddMenu variant="sheet"` (bottom sheet).
+- **Liquid glass material (`GLASS` const):** `rgba(252,250,245,0.60)` fill + `backdrop-blur(22px) saturate(180%)`, bright hairline border (`rgba(255,255,255,0.55)`), one soft shadow (`0 4px 14px rgba(31,26,34,0.10)`) plus an inner top highlight for the sheen. Shadows are intentionally light — no heavy drop shadow. Degrades to a ~60%-opaque cream pill where `backdrop-filter` is unsupported.
+- **Frosted pill:** `padding: 6` around a row of 40px-tall elements → 52px pill height.
+  - **Feed / schedule tabs:** icon **+ text label always visible** (`FF.sans`, 13px, 600). Inactive = `T.ink60` on transparent. Active = coral "lens" capsule (`T.coral`) with white content.
+  - **Profile avatar:** `ProfileAvatar size={40}` at the end of the pill → `/profile`; coral `ring` when `/profile` active.
+- **Standalone `+` pod:** 52×52px coral disc (matches pill height) floating on the same light shadow → opens `AddMenu variant="sheet"` (bottom sheet).
 - **Badge:** dot (not count) on feed tab when `unreadChatCount > 0` and not on `/feed`.
+- All elements share a uniform 40px inner height so the pill and the `+` pod align.
 - Hidden on `/chat/<id>` — chat page occupies full height.
 - Scrollable pages that show this nav must add `pb-24`.
+- `data-tour` anchors preserved: `feed`, `schedule`, `profile`, `add`.
 
 ### `AddMenu`
 Two variants using the same component:
@@ -325,7 +330,7 @@ File: `frontend/src/components/add/add.jsx`
 
 | Breakpoint | Nav | Layout |
 |---|---|---|
-| `< md` (mobile) | `MobileTopBar` + `MobileBottomNav` floating pill | Single column; modals go full-screen or bottom sheet |
+| `< md` (mobile) | `MobileTopBar` + `MobileBottomNav` (liquid-glass pill + coral `+` pod) | Single column; modals go full-screen or bottom sheet |
 | `≥ md` (desktop) | `HeaderNavApp` sticky 64px | Multi-column; modals are centered overlays; AddMenu is a popover |
 
 Tailwind classes: `hidden md:flex` (desktop-only), `md:hidden` (mobile-only).  

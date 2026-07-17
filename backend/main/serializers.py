@@ -14,6 +14,7 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 from django.db.models import Q
+from .account_email import send_username_change_notification
 
 PROFILE_PICTURE_MAX_SIZE = 5 * 1024 * 1024  # 5 MB — matches DATA_UPLOAD_MAX_MEMORY_SIZE
 PROFILE_PICTURE_ALLOWED_EXT = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -83,21 +84,33 @@ class UserSerializer(serializers.ModelSerializer):
     shared_courses = serializers.SerializerMethodField()
     last_snap_at = serializers.SerializerMethodField()
     profile_picture_url = serializers.SerializerMethodField()
+    invite_code = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'email', 'university', 'major', 'grad_year',
+            'id', 'username', 'email', 'pending_email', 'university', 'major', 'grad_year',
             'status', 'shared_courses', 'last_seen', 'last_snap_at',
-            'profile_picture', 'profile_picture_url', 'onboarding_completed',
+            'profile_picture', 'profile_picture_url', 'onboarding_completed', 'invite_code',
         ]
-        # username and email cannot be PATCHed via this serializer — they are identity
-        # fields and require a dedicated flow (e.g. email verification) to change.
-        read_only_fields = ['id', 'username', 'email', 'status', 'shared_courses', 'last_seen', 'last_snap_at', 'profile_picture_url']
+        # `username` is editable here (applied immediately, no verification). `email`
+        # stays read-only — changing it requires the dedicated verify-the-new-address
+        # flow (POST /api/user/change-email/), which is why `pending_email` is exposed
+        # read-only so the UI can show a "pending confirmation" hint.
+        read_only_fields = ['id', 'email', 'pending_email', 'status', 'shared_courses', 'last_seen', 'last_snap_at', 'profile_picture_url', 'invite_code']
         extra_kwargs = {
             # Raw field is upload-only; clients read profile_picture_url instead.
             'profile_picture': {'write_only': True, 'required': False},
         }
+
+    def get_invite_code(self, obj):
+        # Only expose (and lazily mint) the code when the user is serialising
+        # themselves — never leak or create codes while rendering other users
+        # in friend lists / search results.
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and request.user.id == obj.id:
+            return obj.get_or_create_invite_code()
+        return None
 
     def get_last_snap_at(self, obj):
         # Prefer the precomputed map FriendListView passes via context to avoid N+1s.
@@ -152,6 +165,22 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_profile_picture(self, value):
         return validate_profile_picture_file(value)
 
+    def validate_username(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError("username can't be blank.")
+        # Reuse AbstractUser's format rules (allowed chars / length).
+        for validator in User._meta.get_field('username').validators:
+            validator(value)
+        # Case-insensitive uniqueness, mirroring how login resolves usernames
+        # (username__iexact). Exclude self so re-saving the same name is a no-op.
+        qs = User.objects.filter(username__iexact=value)
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("that username is already taken.")
+        return value
+
     def update(self, instance, validated_data):
         # Capture the previous file name as a plain string so we can purge it
         # after a successful swap without touching the updated instance.
@@ -160,7 +189,12 @@ class UserSerializer(serializers.ModelSerializer):
         old_name = None
         if 'profile_picture' in validated_data and validated_data['profile_picture'] and instance.profile_picture:
             old_name = instance.profile_picture.name
+        # Capture the previous username so we can notify the account holder if it
+        # actually changes (best-effort security heads-up, never blocks the save).
+        old_username = instance.username
         instance = super().update(instance, validated_data)
+        if instance.username != old_username:
+            send_username_change_notification(instance, old_username)
         new_name = instance.profile_picture.name if instance.profile_picture else None
         if old_name and old_name != new_name:
             try:
@@ -203,12 +237,15 @@ class RegisterSerializer(serializers.ModelSerializer):
     # Required consent gate — the client must send True (agreement to the terms,
     # privacy policy and community guidelines).
     accepted_terms = serializers.BooleanField(required=True)
+    # Optional: the invite code from an /invite/<code> link the new user arrived
+    # through. When it resolves to a real user we auto-friend the two on create.
+    invite_code = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = User
         fields = (
             'username', 'password', 'password2', 'email', 'university', 'major', 'grad_year',
-            'profile_picture', 'accepted_terms', 'marketing_opt_in',
+            'profile_picture', 'accepted_terms', 'marketing_opt_in', 'invite_code',
         )
         extra_kwargs = {
             # Optional avatar chosen in sign-up step 2; upload-only like the profile edit flow.
@@ -233,7 +270,16 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop('password2')
+        invite_code = (validated_data.pop('invite_code', '') or '').strip()
         user = User.objects.create_user(**validated_data)
+        if invite_code:
+            # Best-effort: a bad/expired code must never block sign-up.
+            inviter = User.objects.filter(invite_code=invite_code).first()
+            if inviter and inviter.id != user.id:
+                for a, b in ((inviter, user), (user, inviter)):
+                    Friend.objects.update_or_create(
+                        user=a, friend=b, defaults={'status': Friend.ACCEPTED},
+                    )
         return user
 
 
@@ -321,6 +367,7 @@ class FriendRequestSerializer(serializers.ModelSerializer):
 
 class SnapSerializer(serializers.ModelSerializer):
     uploader_username = serializers.CharField(source='uploader.username', read_only=True)
+    uploader_profile_picture_url = serializers.SerializerMethodField()
     course_pk = serializers.IntegerField(source='course.id', read_only=True)
     course_code = serializers.CharField(source='course.course_id', read_only=True)
     course_name = serializers.CharField(source='course.course_name', read_only=True)
@@ -332,7 +379,7 @@ class SnapSerializer(serializers.ModelSerializer):
     class Meta:
         model = Snap
         fields = [
-            'id', 'uploader', 'uploader_username',
+            'id', 'uploader', 'uploader_username', 'uploader_profile_picture_url',
             'course_pk', 'course_code', 'course_name',
             'media_url', 'media_type', 'caption',
             'visibility', 'has_viewed', 'is_mine',
@@ -340,6 +387,9 @@ class SnapSerializer(serializers.ModelSerializer):
             'created_at', 'expires_at',
         ]
         read_only_fields = fields
+
+    def get_uploader_profile_picture_url(self, obj):
+        return _absolute_profile_picture_url(obj.uploader, self.context.get('request'))
 
     def get_media_url(self, obj):
         try:
@@ -370,19 +420,37 @@ class MessageSerializer(serializers.ModelSerializer):
     `message_type` / `metadata` power study-invite rich cards."""
     sender_id = serializers.IntegerField(read_only=True)
     sender_username = serializers.CharField(source='sender.username', read_only=True)
+    sender_profile_picture_url = serializers.SerializerMethodField()
     content = serializers.SerializerMethodField()
+    metadata = serializers.SerializerMethodField()
     replied_snap = serializers.SerializerMethodField()
     reply_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
-        fields = ['id', 'room', 'sender_id', 'sender_username', 'content',
+        fields = ['id', 'room', 'sender_id', 'sender_username',
+                  'sender_profile_picture_url', 'content',
                   'message_type', 'metadata',
                   'replied_snap', 'reply_to', 'is_removed', 'created_at']
         read_only_fields = fields
 
+    def get_sender_profile_picture_url(self, obj):
+        return _absolute_profile_picture_url(obj.sender, self.context.get('request'))
+
     def get_content(self, obj):
         return '' if obj.is_removed else obj.content
+
+    def get_metadata(self, obj):
+        # The event_card metadata blob is shared across all viewers, so the
+        # requesting user's own RSVP isn't baked in. Inject it per-viewer from a
+        # precomputed context map so the card renders "going ✓" after a reload
+        # (without it the card always falls back to the default buttons).
+        meta = obj.metadata or {}
+        if obj.message_type == Message.MSG_EVENT_CARD:
+            rsvp_map = self.context.get('my_rsvp_by_event_id')
+            if rsvp_map is not None:
+                return {**meta, 'my_rsvp_status': rsvp_map.get(meta.get('event_id'))}
+        return meta
 
     def get_reply_to(self, obj):
         parent = obj.reply_to
@@ -447,9 +515,11 @@ class ChatRoomListSerializer(serializers.ModelSerializer):
         other = cache.get(obj.id)
         if not other:
             return None
+        request = self.context.get('request')
         return {
             'id': other.id,
             'username': other.username,
+            'profile_picture_url': _absolute_profile_picture_url(other, request),
             'last_seen': other.last_seen.isoformat() if other.last_seen else None,
         }
 
@@ -468,8 +538,16 @@ class ChatRoomListSerializer(serializers.ModelSerializer):
     def get_members_preview(self, obj):
         if obj.room_type != ChatRoom.ROOM_GROUP:
             return None
+        request = self.context.get('request')
         # First 3 members; order is whatever the view passed in (joined order).
-        return [{'id': u.id, 'username': u.username} for u in self._members(obj)[:3]]
+        return [
+            {
+                'id': u.id,
+                'username': u.username,
+                'profile_picture_url': _absolute_profile_picture_url(u, request),
+            }
+            for u in self._members(obj)[:3]
+        ]
 
     def get_last_message(self, obj):
         last_by_room = self.context.get('last_message_by_room') or {}
@@ -518,6 +596,7 @@ class ChatRoomDetailSerializer(serializers.ModelSerializer):
         return {
             'id': other.id,
             'username': other.username,
+            'profile_picture_url': _absolute_profile_picture_url(other, request),
             'last_seen': other.last_seen.isoformat() if other.last_seen else None,
         }
 
@@ -527,9 +606,11 @@ class ChatRoomDetailSerializer(serializers.ModelSerializer):
     def get_members(self, obj):
         if obj.room_type != ChatRoom.ROOM_GROUP:
             return None
+        request = self.context.get('request')
         return [{
             'id': m.user_id,
             'username': m.user.username,
+            'profile_picture_url': _absolute_profile_picture_url(m.user, request),
             'is_admin': m.is_admin,
             'last_seen': m.user.last_seen.isoformat() if m.user.last_seen else None,
         } for m in obj.members.all()]
@@ -653,11 +734,15 @@ class AppealCreateSerializer(serializers.ModelSerializer):
 
 class UserBlockSerializer(serializers.ModelSerializer):
     blocked_username = serializers.CharField(source='blocked.username', read_only=True)
+    blocked_profile_picture_url = serializers.SerializerMethodField()
 
     class Meta:
         model = UserBlock
-        fields = ['id', 'blocked', 'blocked_username', 'reason', 'created_at']
+        fields = ['id', 'blocked', 'blocked_username', 'blocked_profile_picture_url', 'reason', 'created_at']
         read_only_fields = fields
+
+    def get_blocked_profile_picture_url(self, obj):
+        return _absolute_profile_picture_url(obj.blocked, self.context.get('request'))
 
 
 class FunctionRestrictionSerializer(serializers.ModelSerializer):
@@ -684,13 +769,17 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
 class SnapGroupMemberSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user.id', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
+    profile_picture_url = serializers.SerializerMethodField()
     major = serializers.CharField(source='user.major', read_only=True)
     grad_year = serializers.IntegerField(source='user.grad_year', read_only=True)
 
     class Meta:
         model = SnapGroupMember
-        fields = ['id', 'username', 'major', 'grad_year', 'added_at']
+        fields = ['id', 'username', 'profile_picture_url', 'major', 'grad_year', 'added_at']
         read_only_fields = fields
+
+    def get_profile_picture_url(self, obj):
+        return _absolute_profile_picture_url(obj.user, self.context.get('request'))
 
 
 class SnapGroupSerializer(serializers.ModelSerializer):

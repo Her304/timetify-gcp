@@ -2,6 +2,8 @@
 // Tokens are mirrored here as JS so inline styles can read them; Tailwind users
 // should prefer the matching utility classes (coral, lilac, lime, ink, cream).
 
+import { useEffect, useState } from 'react';
+
 export const T = {
   coral:   '#ED6A4A',
   coralDk: '#C04A2E',
@@ -39,12 +41,17 @@ export function Avatar({ name = 'mm', bg = T.lilac, fg = T.ink, size = 36, ring,
 }
 
 // ProfileAvatar — renders profilePictureUrl if present, else falls back to Avatar initials.
+// Falls back to initials on load failure too (e.g. file missing on disk/bucket behind a stale DB reference).
 export function ProfileAvatar({ profilePictureUrl, name = 'mm', bg = T.lilac, fg = T.ink, size = 36, ring, style = {} }) {
-  if (profilePictureUrl) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [profilePictureUrl]);
+
+  if (profilePictureUrl && !failed) {
     return (
       <img
         src={profilePictureUrl}
         alt=""
+        onError={() => setFailed(true)}
         style={{
           width: size, height: size, borderRadius: 999,
           objectFit: 'cover', objectPosition: 'top',

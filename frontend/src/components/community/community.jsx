@@ -1,47 +1,47 @@
-import { Heart, Users01, AlertCircle, ShieldTick, SlashCircle01, Lock01, Eye, File02, Mail01 } from "@untitledui/icons";
+import { Mail01 } from "@untitledui/icons";
 import { T, FF, MonoLabel, PillBtn, Blob } from "@/components/shared/brand";
 
 const Community = () => {
   const sections = [
     {
-      icon: File02,
-      title: "share only what's yours",
-      content: "u own everything u post on timetify — ur schedule, ur snaps, ur messages. because of that, only post content u have the right to share. don't repost someone else's schedule or personal info without permission, and don't copy content from elsewhere that u don't have the rights to. if someone asks u to remove something of theirs that u've shared, please do it. repeated violations of others' content rights will result in account restrictions.",
+      icon: "folder_shared",
+      title: "share only what is yours",
+      content: "you own everything you post on timetify — your schedule, your snaps, your messages. because of this, you should only post content you have the right to share. do not repost someone else's schedule or personal information without their permission, and do not copy content from elsewhere unless you have the right to do so. if someone asks you to remove something of theirs that you have shared, please do so. repeated violations of others' content rights will result in account restrictions.",
     },
     {
-      icon: Eye,
+      icon: "emoji_language",
       title: "keep content appropriate for everyone",
-      content: "timetify is used by students of all ages and backgrounds. don't post sexually explicit content, graphic violence, or anything that a reasonable person would find deeply offensive. we understand context matters — content shared to raise awareness or for educational purposes is treated differently than content shared to shock or harm. when in doubt, ask urself whether u'd be comfortable with ur professor or parent seeing it.",
+      content: "timetify is used by students of all ages and backgrounds. do not post sexually explicit content, graphic violence, or anything that a reasonable person would find deeply offensive. we understand that context matters — content shared to raise awareness or for educational purposes is treated differently from content shared to shock or cause harm. when in doubt, ask yourself whether you would be comfortable with your teacher or parent seeing it.",
     },
     {
-      icon: Heart,
+      icon: "thumbs_up_double",
       title: "foster real, meaningful connections",
-      content: "don't artificially inflate ur friend count, send mass connection requests, or flood chats with repetitive messages. don't offer anything in exchange for follows, accepts, or engagement. timetify is built around genuine schedules and real relationships — gaming those systems undermines the thing that makes the platform worth using. accounts found coordinating fake activity will be removed without warning.",
+      content: "do not artificially inflate your friend count, send mass connection requests, or flood chats with repetitive messages. do not offer anything in exchange for follows, acceptances, or engagement. timetify is built around genuine schedules and real relationships — gaming these systems undermines the very thing that makes the platform worthwhile. accounts found to be coordinating fake activity will be removed without warning.",
     },
     {
-      icon: Users01,
-      title: "be authentic — don't impersonate",
-      content: "u don't have to use ur full legal name, but ur account must represent a real person and ur information must be accurate. don't create accounts to impersonate a classmate, professor, or institution. don't make secondary accounts to evade a ban or harass someone after being blocked. if we find an account exists specifically to deceive or mislead others, we'll disable it.",
+      icon: "person_alert",
+      title: "be authentic — do not impersonate others",
+      content: "you do not need to use your full legal name, but your account must represent a real person, and your information must be accurate. do not create accounts to impersonate a classmate, teacher, or institution. do not create secondary accounts to evade a ban or to harass someone after being blocked. if we find that an account exists specifically to deceive or mislead others, we will disable it.",
     },
     {
-      icon: Lock01,
-      title: "respect privacy — ur own and others'",
-      content: "don't share someone's personal information — phone number, home address, class schedule, or private messages — without their explicit consent. what people share on timetify about their time and location is sensitive by nature. don't screenshot and redistribute private conversations. don't use availability data to track, pressure, or monitor someone. if u receive a private snap or message, it stays private.",
+      icon: "passkey",
+      title: "respect privacy — your own and others'",
+      content: "do not share someone's personal information — telephone number, home address, class schedule, or private messages — without their explicit consent. what people share on timetify about their time and location is sensitive by nature. do not screenshot and redistribute private conversations. do not use availability data to track, pressure, or monitor anyone. if you receive a private snap or message, it remains private.",
     },
     {
-      icon: SlashCircle01,
+      icon: "rule",
       title: "follow the law, always",
-      content: "timetify is not a place to organize anything illegal. don't use chats or events to coordinate the buying or selling of controlled substances, weapons, or stolen goods. don't share content that facilitates fraud, identity theft, or academic dishonesty at scale. we have zero tolerance for any content that sexually exploits minors — this results in immediate permanent removal and reporting to relevant authorities.",
+      content: "timetify is not a platform for organising anything unlawful. do not use chats or events to coordinate the buying or selling of controlled substances, weapons, or stolen goods. do not share content that facilitates fraud, identity theft, or academic dishonesty on a large scale. we have zero tolerance for any content that sexually exploits minors — this results in immediate, permanent removal and referral to the relevant authorities.",
     },
     {
-      icon: ShieldTick,
+      icon: "safety_divider",
       title: "no harassment or hate",
-      content: "we remove content that threatens, demeans, or targets someone based on who they are — their race, ethnicity, gender, sexuality, religion, disability, or background. we also remove content designed to humiliate a specific private individual, doxxing attempts, and sustained campaigns of unwanted contact. public figures and people in the news may be subject to stronger criticism, but even they are protected from credible threats and targeted hate.",
+      content: "we remove content that threatens, demeans, or targets someone on the basis of who they are — their race, ethnicity, gender, sexuality, religion, disability, or background. we also remove content designed to humiliate a specific private individual, doxxing attempts, and sustained campaigns of unwanted contact. public figures and people in the news may be subject to stronger criticism, but even they remain protected from credible threats and targeted hate.",
     },
     {
-      icon: AlertCircle,
+      icon: "groups_3",
       title: "help us keep the community strong",
-      content: "if u see something that doesn't belong — harassment, spam, fake accounts, illegal coordination — use the in-app report option or email us directly. we review every report. include as much detail as u can: usernames, timestamps, screenshots. reports are confidential. many issues can also be resolved directly — if someone posted ur content without permission, try asking them first. if that doesn't work, we're here. ur role in keeping this community safe matters as much as ours.",
+      content: "if you see something that does not belong — harassment, spam, fake accounts, illegal coordination — use the in-app report option or email us directly. we review every report. please include as much detail as you can: usernames, timestamps, and screenshots. reports remain confidential. many issues can also be resolved directly — if someone has posted your content without permission, try asking them to remove it first. if that does not work, we are here to help. your role in keeping this community safe matters just as much as ours.",
     },
   ];
 
@@ -53,7 +53,7 @@ const Community = () => {
           community <span style={{ color: T.coral }}>guidelines</span>
         </h1>
         <p className="text-base text-ink-60 max-w-2xl mx-auto leading-relaxed">
-          timetify is built to be an authentic and safe place for students to connect, coordinate, and study together. help us keep it that way. by using timetify, u agree to these guidelines and our terms of service. overstepping these boundaries may result in content removal, account restrictions, or permanent bans.
+          timetify is built to be an authentic and safe place for students to connect, coordinate, and study together. help us keep it that way. by using timetify, you agree to these guidelines and our terms of service. overstepping these boundaries may result in content removal, account restrictions, or a permanent ban.
         </p>
         <p className="text-xs text-ink-40" style={{ fontFamily: FF.mono }}>last updated: {new Date().toLocaleDateString()}</p>
       </section>
@@ -62,7 +62,7 @@ const Community = () => {
         {sections.map((section, index) => (
           <div key={index} className="bg-white p-7 rounded-3xl border border-ink-8 flex flex-col md:flex-row gap-5 items-start">
             <div className="flex-shrink-0 w-12 h-12 rounded-full grid place-items-center" style={{ background: T.coralLt, color: T.coralDk }}>
-              <section.icon className="w-6 h-6" />
+              <span className="material-symbols-outlined" style={{ fontSize: 24 }}>{section.icon}</span>
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -0.7 }}>{section.title}</h2>
@@ -78,7 +78,7 @@ const Community = () => {
           <MonoLabel color="rgba(248,244,237,.65)">see something wrong?</MonoLabel>
           <h2 className="text-3xl leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>help us keep timetify safe</h2>
           <p className="max-w-lg mx-auto text-sm" style={{ color: 'rgba(248,244,237,.85)' }}>
-            each of us is an important part of this community. if u see content that violates these guidelines, report it — we have a team that reviews every report and works quickly. ur report is always confidential.
+            each of us plays an important part in this community. if you see content that violates these guidelines, please report it — we have a team that reviews every report and acts quickly. your report is always confidential.
           </p>
           <div className="flex justify-center pt-2">
             <a href="mailto:help@timetify.net">

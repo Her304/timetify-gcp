@@ -38,7 +38,7 @@ const STEP1_FIELDS = [
     "university", "major", "grad_year", "accepted_terms", "non_field_errors",
 ];
 
-export default function Register({ registerUser, errors = {} }) {
+export default function Register({ registerUser, errors = {}, inviteInfo = null }) {
     const [step, setStep] = useState(1);
     const [formData, setFormData] = useState({
         username: "",
@@ -170,6 +170,7 @@ export default function Register({ registerUser, errors = {} }) {
         body.append("grad_year", formData.grad_year);
         body.append("accepted_terms", formData.accepted_terms ? "true" : "false");
         body.append("marketing_opt_in", formData.marketing_opt_in ? "true" : "false");
+        if (inviteInfo?.code) body.append("invite_code", inviteInfo.code);
         if (profilePic) body.append("profile_picture", profilePic);
         try {
             await registerUser(body);
@@ -231,6 +232,22 @@ export default function Register({ registerUser, errors = {} }) {
                         <span className={`h-2 rounded-full transition-all duration-200 ${step === 2 ? "w-6 bg-coral" : "w-2 bg-ink-15"}`} />
                     </div>
                 </div>
+
+                {inviteInfo?.inviter && (
+                    <div className="flex items-center gap-3 p-3 rounded-2xl border border-lilac bg-lilac/15">
+                        {inviteInfo.inviter.profile_picture_url ? (
+                            <img src={inviteInfo.inviter.profile_picture_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
+                        ) : (
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0" style={{ background: T.coral, color: "#fff", fontFamily: FF.serif }}>
+                                {inviteInfo.inviter.username?.charAt(0).toLowerCase()}
+                            </div>
+                        )}
+                        <p className="text-sm text-ink leading-snug">
+                            <span className="font-semibold">@{inviteInfo.inviter.username}</span> invited you to Timetify!{" "}
+                            <span className="text-ink-60">make an account and you&apos;ll be friends right away.</span>
+                        </p>
+                    </div>
+                )}
 
                 {step === 1 && (
                     <form className="space-y-5" onSubmit={goToStep2}>

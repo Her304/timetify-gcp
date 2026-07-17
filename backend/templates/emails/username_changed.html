@@ -1,0 +1,27 @@
+{% extends "emails/layout.html" %}
+
+{% block title %}Your username was changed{% endblock %}
+{% block preheader %}The username on your Timetify account was just updated.{% endblock %}
+{% block eyebrow %}SECURITY{% endblock %}
+
+{% block content %}
+<h1 class="title">Your username was changed</h1>
+<p class="body-text">
+  Hey {{ old_username }}, the username on your Timetify account was just changed
+  from <strong>{{ old_username }}</strong> to <strong>{{ new_username }}</strong>.
+  If that was you, you're all set &mdash; nothing else to do.
+</p>
+
+<p class="body-text" style="font-size: 13px; margin-top: 28px;">
+  Didn't change this? Someone may have access to your account. Reset your
+  password right away to lock it back down.
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin: 8px 0 4px;">
+  <tr>
+    <td>
+      <a href="{{ reset_url }}" class="button">RESET PASSWORD</a>
+    </td>
+  </tr>
+</table>
+{% endblock %}

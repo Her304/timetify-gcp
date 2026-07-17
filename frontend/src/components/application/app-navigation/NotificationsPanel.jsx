@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { T, FF, Avatar, Icon, ProfileAvatar } from "@/components/shared/brand";
+import { T, FF, Icon, ProfileAvatar } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 import ConflictSheet from "@/components/events/ConflictSheet";
 
@@ -338,7 +338,8 @@ export const NotificationsPanel = ({ notifications, loading, currentUser, onResp
                 key={req.id}
                 className="px-4 py-2.5 flex items-center gap-3 hover:bg-ink-8 transition-colors"
               >
-                <Avatar
+                <ProfileAvatar
+                  profilePictureUrl={req.profile_picture_url}
                   name={(req.username?.slice(0, 2) || "?").toLowerCase()}
                   bg={bg}
                   fg={isCoral(bg) ? "#fff" : T.ink}
@@ -723,7 +724,8 @@ export const NotificationsPanel = ({ notifications, loading, currentUser, onResp
                 key={snap.id}
                 className="px-4 py-2.5 flex items-center gap-3 hover:bg-ink-8 transition-colors"
               >
-                <Avatar
+                <ProfileAvatar
+                  profilePictureUrl={snap.uploader_profile_picture_url}
                   name={(snap.uploader_username?.slice(0, 2) || "?").toLowerCase()}
                   bg={bg}
                   fg={isCoral(bg) ? "#fff" : T.ink}
@@ -776,8 +778,9 @@ export const NotificationsPanel = ({ notifications, loading, currentUser, onResp
                 {alert.friends.map((f) => {
                   const fb = colorFor(f.username);
                   return (
-                    <Avatar
+                    <ProfileAvatar
                       key={f.id}
+                      profilePictureUrl={f.profile_picture_url}
                       name={(f.username?.slice(0, 2) || "?").toLowerCase()}
                       bg={fb}
                       fg={isCoral(fb) ? "#fff" : T.ink}
