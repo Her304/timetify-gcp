@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { authenticatedFetch } from "@/utils/api";
-import { T, FF, MonoLabel, Avatar, Icon } from "@/components/shared/brand";
+import { T, FF, MonoLabel, Avatar, ProfileAvatar, Icon } from "@/components/shared/brand";
 
 const COURSE_PALETTE = [
   { bg: "#F4A28A", code: "#5F2614" },
@@ -79,7 +79,7 @@ const ClassRow = ({ entry, active, onSelect }) => {
 };
 
 // ─── Right-hand details panel ────────────────────────────────────────
-const DetailsPanel = ({ entry, fetchedCourse }) => {
+const DetailsPanel = ({ entry, fetchedCourse, currentUser, picByUsername = {} }) => {
   const pal = paletteFor(entry.courseId);
   const todayStart = useMemo(() => {
     const d = new Date();
@@ -147,16 +147,20 @@ const DetailsPanel = ({ entry, fetchedCourse }) => {
         <div>
           <MonoLabel>who's in this</MonoLabel>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {entry.owners.slice(0, 6).map((o, i) => (
-              <span
-                key={`${o}-${i}`}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-ink-8 text-xs"
-                style={{ fontFamily: FF.sans }}
-              >
-                <Avatar name={ownerInitial(o)} size={16} bg={pal.bg} fg={pal.code} />
-                <span className="lowercase">{o === "Me" ? "u" : o}</span>
-              </span>
-            ))}
+            {entry.owners.slice(0, 6).map((o, i) => {
+              const isMe = o === "Me" || o === currentUser?.username;
+              const pic = isMe ? currentUser?.profile_picture_url : picByUsername[o];
+              return (
+                <span
+                  key={`${o}-${i}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-ink-8 text-xs"
+                  style={{ fontFamily: FF.sans }}
+                >
+                  <ProfileAvatar profilePictureUrl={pic} name={ownerInitial(o)} size={16} bg={pal.bg} fg={pal.code} />
+                  <span className="lowercase">{o === "Me" ? "u" : o}</span>
+                </span>
+              );
+            })}
           </div>
         </div>
       )}
@@ -250,7 +254,7 @@ const DetailsPanel = ({ entry, fetchedCourse }) => {
 };
 
 // ─── Modal shell ────────────────────────────────────────────────────
-const CourseDetailsModal = ({ cluster = [], onClose }) => {
+const CourseDetailsModal = ({ cluster = [], currentUser, picByUsername = {}, onClose }) => {
   const [selected, setSelected] = useState(cluster[0] || null);
   const [coursesById, setCoursesById] = useState({});
 
@@ -327,7 +331,7 @@ const CourseDetailsModal = ({ cluster = [], onClose }) => {
               ))}
             </aside>
           )}
-          <DetailsPanel entry={selected} fetchedCourse={matched} />
+          <DetailsPanel entry={selected} fetchedCourse={matched} currentUser={currentUser} picByUsername={picByUsername} />
         </div>
       </div>
     </div>

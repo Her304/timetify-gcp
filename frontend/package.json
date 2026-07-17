@@ -14,6 +14,7 @@
     "@untitledui/icons": "^0.0.22",
     "flowbite": "^4.0.1",
     "framer-motion": "^12.38.0",
+    "jsqr": "^1.4.0",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-aria": "^3.47.0",

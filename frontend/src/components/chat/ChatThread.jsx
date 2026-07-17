@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { T, FF, MonoLabel, Avatar, Icon } from "@/components/shared/brand";
+import { T, FF, MonoLabel, ProfileAvatar, Icon } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 import SnapViewerModal from "@/components/snap/SnapViewerModal";
 import ReportModal from "@/components/shared/ReportModal";
@@ -132,11 +132,12 @@ const formatLastSeen = (iso) => {
 // In group chats only. Mono-styled `avatar · username` line above the first
 // bubble of a continuous run from the same sender, so a thread with multiple
 // participants is readable without coloring every author differently.
-const SenderLabel = ({ username }) => {
+const SenderLabel = ({ username, profilePictureUrl }) => {
   if (!username) return null;
   return (
     <div className="flex items-center gap-1.5 mt-1 mb-0.5 ml-1">
-      <Avatar
+      <ProfileAvatar
+        profilePictureUrl={profilePictureUrl}
         name={username.slice(0, 2).toLowerCase()}
         bg={colorForUser(username)}
         fg={colorForUser(username) === T.coral ? "#fff" : T.ink}
@@ -192,7 +193,7 @@ const Bubble = ({ msg, mine, showTime, showSender, onRetry, onReport, onReply })
     return (
       <div className={`flex flex-col ${mine ? "items-end" : "items-start"} px-1`}>
         {showSender && !mine && (
-          <SenderLabel username={msg.sender_username} />
+          <SenderLabel username={msg.sender_username} profilePictureUrl={msg.sender_profile_picture_url} />
         )}
         {msg.reply_to && <MessageReplyCard parent={msg.reply_to} mine={mine} />}
         {msg.replied_snap && <SnapReplyCard snap={msg.replied_snap} mine={mine} />}
@@ -810,13 +811,13 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
       style={{ maxWidth: 1100, minHeight: "calc(100dvh - 120px)" }}
     >
       <div
-        className="flex flex-col flex-1 bg-cream rounded-2xl overflow-hidden md:max-w-[640px]"
+        className="flex flex-col flex-1 bg-white border border-ink-8 rounded-2xl overflow-hidden md:max-w-[640px] shadow-sm"
         style={{ minHeight: "calc(100dvh - 120px)", maxHeight: "calc(100dvh - 120px)" }}
       >
       {/* Header */}
       <div
         className="flex items-center gap-3 px-4 py-3 border-b"
-        style={{ borderColor: T.ink08, background: T.cream }}
+        style={{ borderColor: T.ink08, background: "#fff" }}
       >
         <button
           type="button"
@@ -844,7 +845,8 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
                     zIndex: 3 - j,
                   }}
                 >
-                  <Avatar
+                  <ProfileAvatar
+                    profilePictureUrl={m.profile_picture_url}
                     name={m.username.slice(0, 2).toLowerCase()}
                     bg={colorForUser(m.username)}
                     fg={colorForUser(m.username) === T.coral ? "#fff" : T.ink}
@@ -868,7 +870,8 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
           </button>
         ) : otherUser ? (
           <>
-            <Avatar
+            <ProfileAvatar
+              profilePictureUrl={otherUser.profile_picture_url}
               name={otherUser.username.slice(0, 2).toLowerCase()}
               bg={colorForUser(otherUser.username)}
               fg={colorForUser(otherUser.username) === T.coral ? "#fff" : T.ink}
@@ -909,7 +912,7 @@ export const ChatThread = ({ currentUser, allClasses = [], snapsByCourse = {} })
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto"
-        style={{ background: T.cream }}
+        style={{ background: "#fff" }}
       >
         {loading ? (
           <div className="h-full flex items-center justify-center">
@@ -1362,7 +1365,8 @@ const GroupMembersCard = ({ room, currentUserId, onOpenInfo }) => {
       <div className="flex flex-col gap-1.5">
         {members.map((m) => (
           <div key={m.id} className="flex items-center gap-2">
-            <Avatar
+            <ProfileAvatar
+              profilePictureUrl={m.profile_picture_url}
               name={m.username.slice(0, 2).toLowerCase()}
               bg={colorForUser(m.username)}
               fg={colorForUser(m.username) === T.coral ? "#fff" : T.ink}

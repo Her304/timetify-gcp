@@ -10,6 +10,7 @@ import { isLiveSnap, todayLabel, toMins } from "./utils";
 import FilterChip from "./FilterChip";
 import AvatarRow from "./AvatarRow";
 import PeopleSearch from "./PeopleSearch";
+import QrModal from "./QrModal";
 import RequestsBanner from "./RequestsBanner";
 import GroupChatList from "./GroupChatList";
 import DmInboxList from "./DmInboxList";
@@ -43,6 +44,8 @@ export const Feed = ({
   const [groupsExpanded, setGroupsExpanded] = useState(false);
   const [dmsExpanded, setDmsExpanded] = useState(false);
   const [connectToast, setConnectToast] = useState(false);
+  // null | "show" | "scan" — drives the QR sheet next to the search bar.
+  const [qrMode, setQrMode] = useState(null);
 
   const navigate = useNavigate();
 
@@ -253,7 +256,7 @@ export const Feed = ({
               className="text-5xl md:text-6xl text-ink leading-none"
               style={{ fontFamily: FF.serif, letterSpacing: -1.4 }}
             >
-              ur feed
+              your feed
             </h1>
           </div>
           <MonoLabel fs={13} ls={1.6}>{todayLabel()}</MonoLabel>
@@ -268,6 +271,8 @@ export const Feed = ({
           onSnap={handleSnapTo}
           onConnect={handleConnect}
           creatingDmFor={creatingDmFor}
+          onShowQr={() => setQrMode("show")}
+          onScanQr={() => setQrMode("scan")}
         />
 
         {!searching && (
@@ -393,6 +398,16 @@ export const Feed = ({
             onSnapsChanged && onSnapsChanged();
             setViewerSnapIdx(null);
           }}
+        />
+      )}
+
+      {qrMode && (
+        <QrModal
+          mode={qrMode}
+          currentUser={currentUser}
+          onClose={() => setQrMode(null)}
+          onFriendAdded={() => window.location.reload()}
+          sendFriendRequest={sendFriendRequest}
         />
       )}
     </>

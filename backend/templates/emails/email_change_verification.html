@@ -1,0 +1,27 @@
+{% extends "emails/layout.html" %}
+
+{% block title %}Confirm your new email{% endblock %}
+{% block preheader %}Confirm the email address for your Timetify account.{% endblock %}
+{% block eyebrow %}SECURITY{% endblock %}
+
+{% block content %}
+<h1 class="title">Confirm your new email</h1>
+<p class="body-text">
+  Hey {{ username }}, you asked to change your Timetify email to
+  <strong>{{ new_email }}</strong>. Tap the button to confirm &mdash; your
+  address won't change until you do.
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0 4px;">
+  <tr>
+    <td>
+      <a href="{{ verify_url }}" class="button">CONFIRM EMAIL</a>
+    </td>
+  </tr>
+</table>
+
+<p class="body-text" style="font-size: 13px; margin-top: 28px;">
+  This link expires in 24 hours. If you didn't request this, just ignore this
+  email &mdash; nothing will change.
+</p>
+{% endblock %}

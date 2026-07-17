@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { T, FF, Icon, MonoLabel } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 
@@ -12,6 +12,22 @@ const formatDisplayDate = (iso) => {
   const [y, m, d] = iso.split("-");
   const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}, ${y}`;
+};
+
+// ISO datetime → local "HH:MM" for a <input type="time"> value.
+const isoToTimeInput = (iso) => {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+const fmtSlotTime = (iso) =>
+  new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).toLowerCase();
+
+const fmtSlotDuration = (mins) => {
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
 };
 
 const inputStyle = (T) => ({
@@ -73,22 +89,65 @@ export function ChatEventWizard({ roomId, memberIds = [], onClose, onCreated }) 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const step1Valid =
-    name.trim().length > 0 &&
-    !!date && !!startTime && !!endTime &&
-    startTime < endTime;
+  // Shared free slots for the chosen day (fetched on entering step 2).
+  const [gaps, setGaps] = useState([]);
+  const [gapsLoading, setGapsLoading] = useState(false);
+  const [gapsErr, setGapsErr] = useState(false);
+  const [selectedGap, setSelectedGap] = useState(null); // index into gaps
+
+  const step1Valid = name.trim().length > 0 && !!date;
 
   const goNext = () => {
     if (step === 1 && !step1Valid) {
-      setError(startTime >= endTime ? "end time must be after start" : "name, date and time are required");
+      setError("name and date are required");
       return;
     }
     setError(null);
     setStep(2);
   };
 
+  // Load the shared free time for everyone in this chat on the selected day.
+  useEffect(() => {
+    if (step !== 2) return;
+    let cancelled = false;
+    (async () => {
+      setGapsLoading(true);
+      setGapsErr(false);
+      setGaps([]);
+      setSelectedGap(null);
+      try {
+        const res = await authenticatedFetch(
+          `${import.meta.env.VITE_API_URL}/api/availability/shared-gaps/`,
+          {
+            method: "POST",
+            body: JSON.stringify({ user_ids: memberIds, date, min_duration_minutes: 30 }),
+          }
+        );
+        if (!res.ok) throw new Error("failed");
+        const data = await res.json();
+        if (!cancelled) setGaps(data.gaps || []);
+      } catch {
+        if (!cancelled) setGapsErr(true);
+      } finally {
+        if (!cancelled) setGapsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [step, date, memberIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pickGap = (gap, idx) => {
+    setSelectedGap(idx);
+    setStartTime(isoToTimeInput(gap.start));
+    setEndTime(isoToTimeInput(gap.end));
+    setError(null);
+  };
+
   const submit = async () => {
     if (submitting) return;
+    if (!startTime || !endTime || startTime >= endTime) {
+      setError("pick a start and end time (end must be after start)");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -189,36 +248,6 @@ export function ChatEventWizard({ roomId, memberIds = [], onClose, onCreated }) 
               onChange={(e) => setDate(e.target.value)}
               style={inputStyle(T)}
             />
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <div
-                  className="text-[10px] uppercase mb-1 px-0.5"
-                  style={{ fontFamily: FF.mono, color: T.ink40, letterSpacing: 0.8 }}
-                >
-                  from
-                </div>
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  style={inputStyle(T)}
-                />
-              </div>
-              <div className="flex-1">
-                <div
-                  className="text-[10px] uppercase mb-1 px-0.5"
-                  style={{ fontFamily: FF.mono, color: T.ink40, letterSpacing: 0.8 }}
-                >
-                  to
-                </div>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  style={inputStyle(T)}
-                />
-              </div>
-            </div>
           </>
         )}
 
@@ -241,8 +270,88 @@ export function ChatEventWizard({ roomId, memberIds = [], onClose, onCreated }) 
                 {formatDisplayDate(date)} · {startTime}–{endTime}
               </div>
             </div>
+
+            {/* Shared free time for everyone in this chat on the chosen day */}
+            <div>
+              <div
+                className="text-[10px] uppercase mb-1.5 px-0.5"
+                style={{ fontFamily: FF.mono, color: T.ink40, letterSpacing: 0.8 }}
+              >
+                {memberIds.length > 0 ? "everyone's free" : "your free time"}
+              </div>
+              {gapsLoading ? (
+                <div className="flex gap-1.5">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-7 w-24 rounded-full animate-pulse" style={{ background: T.ink08 }} />
+                  ))}
+                </div>
+              ) : gapsErr ? (
+                <div className="text-[11px] lowercase px-0.5" style={{ fontFamily: FF.sans, color: T.ink40 }}>
+                  couldn't load free times — pick a time below
+                </div>
+              ) : gaps.length === 0 ? (
+                <div className="text-[11px] lowercase px-0.5" style={{ fontFamily: FF.sans, color: T.ink40 }}>
+                  no shared free slots this day — pick a time below
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {gaps.map((gap, idx) => {
+                    const active = selectedGap === idx;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => pickGap(gap, idx)}
+                        className="px-2.5 py-1 rounded-full text-[11px] font-semibold lowercase transition-colors"
+                        style={{
+                          background: active ? T.coral : T.cream,
+                          color: active ? "#fff" : T.ink,
+                          border: `1px solid ${active ? T.coral : T.ink15 || T.ink08}`,
+                          fontFamily: FF.sans,
+                        }}
+                      >
+                        {fmtSlotTime(gap.start)}–{fmtSlotTime(gap.end)}
+                        <span style={{ opacity: 0.6 }}> · {fmtSlotDuration(gap.duration_minutes)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Fine-tune the exact start / end */}
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <div
+                  className="text-[10px] uppercase mb-1 px-0.5"
+                  style={{ fontFamily: FF.mono, color: T.ink40, letterSpacing: 0.8 }}
+                >
+                  from
+                </div>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => { setStartTime(e.target.value); setSelectedGap(null); }}
+                  style={inputStyle(T)}
+                />
+              </div>
+              <div className="flex-1">
+                <div
+                  className="text-[10px] uppercase mb-1 px-0.5"
+                  style={{ fontFamily: FF.mono, color: T.ink40, letterSpacing: 0.8 }}
+                >
+                  to
+                </div>
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => { setEndTime(e.target.value); setSelectedGap(null); }}
+                  style={inputStyle(T)}
+                />
+              </div>
+            </div>
+
             <input
-              autoFocus
               type="text"
               placeholder="location (optional)"
               value={location}

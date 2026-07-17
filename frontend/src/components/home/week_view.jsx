@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { authenticatedFetch } from "@/utils/api";
-import { T, FF, MonoLabel, Avatar, Blob, Icon } from "@/components/shared/brand";
+import { T, FF, MonoLabel, Avatar, ProfileAvatar, Blob, Icon } from "@/components/shared/brand";
 import CourseDetailsModal from "@/components/home/CourseDetailsModal";
 import EventBlock from "@/components/events/EventBlock";
 import EventDetailsModal from "@/components/events/EventDetailsModal";
@@ -112,17 +112,23 @@ const avatarBgFor = (name) =>
     ? T.coral
     : COURSE_PALETTE[hashStr(name) % (COURSE_PALETTE.length - 1)].bg;
 
-// Stack of friend avatars; up to `max` chips, then a "+N" pill.
-const AvatarStack = ({ owners = [], max = 3, size = 20, currentUser, ring = "#fff" }) => {
+// Stack of friend avatars; up to `max` chips, then a "+N" pill. `picByUsername`
+// resolves an owner's real profile photo (owners are only username strings
+// here); ProfileAvatar falls back to the colored initial when there's none.
+const AvatarStack = ({ owners = [], max = 3, size = 20, currentUser, picByUsername = {}, ring = "#fff" }) => {
   const shown = owners.slice(0, max);
   const rest = Math.max(0, owners.length - shown.length);
   return (
     <div className="flex items-center -space-x-1.5">
       {shown.map((o, i) => {
         const isMe = o === "Me" || o === currentUser?.username;
+        const pic = isMe
+          ? currentUser?.profile_picture_url
+          : picByUsername[o];
         return (
-          <Avatar
+          <ProfileAvatar
             key={`${o}-${i}`}
+            profilePictureUrl={pic}
             name={ownerInitial(o)}
             bg={isMe ? T.coral : avatarBgFor(o)}
             fg={isMe ? "#fff" : T.ink}
@@ -170,7 +176,7 @@ const toLocalIso = (d) => {
   return `${y}-${m}-${day}`;
 };
 
-export const WeekView = ({ allClasses = [], events = [], scheduleSkips = { course_skips: [], event_skips: [] }, currentUser, onEventsChanged, respondToEventInvite }) => {
+export const WeekView = ({ allClasses = [], events = [], scheduleSkips = { course_skips: [], event_skips: [] }, currentUser, picByUsername = {}, onEventsChanged, respondToEventInvite }) => {
   const dates = useMemo(() => weekDates(), []);
   const todayKey = JS_TO_KEY[new Date().getDay()];
 
@@ -519,6 +525,7 @@ export const WeekView = ({ allClasses = [], events = [], scheduleSkips = { cours
                             }
                             extraCount={extra}
                             currentUser={currentUser}
+                            picByUsername={picByUsername}
                             onOpen={() => setModalCluster([primary])}
                             onOpenCluster={() => setModalCluster(cluster)}
                           />
@@ -567,7 +574,7 @@ export const WeekView = ({ allClasses = [], events = [], scheduleSkips = { cours
 
         {/* ───── Side rail ───── */}
         <div className="flex flex-col gap-4">
-          <LiveNowCard liveNow={liveNow} currentUser={currentUser} />
+          <LiveNowCard liveNow={liveNow} currentUser={currentUser} picByUsername={picByUsername} />
           <TodayCard
             todayKey={todayKey}
             todayDate={dates[todayKey]}
@@ -582,6 +589,8 @@ export const WeekView = ({ allClasses = [], events = [], scheduleSkips = { cours
       {modalCluster && (
         <CourseDetailsModal
           cluster={modalCluster}
+          currentUser={currentUser}
+          picByUsername={picByUsername}
           onClose={() => setModalCluster(null)}
         />
       )}
@@ -616,6 +625,7 @@ const CourseBlock = ({
   isLive,
   extraCount = 0,
   currentUser,
+  picByUsername = {},
   onOpen,
   onOpenCluster,
 }) => {
@@ -652,6 +662,7 @@ const CourseBlock = ({
         <AvatarStack
           owners={entry.owners}
           currentUser={currentUser}
+          picByUsername={picByUsername}
           max={2}
           size={avatarSize}
           ring=""
@@ -710,7 +721,7 @@ const CourseBlock = ({
   );
 };
 
-const LiveNowCard = ({ liveNow, currentUser }) => {
+const LiveNowCard = ({ liveNow, currentUser, picByUsername = {} }) => {
   const first = liveNow[0];
   const friendsInClass = first ? first.owners.filter((o) => o !== "Me") : [];
   return (
@@ -757,6 +768,7 @@ const LiveNowCard = ({ liveNow, currentUser }) => {
               <AvatarStack
                 owners={first.owners.length ? first.owners : [currentUser?.username || "me"]}
                 currentUser={currentUser}
+                picByUsername={picByUsername}
                 max={3}
                 size={32}
                 ring={T.ink}
