@@ -8,16 +8,10 @@ import EventDetailsModal from "@/components/events/EventDetailsModal";
 const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const JS_TO_KEY = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
-// Stable per-course palette. The block treats `bg` as the fill and `dot` as the
-// avatar-ring color so each course owns a coherent two-tone identity.
-const COURSE_PALETTE = [
-  { bg: "#F4A28A", dot: T.lime,    code: "#5F2614", label: T.ink,   tone: "coral" },
-  { bg: "#DCF5A9", dot: T.coral,   code: "#3F5E14", label: T.ink,   tone: "lime"  },
-  { bg: "#E5D5F2", dot: T.lime,    code: "#5A3A85", label: T.ink,   tone: "lilac" },
-  { bg: "#F6D9C1", dot: T.lime,    code: "#7A4520", label: T.ink,   tone: "peach" },
-  { bg: "#CDE6D2", dot: T.coral,   code: "#2D5538", label: T.ink,   tone: "mint"  },
-  { bg: "#1F1A22", dot: T.coral,   code: "#F8F4ED", label: T.cream, tone: "ink"   },
-];
+// Flat fill for every course block, regardless of course — a light lilac
+// tint (not the saturated T.lilac brand token) with a darker purple accent
+// for the code/location text, mirroring the event blocks' light-lime tint.
+const COURSE_TONE = { bg: "#E5D5F2", dot: T.lime, code: "#5A3A85", label: T.ink };
 
 const toMinutes = (hhmm) => {
   if (!hhmm || typeof hhmm !== "string") return null;
@@ -26,13 +20,7 @@ const toMinutes = (hhmm) => {
   return h * 60 + m;
 };
 
-const hashStr = (s) => {
-  let h = 0;
-  for (let i = 0; i < (s || "").length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-};
-
-const paletteFor = (courseId) => COURSE_PALETTE[hashStr(courseId) % COURSE_PALETTE.length];
+const paletteFor = () => COURSE_TONE;
 
 const formatHourLabel = (h) => {
   if (h === 0) return "12 AM";
@@ -107,10 +95,6 @@ const buildClusters = (entries) => {
 
 
 const ownerInitial = (name) => (name?.[0] || "?").toLowerCase();
-const avatarBgFor = (name) =>
-  name === "Me"
-    ? T.coral
-    : COURSE_PALETTE[hashStr(name) % (COURSE_PALETTE.length - 1)].bg;
 
 // Stack of friend avatars; up to `max` chips, then a "+N" pill. `picByUsername`
 // resolves an owner's real profile photo (owners are only username strings
@@ -130,8 +114,8 @@ const AvatarStack = ({ owners = [], max = 3, size = 20, currentUser, picByUserna
             key={`${o}-${i}`}
             profilePictureUrl={pic}
             name={ownerInitial(o)}
-            bg={isMe ? T.coral : avatarBgFor(o)}
-            fg={isMe ? "#fff" : T.ink}
+            bg={T.coral}
+            fg="#fff"
             size={size}
             ring={ring}
           />
@@ -630,11 +614,12 @@ const CourseBlock = ({
   onOpenCluster,
 }) => {
   const pal = paletteFor(entry.courseId);
-  const isDark = pal.tone === "ink";
-  const ringColor = isDark ? T.ink : pal.bg;
 
-  const compact = height < 48;
-  const avatarSize = compact ? 16 : 20;
+  // Avatar + code + location need ~66px to fit without crowding (20 avatar +
+  // 2×4 gaps + 2 text lines + padding). Below that, keep the avatar (shrunk)
+  // and code but drop the location line so nothing gets cut off.
+  const roomy = height >= 66;
+  const avatarSize = roomy ? 20 : 16;
 
   return (
     <button
@@ -651,8 +636,8 @@ const CourseBlock = ({
         border: isLive ? `2px solid ${T.coral}` : "1px solid rgba(0,0,0,0.04)",
         boxShadow: isLive ? "0 0 0 3px rgba(237,106,74,0.25)" : "none",
         cursor: "pointer",
-        padding: compact ? "5px 8px" : "7px 10px",
-        gap: compact ? 2 : 4,
+        padding: roomy ? "7px 10px" : "5px 8px",
+        gap: roomy ? 4 : 2,
         alignItems: "flex-start",
         justifyContent: "flex-start",
       }}
@@ -674,7 +659,7 @@ const CourseBlock = ({
       >
         {entry.courseId}
       </div>
-      {!compact && entry.location && (
+      {roomy && entry.location && (
         <div
           className="text-[10px] lowercase truncate w-full"
           style={{

@@ -11,15 +11,8 @@ export const timeAgo = (iso) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-export const hashStr = (s) => {
-  let h = 0;
-  for (let i = 0; i < (s || "").length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-};
-
-export const AVATAR_BG = [T.coral, T.lilac, "#f0c4a8", "#b8d8c2", T.lime];
-
-export const colorForUser = (name) => AVATAR_BG[hashStr(name) % AVATAR_BG.length];
+// All avatars are coral — flat, not hashed per-user.
+export const colorForUser = () => T.coral;
 
 export const todayLabel = () => {
   const d = new Date();

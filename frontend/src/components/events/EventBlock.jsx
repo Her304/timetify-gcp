@@ -13,13 +13,15 @@ const formatRange = (s, e) => {
   return `${fmt(s)}–${fmt(e)}`;
 };
 
-const hashStr = (s) => {
-  let h = 0;
-  for (let i = 0; i < (s || "").length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-};
-const AVATAR_BG = [T.coral, T.lilac, "#f0c4a8", "#b8d8c2", T.lime];
-const colorForUser = (name) => AVATAR_BG[hashStr(name) % AVATAR_BG.length];
+// All avatars are coral — flat, not hashed per-user.
+const colorForUser = () => T.coral;
+
+// Light lime tint for the event fill, with a darker green accent for
+// borders/chips — same pair used for lime elsewhere in the app
+// (RemindersCard, CourseDetailsModal, Landing), rather than the saturated
+// T.lime brand token which reads too bold as a block fill.
+const EVENT_BG = "#DCF5A9";
+const EVENT_DK = "#3F5E14";
 
 export default function EventBlock({ event, top, height, onOpen, startMin, endMin, onRespond, leftStyle = 4, rightStyle = 4, widthStyle, extraCount = 0, onOpenCluster }) {
   const [responding, setResponding] = useState(false);
@@ -220,9 +222,9 @@ export default function EventBlock({ event, top, height, onOpen, startMin, endMi
       className="absolute rounded-2xl overflow-hidden text-left flex flex-col"
       style={{
         ...baseStyle,
-        background: T.lilac,
+        background: EVENT_BG,
         color: T.ink,
-        border: `1px solid ${T.lilacDk}`,
+        border: `1px solid ${EVENT_DK}`,
       }}
     >
       <div className="flex items-center gap-1.5">
@@ -259,7 +261,7 @@ export default function EventBlock({ event, top, height, onOpen, startMin, endMi
               profilePictureUrl={u.pic}
               name={(u.username || "?").slice(0, 2).toLowerCase()}
               bg={colorForUser(u.username || "")}
-              fg={T.ink}
+              fg="#fff"
               size={20}
             />
           ))}
@@ -273,7 +275,7 @@ export default function EventBlock({ event, top, height, onOpen, startMin, endMi
                 background: T.ink,
                 color: T.cream,
                 fontFamily: FF.mono,
-                boxShadow: `0 0 0 2px ${T.lilac}`,
+                boxShadow: `0 0 0 2px ${T.lime}`,
                 letterSpacing: -0.3,
               }}
             >
@@ -301,8 +303,8 @@ export default function EventBlock({ event, top, height, onOpen, startMin, endMi
           className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase cursor-pointer"
           style={{
             background: "#fff",
-            color: T.lilacDk,
-            border: `1.5px solid ${T.lilac}`,
+            color: EVENT_DK,
+            border: `1.5px solid ${T.lime}`,
             fontFamily: FF.mono,
             letterSpacing: 0.4,
           }}

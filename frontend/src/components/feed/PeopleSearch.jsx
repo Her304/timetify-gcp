@@ -172,8 +172,8 @@ export default function PeopleSearch({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-2 bg-white border border-ink-8 rounded-full px-4 py-2.5 flex-1 min-w-[200px]">
+      <div className="flex flex-col md:flex-row md:items-center gap-2">
+        <div className="flex items-center gap-2 bg-white border border-ink-8 rounded-full px-4 py-2.5 flex-1 min-w-0 md:min-w-[200px]">
           <Icon name="search" size={14} color={T.ink60} />
           <input
             type="text"
@@ -199,31 +199,35 @@ export default function PeopleSearch({
             </button>
           )}
         </div>
-        {onShowQr && (
-          <button
-            type="button"
-            onClick={onShowQr}
-            aria-label="show my qr code"
-            title="my qr code"
-            className="h-11 px-3.5 rounded-full flex items-center gap-1.5 flex-shrink-0 bg-white border border-ink-8 text-sm font-semibold lowercase"
-            style={{ color: T.ink, fontFamily: FF.sans }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 20, color: T.ink }}>qr_code</span>
-            my qr code
-          </button>
-        )}
-        {onScanQr && (
-          <button
-            type="button"
-            onClick={onScanQr}
-            aria-label="scan a qr code"
-            title="scan qr code"
-            className="h-11 px-3.5 rounded-full flex items-center gap-1.5 flex-shrink-0 text-sm font-semibold lowercase"
-            style={{ background: T.coral, color: "#fff", fontFamily: FF.sans }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 20, color: "#fff" }}>qr_code_scanner</span>
-            scan qr code
-          </button>
+        {(onShowQr || onScanQr) && (
+          <div className="flex items-center gap-2">
+            {onShowQr && (
+              <button
+                type="button"
+                onClick={onShowQr}
+                aria-label="show my qr code"
+                title="my qr code"
+                className="h-11 px-3.5 rounded-full flex items-center justify-center gap-1.5 flex-1 md:flex-initial bg-white border border-ink-8 text-sm font-semibold lowercase whitespace-nowrap"
+                style={{ color: T.ink, fontFamily: FF.sans }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: T.ink }}>qr_code</span>
+                my qr code
+              </button>
+            )}
+            {onScanQr && (
+              <button
+                type="button"
+                onClick={onScanQr}
+                aria-label="scan a qr code"
+                title="scan qr code"
+                className="h-11 px-3.5 rounded-full flex items-center justify-center gap-1.5 flex-1 md:flex-initial text-sm font-semibold lowercase whitespace-nowrap"
+                style={{ background: T.coral, color: "#fff", fontFamily: FF.sans }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: "#fff" }}>qr_code_scanner</span>
+                scan qr code
+              </button>
+            )}
+          </div>
         )}
       </div>
 

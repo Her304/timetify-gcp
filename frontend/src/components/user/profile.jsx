@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
 import { T, FF, MonoLabel, ProfileAvatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
 import CourseDetailsModal from "@/components/home/CourseDetailsModal";
+import FriendDetailsModal from "@/components/user/FriendDetailsModal";
 
 const PROFILE_PIC_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -105,7 +106,6 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const [courseFilter, setCourseFilter] = useState("all");
   // Archive: course-details modal + in-flight remove.
   const [detailCluster, setDetailCluster] = useState(null);
-  const [removingCourseId, setRemovingCourseId] = useState(null);
   const [blocks, setBlocks] = useState([]);
   const [blocksLoading, setBlocksLoading] = useState(false);
   const [unblockingId, setUnblockingId] = useState(null);
@@ -124,6 +124,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const [friends, setFriends] = useState([]);
   const [friendsExpanded, setFriendsExpanded] = useState(false);
   const [friendBusyId, setFriendBusyId] = useState(null);
+  const [detailFriend, setDetailFriend] = useState(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupMembers, setNewGroupMembers] = useState(new Set());
@@ -328,6 +329,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
           : g,
       ),
     );
+    setDetailFriend((prev) => (prev?.id === userId ? null : prev));
   };
 
   const handleUnfriend = async (friend) => {
@@ -583,19 +585,6 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
         owners: [],
       },
     ]);
-  };
-
-  const handleRemoveCourse = async (course) => {
-    if (removingCourseId) return;
-    if (!window.confirm(`remove ${course.course_id} from your courses? this can't be undone.`)) return;
-    setRemovingCourseId(course.id);
-    try {
-      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/${course.id}/`, {
-        method: "DELETE",
-      });
-      if (res.ok) setAllCourses((prev) => prev.filter((c) => c.id !== course.id));
-    } catch (err) { console.error("Failed to remove course", err); }
-    finally { setRemovingCourseId(null); }
   };
 
   const inputClasses = "w-full px-3 py-2 border border-ink-15 bg-white rounded-full text-sm outline-none focus:ring-2 focus:ring-coral/20 focus:border-coral transition-all";
@@ -1219,28 +1208,21 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                         type="button"
                         onClick={() => handleOpenChat(f)}
                         disabled={busy}
-                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
-                        style={{ background: T.ink, color: "#fff" }}
+                        aria-label={`chat with ${f.username}`}
+                        className="h-8 pl-2.5 pr-3 rounded-full flex items-center justify-center gap-1 disabled:opacity-50"
+                        style={{ background: T.ink }}
                       >
-                        chat
+                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: "#fff" }}>chat_bubble</span>
+                        <span className="text-xs font-semibold lowercase" style={{ color: "#fff" }}>chat</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleUnfriend(f)}
+                        onClick={() => setDetailFriend(f)}
                         disabled={busy}
-                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
+                        className="h-8 px-3 rounded-full flex items-center justify-center text-xs font-semibold lowercase disabled:opacity-50"
                         style={{ background: "#fff", color: T.ink, border: `1px solid ${T.ink15}` }}
                       >
-                        {busy ? "…" : "remove"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleBlockFriend(f)}
-                        disabled={busy}
-                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
-                        style={{ background: "#fff", color: T.coralDk, border: `1px solid ${T.ink15}` }}
-                      >
-                        block
+                        {busy ? "…" : "details"}
                       </button>
                     </div>
                   </div>
@@ -1295,44 +1277,31 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
             </div>
           ) : filteredCourses.length > 0 ? (
             <div className="space-y-2">
-              {filteredCourses.map((course) => {
-                const removing = removingCourseId === course.id;
-                return (
-                  <div key={course.id} className="bg-cream rounded-xl p-4 flex items-center justify-between gap-3 border border-ink-8">
+              {filteredCourses.map((course) => (
+                <div key={course.id} className="bg-cream rounded-xl p-4 flex items-center justify-between gap-3 border border-ink-8">
+                  <div className="min-w-0">
                     <div className="min-w-0">
-                      <div className="min-w-0">
-                        <span className="font-semibold text-ink lowercase" style={{ fontFamily: FF.serif, fontSize: 16, letterSpacing: -0.3 }}>{course.course_id}</span>
-                        {course.course_name && (
-                          <span className="text-xs text-ink-60 ml-2 lowercase">{course.course_name}</span>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-ink-40 mt-0.5 block" style={{ fontFamily: FF.mono }}>
-                        {formatDate(course.start_date)} – {formatDate(course.end_date)}
-                      </span>
+                      <span className="font-semibold text-ink lowercase" style={{ fontFamily: FF.serif, fontSize: 16, letterSpacing: -0.3 }}>{course.course_id}</span>
+                      {course.course_name && (
+                        <span className="text-xs text-ink-60 ml-2 lowercase">{course.course_name}</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => openCourseDetails(course)}
-                        disabled={removing}
-                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
-                        style={{ background: T.ink, color: "#fff" }}
-                      >
-                        details
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCourse(course)}
-                        disabled={removing}
-                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
-                        style={{ background: "#fff", color: T.coralDk, border: `1px solid ${T.ink15}` }}
-                      >
-                        {removing ? "…" : "remove"}
-                      </button>
-                    </div>
+                    <span className="text-[11px] text-ink-40 mt-0.5 block" style={{ fontFamily: FF.mono }}>
+                      {formatDate(course.start_date)} – {formatDate(course.end_date)}
+                    </span>
                   </div>
-                );
-              })}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => openCourseDetails(course)}
+                      className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase"
+                      style={{ background: T.ink, color: "#fff" }}
+                    >
+                      details
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="py-8 text-center">
@@ -1413,15 +1382,51 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
         </div>
       </section>
 
+      {/* Mobile-only footer links — desktop has the real footer below the page. */}
+      <section className="md:hidden">
+        <div className="mb-4">
+          <MonoLabel>elsewhere</MonoLabel>
+          <h2 className="text-2xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -0.8 }}>
+            more from timetify
+          </h2>
+        </div>
+        <div className="bg-white border border-ink-8 rounded-2xl px-5 overflow-hidden">
+          {[
+            { to: "/about", label: "about" },
+            { to: "/blog", label: "blog" },
+            { to: "/help", label: "help" },
+            { to: "/community", label: "community" },
+            { to: "/terms", label: "terms" },
+            { to: "/privacy", label: "privacy" },
+            { href: "https://github.com/Her304/timetify-gcp", label: "github" },
+          ].map((item, i, arr) => {
+            const shared = "py-3.5 flex items-center justify-between text-sm lowercase hover:text-coral transition-colors";
+            const style = { color: T.ink, borderBottom: i < arr.length - 1 ? `1px solid ${T.ink08}` : "none" };
+            const content = (
+              <>
+                {item.label}
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: T.ink40 }}>chevron_right</span>
+              </>
+            );
+            return item.href ? (
+              <a key={item.label} href={item.href} className={shared} style={style}>{content}</a>
+            ) : (
+              <Link key={item.label} to={item.to} className={shared} style={style}>{content}</Link>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Mobile-only log out pill — desktop has it in the header nav. */}
       {onLogout && (
         <div className="md:hidden mt-6">
           <button
             type="button"
             onClick={onLogout}
-            className="w-full py-3 rounded-full text-sm font-semibold lowercase hover:opacity-90 transition-opacity"
+            className="w-full py-3 rounded-full text-sm font-semibold lowercase hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
             style={{ background: T.coral, color: "#fff", fontFamily: FF.sans }}
           >
+            <Icon name="logout" size={16} color="#fff" />
             log out
           </button>
         </div>
@@ -1432,6 +1437,16 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
           cluster={detailCluster}
           currentUser={currentUser}
           onClose={() => setDetailCluster(null)}
+        />
+      )}
+
+      {detailFriend && (
+        <FriendDetailsModal
+          friend={detailFriend}
+          busy={friendBusyId === detailFriend.id}
+          onClose={() => setDetailFriend(null)}
+          onUnfriend={handleUnfriend}
+          onBlock={handleBlockFriend}
         />
       )}
     </div>

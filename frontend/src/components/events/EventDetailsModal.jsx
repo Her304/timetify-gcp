@@ -32,13 +32,8 @@ const STATUS_TONE = {
   REQUESTED: { bg: T.ink08,   fg: T.ink60,   label: "request sent" },
 };
 
-const hashStr = (s) => {
-  let h = 0;
-  for (let i = 0; i < (s || "").length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-};
-const AVATAR_BG = [T.coral, T.lilac, "#f0c4a8", "#b8d8c2", T.lime];
-const colorForUser = (name) => AVATAR_BG[hashStr(name) % AVATAR_BG.length];
+// All avatars are coral — flat, not hashed per-user.
+const colorForUser = () => T.coral;
 
 /**
  * Modal showing full event details for the clicked tile.
@@ -197,7 +192,7 @@ function EventDetailsContent({ event, currentUser, onClose, onChanged }) {
                 profilePictureUrl={event.creator_profile_picture_url}
                 name={(event.creator_username || "?").slice(0, 2).toLowerCase()}
                 bg={colorForUser(event.creator_username || "")}
-                fg={T.ink}
+                fg="#fff"
                 size={32}
               />
               <span className="text-sm lowercase" style={{ fontFamily: FF.sans }}>
@@ -242,7 +237,7 @@ function EventDetailsContent({ event, currentUser, onClose, onChanged }) {
                         profilePictureUrl={inv.invitee_profile_picture_url}
                         name={(inv.invitee_username || "?").slice(0, 2).toLowerCase()}
                         bg={colorForUser(inv.invitee_username || "")}
-                        fg={T.ink}
+                        fg="#fff"
                         size={26}
                       />
                       <span className="text-xs lowercase truncate flex-1" style={{ fontFamily: FF.sans }}>
