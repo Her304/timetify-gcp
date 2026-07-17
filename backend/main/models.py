@@ -1,3 +1,4 @@
+import secrets
 from datetime import time
 
 from django.db import models
@@ -8,6 +9,10 @@ class CustomUser(AbstractUser):
     major = models.CharField(max_length=30, blank=False)
     grad_year = models.PositiveIntegerField()
     email = models.EmailField(blank=False, unique=True)
+    # New address awaiting confirmation via the emailed verification link. The
+    # live `email` above is only swapped to this once the user clicks through;
+    # until then it's just a staging value for the "pending" UI hint.
+    pending_email = models.EmailField(null=True, blank=True)
     temp_password = models.CharField(max_length=128, null=True, blank=True)
     is_temp_password = models.BooleanField(default=False)
     # Throttled (~60s) on every authenticated request by LastSeenMiddleware.
@@ -22,11 +27,28 @@ class CustomUser(AbstractUser):
     # False until the new-user coach-mark tour is finished/skipped; drives whether
     # the onboarding overlay shows on load.
     onboarding_completed = models.BooleanField(default=False)
+    # Stable, reusable code that backs this user's personal invite link/QR
+    # (/invite/<code>). Generated lazily on first access so existing users pick
+    # one up too; unguessable so a link can't be reverse-enumerated from an id.
+    invite_code = models.CharField(max_length=22, unique=True, null=True, blank=True, db_index=True)
 
     REQUIRED_FIELDS = ['email', 'university', 'major', 'grad_year']
 
     def __str__(self):
         return self.username
+
+    def get_or_create_invite_code(self):
+        """Return this user's invite code, minting and persisting one on first use.
+        Retries on the (astronomically unlikely) unique collision."""
+        if self.invite_code:
+            return self.invite_code
+        for _ in range(5):
+            code = secrets.token_urlsafe(16)[:22]
+            if not CustomUser.objects.filter(invite_code=code).exists():
+                self.invite_code = code
+                self.save(update_fields=['invite_code'])
+                return code
+        raise RuntimeError("could not allocate a unique invite code")
 
 # Course Model
 class Course(models.Model):

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { T, FF, Avatar, Icon, MonoLabel } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar, Icon, MonoLabel } from "@/components/shared/brand";
 import { authenticatedFetch } from "@/utils/api";
 
 const NAME_MAX = 100;
@@ -314,7 +314,8 @@ export default function AddEventPage({ friendsList = [], currentUser, onCreated 
                           border: `1px solid ${active ? T.coral : T.ink15}`,
                         }}
                       >
-                        <Avatar
+                        <ProfileAvatar
+                          profilePictureUrl={f.profile_picture_url}
                           name={f.username.slice(0, 2).toLowerCase()}
                           bg={colorForUser(f.username)}
                           fg={colorForUser(f.username) === T.coral ? "#fff" : T.ink}

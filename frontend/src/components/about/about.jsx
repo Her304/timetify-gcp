@@ -36,7 +36,7 @@ const About = () => {
         </div>
         <div className="grid md:grid-cols-2 gap-5">
           {[
-            { icon: "auto_awesome_motion", title: "artificial intelligence extraction", description: "upload your syllabus and let our artificial intelligence handle the scheduling.", bg: T.coral, fg: '#fff' },
+            { icon: "auto_awesome_motion", title: "AI extraction", description: "upload your syllabus and let our AI handle the scheduling.", bg: T.coral, fg: '#fff' },
             { icon: "connect_without_contact", title: "real-time sync", description: "instantly see when your friends are free or busy.", bg: T.lime, fg: T.ink },
           ].map((feature, i) => (
             <div key={i} className="p-7 bg-white rounded-3xl border border-ink-8 hover:border-coral transition-colors space-y-3">

@@ -23,8 +23,8 @@ const FAQ_SECTIONS = [
     items: [
       {
         q: "how do i add my classes?",
-        a: "select the “+” button and choose “add class”. upload your syllabus document and timetify's artificial intelligence will read it for you — extracting the course name, meeting days and times, term weeks, examinations, and assignments — so that you do not need to enter everything by hand.",
-        shot: { src: "/help/syllabus-upload.png", name: "syllabus-upload.png (or .gif)" },
+        a: "select the “+” button and choose “add class”. you may either upload your syllabus document — timetify's AI will read it for you, extracting the course name, meeting days and times, term weeks, examinations, and assignments — or select “type manually” to enter a class by hand. once the artificial intelligence has finished, you will reach a review step where every class and its recurring assignments can be checked and adjusted before anything is added to your schedule.",
+        shot: { src: "https://storage.googleapis.com/timetify-prod-media/help/syllabus-upload.mp4", name: "syllabus-upload.mp4", video: true },
       },
       {
         q: "what if the artificial intelligence makes a mistake?",
@@ -64,8 +64,8 @@ const FAQ_SECTIONS = [
       },
       {
         q: "can i create an event straight from a chat?",
-        a: "yes. type “/” in any chat to open the command menu, select “event”, and complete the brief two-step form. an event card will then be posted directly into that chat, allowing everyone in the room to confirm their attendance.",
-        shot: { src: "/help/event-from-chat.png", name: "event-from-chat.png (or .gif)" },
+        a: "yes. type “/” in any chat to open the command menu and select “event”. the first step asks for a name and date; the second shows the times when everyone in the chat is free — tap a suggested slot to fill in the start and end times, adjust them if you wish, and add a location. once you confirm, an event card is posted directly into the chat, allowing everyone in the room to accept or decline.",
+        shot: { src: "https://storage.googleapis.com/timetify-prod-media/help/event-from-chat.mp4", name: "event-from-chat.mp4", video: true },
       },
       {
         q: "how does confirming attendance work?",
@@ -107,19 +107,21 @@ const FAQ_SECTIONS = [
   },
 ];
 
-function StepShot({ src, name }) {
+function StepShot({ src, name, video }) {
   const [errored, setErrored] = useState(false);
   return (
     <div className="mt-4 rounded-2xl overflow-hidden border border-ink-8 bg-cream max-w-2xl">
-      {!errored ? (
-        <img src={src} alt="" onError={() => setErrored(true)} className="w-full block" />
-      ) : (
+      {errored ? (
         <div className="aspect-video flex flex-col items-center justify-center gap-2 p-6 text-center">
           <Icon name="cam" size={20} color={T.ink40} />
           <p className="text-[11px] leading-relaxed" style={{ color: T.ink40, fontFamily: FF.mono }}>
-            drop {name} in frontend/public/help/
+            {video ? `couldn't load ${name}` : `drop ${name} in frontend/public/help/`}
           </p>
         </div>
+      ) : video ? (
+        <video src={src} controls playsInline className="w-full block" onError={() => setErrored(true)} />
+      ) : (
+        <img src={src} alt="" onError={() => setErrored(true)} className="w-full block" />
       )}
     </div>
   );
@@ -148,7 +150,7 @@ function FaqItem({ q, a, shot }) {
       {open && (
         <div className="pb-6 -mt-1">
           <p className="text-sm text-ink-60 leading-relaxed max-w-2xl">{a}</p>
-          {shot && <StepShot src={shot.src} name={shot.name} />}
+          {shot && <StepShot src={shot.src} name={shot.name} video={shot.video} />}
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { T, FF, Avatar, Icon, MonoLabel } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar, Icon, MonoLabel } from "@/components/shared/brand";
 import { colorForUser } from "./utils";
 
 // Compact accept/reject list for incoming friend requests, salvaged from the
@@ -21,7 +21,8 @@ export default function RequestsBanner({ friendRequests = [], onRespond }) {
                 i > 0 ? "border-t border-ink-8" : ""
               }`}
             >
-              <Avatar
+              <ProfileAvatar
+                profilePictureUrl={r.profile_picture_url}
                 name={r.username.slice(0, 2).toLowerCase()}
                 bg={bg}
                 fg={bg === T.coral ? "#fff" : T.ink}

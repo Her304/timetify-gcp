@@ -23,12 +23,26 @@ from rest_framework_simplejwt.views import (
 )
 
 from django.conf import settings
-from django.conf.urls.static import static
+from django.http import Http404, HttpResponseRedirect
+from django.urls import re_path
+from django.views.static import serve as static_serve
 
 from django.contrib.auth import views as auth_views
 
 from main.admin import site as admin_site
 from main.forms import CustomPasswordResetForm
+
+
+def serve_media(request, path, document_root=None, show_indexes=False):
+    """Local dev media serving. Falls back to the public GCS bucket for files
+    that exist in prod (e.g. from a synced DB) but never landed on local disk."""
+    try:
+        return static_serve(request, path, document_root=document_root, show_indexes=show_indexes)
+    except Http404:
+        if settings.GS_BUCKET_NAME:
+            return HttpResponseRedirect(f"https://storage.googleapis.com/{settings.GS_BUCKET_NAME}/{path}")
+        raise
+
 
 urlpatterns = [
     # Project sets APPEND_SLASH=False (for SPA API parity), so bare /admin and
@@ -56,4 +70,9 @@ urlpatterns = [
     path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
         extra_context={'frontend_url': settings.FRONTEND_URL},
     ), name='password_reset_complete'),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]
+
+if settings.DEBUG:
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', serve_media, {'document_root': settings.MEDIA_ROOT}),
+    ]

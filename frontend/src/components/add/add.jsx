@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { InputFile } from "@/components/base/input/input-file";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { T, FF, MonoLabel, PillBtn, Icon, Star, Blob } from "@/components/shared/brand";
+import { NavIcon } from "@/components/application/app-navigation/nav-icons";
 
 const AnalyzingAd = () => {
     useEffect(() => {
@@ -144,6 +145,9 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     const [selectedFile, setSelectedFile] = useState(null);
     const [status, setStatus] = useState("manual");
     const [viewState, setViewState] = useState("initial");
+    // What the "analyzing" busy screen is actually doing: AI parse vs. saving to
+    // the schedule. Manual add + finalize are saves; analyze/reparse/refine parse.
+    const [busyKind, setBusyKind] = useState("parsing");
     const [isDragging, setIsDragging] = useState(false);
     const [analysisResult, setAnalysisResult] = useState(null);
     const [isSuccess, setIsSuccess] = useState(false);
@@ -200,6 +204,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         e.preventDefault();
         if (status === "upload") {
             if (!selectedFile) return;
+            setBusyKind("parsing");
             setViewState("analyzing");
             setReparseError(null);
             const data = new FormData();
@@ -217,11 +222,11 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
             }
         } else {
             const formattedData = { ...formData, rep_date: selectedDays.join(",") };
+            setBusyKind("saving");
             setViewState("analyzing");
             const result = await addCourse(formattedData);
             if (result && result.success) {
                 setIsSuccess(true);
-                setTimeout(() => window.location.href = "/", 1000);
             } else {
                 setViewState("initial");
             }
@@ -235,6 +240,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         }
         if (reparseRemaining !== null && reparseRemaining <= 0) return;
         setReparseError(null);
+        setBusyKind("parsing");
         setViewState("analyzing");
         const data = new FormData();
         data.append("course_outline", selectedFile);
@@ -271,6 +277,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         }
         setReparseError(null);
         const prevCourses = analysisResult.courses;
+        setBusyKind("parsing");
         setViewState("analyzing");
         const data = new FormData();
         data.append("course_outline", selectedFile);
@@ -298,17 +305,39 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     };
 
     const handleFinalize = async () => {
+        setBusyKind("saving");
         setViewState("analyzing");
         const result = await finalizeCourse(analysisResult.courses);
         if (result && result.success) {
             setIsSuccess(true);
-            setTimeout(() => window.location.href = "/", 2000);
         } else if (result && result.data && result.data.error === "overlap") {
             setOverlapInfo(result.data);
             setViewState("overlap");
         } else {
             setViewState("confirming");
         }
+    };
+
+    // From the "ur all set" screen: clear everything and return to the start so
+    // the user can add another class in the same mode without a page reload.
+    const handleAddAnother = () => {
+        setIsSuccess(false);
+        setViewState("initial");
+        setAnalysisResult(null);
+        setSelectedFile(null);
+        setSelectedDays([]);
+        setOverlapInfo(null);
+        setReparseError(null);
+        setFormData({
+            course_name: "",
+            course_id: "",
+            classroom: "",
+            start_time: "",
+            end_time: "",
+            rep_date: "",
+            start_date: "",
+            end_date: "",
+        });
     };
 
     const handleUpdateCourse = (courseIndex, field, value) => {
@@ -384,47 +413,95 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     };
 
     if (isSuccess) {
+        const fromUpload = status === "upload";
         return (
             <div className="min-h-full flex items-center justify-center py-12 px-4">
-                <div className="w-full max-w-2xl bg-white p-10 rounded-3xl border border-ink-8 text-center space-y-5 relative overflow-hidden">
-                    <Star color={T.lime} size={32} style={{ position: 'absolute', top: 24, left: 60, transform: 'rotate(-20deg)' }}/>
-                    <Star color={T.coral} size={24} style={{ position: 'absolute', top: 40, right: 80, transform: 'rotate(15deg)' }}/>
-                    <Blob color={T.lilac} size={90} seed={1} style={{ position: 'absolute', bottom: 14, left: 50, opacity: 0.6 }}/>
-                    <StepIndicator step={4}/>
-                    <MonoLabel>step 4 of 4</MonoLabel>
-                    <h2 className="text-5xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1.5 }}>
-                        ur all set.
-                    </h2>
-                    <p className="text-base text-ink-60">
-                        ur schedule&apos;s been updated. <b className="text-coral">redirecting…</b>
-                    </p>
+                <div className="w-full max-w-xl bg-white px-8 py-12 sm:px-14 sm:py-14 rounded-[32px] border border-ink-8 shadow-sm relative overflow-hidden">
+                    {/* playful confetti — kept sparse + toward the corners so it frames
+                        the content instead of crowding it */}
+                    <Star color={T.lime} size={26} style={{ position: 'absolute', top: 34, left: 40, transform: 'rotate(-18deg)' }}/>
+                    <Star color={T.coral} size={18} style={{ position: 'absolute', top: 60, right: 52, transform: 'rotate(16deg)' }}/>
+                    <Blob color={T.lilac} size={120} seed={1} style={{ position: 'absolute', bottom: -28, right: -24, opacity: 0.3 }}/>
+                    <Blob color={T.lime} size={80} seed={3} style={{ position: 'absolute', bottom: -18, left: -18, opacity: 0.25 }}/>
+
+                    <div className="relative flex flex-col items-center text-center">
+                        {fromUpload && (
+                            <div className="w-full mb-8 flex justify-center">
+                                <StepIndicator step={4}/>
+                            </div>
+                        )}
+
+                        {/* check badge with a soft halo */}
+                        <div className="relative mb-6" style={{ width: 96, height: 96 }}>
+                            <span className="absolute inset-0 rounded-full" style={{ background: T.coral, opacity: 0.12 }}/>
+                            <span
+                                className="absolute inset-0 m-auto inline-flex items-center justify-center rounded-full"
+                                style={{ width: 72, height: 72, background: T.coral, color: "#fff", boxShadow: "0 10px 24px rgba(237,106,74,0.35)" }}
+                            >
+                                <Icon name="check" size={36} stroke={2.8} color="#fff"/>
+                            </span>
+                        </div>
+
+                        <MonoLabel color={T.coralDk} ls={2} style={{ marginBottom: 12 }}>all done</MonoLabel>
+
+                        <h2 className="text-5xl sm:text-6xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -2 }}>
+                            ur all set.
+                        </h2>
+
+                        <p className="mt-4 text-base text-ink-60 max-w-sm leading-relaxed">
+                            ur schedule&apos;s been updated. head over to see it, or add another class.
+                        </p>
+
+                        <div className="flex flex-col sm:flex-row gap-3 w-full mt-8">
+                            <PillBtn
+                                onClick={() => window.location.href = "/"}
+                                bg={T.ink} fg={T.cream} size="lg" style={{ flex: 1 }}
+                            >
+                                <NavIcon name="schedule" size={17}/>
+                                go to my schedule
+                            </PillBtn>
+                            <PillBtn
+                                onClick={handleAddAnother}
+                                bg="#fff" fg={T.coral} size="lg"
+                                style={{ flex: 1, border: `1px solid ${T.coral}` }}
+                            >
+                                <Icon name="plus" size={14} stroke={2.6}/>
+                                add another class
+                            </PillBtn>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
     }
 
     if (viewState === "analyzing") {
+        const saving = busyKind === "saving";
         return (
             <div className="space-y-8 pb-12">
-                <StepIndicator step={2}/>
+                {status === "upload" && <StepIndicator step={saving ? 3 : 2}/>}
                 <div className="bg-white rounded-3xl border border-ink-8 shadow-sm text-center space-y-8 p-10">
                     <div className="relative w-24 h-24 mx-auto">
                         <div className="absolute inset-0 border-4 border-ink-8 rounded-full"></div>
                         <div className="absolute inset-0 border-4 rounded-full border-t-transparent animate-spin" style={{ borderColor: T.coral, borderTopColor: 'transparent' }}></div>
                         <div className="absolute inset-0 flex items-center justify-center">
-                            <Icon name="file" size={28} color={T.coral}/>
+                            <Icon name={saving ? "check" : "file"} size={28} color={T.coral}/>
                         </div>
                     </div>
                     <div className="space-y-2">
-                        <MonoLabel>step 2 of 4</MonoLabel>
+                        {status === "upload" && <MonoLabel>step {saving ? "3" : "2"} of 4</MonoLabel>}
                         <h3 className="text-3xl text-ink leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
-                            parsing ur outlines… one sec.
+                            {saving
+                                ? (status === "upload" ? "saving ur classes… one sec." : "saving ur class… one sec.")
+                                : "parsing ur outlines… one sec."}
                         </h3>
-                        <p className="text-ink-60 text-sm">reading text · extracting times…</p>
+                        <p className="text-ink-60 text-sm">
+                            {saving ? "adding to ur schedule…" : "reading text · extracting times…"}
+                        </p>
                     </div>
                 </div>
 
-                <AnalyzingAd />
+                {!saving && <AnalyzingAd />}
             </div>
         );
     }
@@ -942,11 +1019,13 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
             <div>
                 <MonoLabel>add a class</MonoLabel>
                 <h1 className="text-4xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
-                    drop ur files. we&apos;ll do the rest.
+                    {status === "upload"
+                        ? <>drop ur files. we&apos;ll do the rest.</>
+                        : <>type in ur class. we&apos;ll slot it in.</>}
                 </h1>
             </div>
 
-            <StepIndicator step={stepFor(viewState)}/>
+            {status === "upload" && <StepIndicator step={stepFor(viewState)}/>}
 
             {/* mode toggle */}
             <div className="flex items-center gap-3">

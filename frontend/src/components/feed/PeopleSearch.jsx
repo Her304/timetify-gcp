@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { T, FF, Avatar, Icon, MonoLabel } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar, Icon, MonoLabel } from "@/components/shared/brand";
 import { colorForUser } from "./utils";
 
 // Unified people finder. Replaces the old chat-only search box: one input that
@@ -15,7 +15,8 @@ function FriendRow({ user, onChat, onSnap, busyChat }) {
   const bg = colorForUser(user.username);
   return (
     <div className="w-full px-4 py-3 flex items-center gap-3 bg-white border border-ink-8 rounded-2xl">
-      <Avatar
+      <ProfileAvatar
+        profilePictureUrl={user.profile_picture_url}
         name={user.username.slice(0, 2).toLowerCase()}
         bg={bg}
         fg={bg === T.coral ? "#fff" : T.ink}
@@ -87,7 +88,8 @@ function StrangerRow({ user, onConnect }) {
   }
   return (
     <div className="w-full px-4 py-3 flex items-center gap-3 bg-white border border-ink-8 rounded-2xl">
-      <Avatar
+      <ProfileAvatar
+        profilePictureUrl={user.profile_picture_url}
         name={user.username.slice(0, 2).toLowerCase()}
         bg={bg}
         fg={bg === T.coral ? "#fff" : T.ink}
@@ -121,6 +123,8 @@ export default function PeopleSearch({
   onSnap,
   onConnect,
   creatingDmFor,
+  onShowQr,
+  onScanQr,
 }) {
   // `searchfriends` (GET /api/friends/search/) excludes existing friends by
   // design, so it only ever feeds the "new people" list. Known friends are
@@ -168,29 +172,57 @@ export default function PeopleSearch({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 bg-white border border-ink-8 rounded-full px-4 py-2.5">
-        <Icon name="search" size={14} color={T.ink60} />
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="search ppl — friends & new faces"
-          className="flex-1 bg-transparent outline-none text-sm lowercase min-w-0"
-          style={{ fontFamily: FF.sans, color: T.ink }}
-        />
-        {value && (
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 bg-white border border-ink-8 rounded-full px-4 py-2.5 flex-1 min-w-[200px]">
+          <Icon name="search" size={14} color={T.ink60} />
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="search ppl — friends & new faces"
+            className="flex-1 bg-transparent outline-none text-sm lowercase min-w-0"
+            style={{ fontFamily: FF.sans, color: T.ink }}
+          />
+          {value && (
+            <button
+              type="button"
+              onClick={() => onChange("")}
+              className="text-[10px] lowercase px-2 py-0.5 rounded-full whitespace-nowrap"
+              style={{
+                background: T.ink8,
+                color: T.ink60,
+                fontFamily: FF.mono,
+                letterSpacing: 0.4,
+              }}
+            >
+              clear
+            </button>
+          )}
+        </div>
+        {onShowQr && (
           <button
             type="button"
-            onClick={() => onChange("")}
-            className="text-[10px] lowercase px-2 py-0.5 rounded-full whitespace-nowrap"
-            style={{
-              background: T.ink8,
-              color: T.ink60,
-              fontFamily: FF.mono,
-              letterSpacing: 0.4,
-            }}
+            onClick={onShowQr}
+            aria-label="show my qr code"
+            title="my qr code"
+            className="h-11 px-3.5 rounded-full flex items-center gap-1.5 flex-shrink-0 bg-white border border-ink-8 text-sm font-semibold lowercase"
+            style={{ color: T.ink, fontFamily: FF.sans }}
           >
-            clear
+            <span className="material-symbols-outlined" style={{ fontSize: 20, color: T.ink }}>qr_code</span>
+            my qr code
+          </button>
+        )}
+        {onScanQr && (
+          <button
+            type="button"
+            onClick={onScanQr}
+            aria-label="scan a qr code"
+            title="scan qr code"
+            className="h-11 px-3.5 rounded-full flex items-center gap-1.5 flex-shrink-0 text-sm font-semibold lowercase"
+            style={{ background: T.coral, color: "#fff", fontFamily: FF.sans }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 20, color: "#fff" }}>qr_code_scanner</span>
+            scan qr code
           </button>
         )}
       </div>

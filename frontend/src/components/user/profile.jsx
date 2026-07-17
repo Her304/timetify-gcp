@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
-import { T, FF, MonoLabel, Avatar, ProfileAvatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
+import { T, FF, MonoLabel, ProfileAvatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
+import CourseDetailsModal from "@/components/home/CourseDetailsModal";
 
 const PROFILE_PIC_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -98,7 +99,13 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const [profilePreview, setProfilePreview] = useState(currentUser?.profile_picture_url || null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  // Set after a successful email-change request — the change isn't applied until
+  // the user confirms via the link, so we surface a "check your inbox" banner.
+  const [emailNotice, setEmailNotice] = useState(null);
   const [courseFilter, setCourseFilter] = useState("all");
+  // Archive: course-details modal + in-flight remove.
+  const [detailCluster, setDetailCluster] = useState(null);
+  const [removingCourseId, setRemovingCourseId] = useState(null);
   const [blocks, setBlocks] = useState([]);
   const [blocksLoading, setBlocksLoading] = useState(false);
   const [unblockingId, setUnblockingId] = useState(null);
@@ -115,12 +122,23 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const [groups, setGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [friends, setFriends] = useState([]);
+  const [friendsExpanded, setFriendsExpanded] = useState(false);
+  const [friendBusyId, setFriendBusyId] = useState(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupMembers, setNewGroupMembers] = useState(new Set());
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editingGroupName, setEditingGroupName] = useState("");
+
+  // Invite: personal QR + link. The code lives on currentUser (UserSerializer);
+  // the QR PNG is rendered server-side and fetched as a blob on first open.
+  const [qrUrl, setQrUrl] = useState(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const inviteLink = currentUser?.invite_code
+    ? `${window.location.origin}/invite/${currentUser.invite_code}`
+    : null;
 
   const fetchBlocks = useCallback(async () => {
     setBlocksLoading(true);
@@ -282,6 +300,68 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
     } catch (err) { console.error(err); }
   };
 
+  // ── Friends: chat / unfriend / block ──────────────────────────────────────
+  // Create-or-get a DM with this friend and route to it (mirrors the feed).
+  const handleOpenChat = async (friend) => {
+    if (!friend?.id || friendBusyId) return;
+    setFriendBusyId(friend.id);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/chats/`, {
+        method: "POST",
+        body: JSON.stringify({ friend_id: friend.id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        navigate(`/chat/${data.id}`);
+      }
+    } catch (err) { console.error("Failed to open chat", err); }
+    finally { setFriendBusyId(null); }
+  };
+
+  const dropFriendLocally = (userId) => {
+    setFriends((prev) => prev.filter((f) => f.id !== userId));
+    // Also drop them from any group member chips we're holding locally.
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.members?.some((m) => m.id === userId)
+          ? { ...g, members: g.members.filter((m) => m.id !== userId), member_count: Math.max(0, (g.member_count || 0) - 1) }
+          : g,
+      ),
+    );
+  };
+
+  const handleUnfriend = async (friend) => {
+    if (!friend?.id || friendBusyId) return;
+    if (!window.confirm(`remove @${friend.username} from your friends?`)) return;
+    setFriendBusyId(friend.id);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friends/${friend.id}/`, {
+        method: "DELETE",
+      });
+      if (res.ok) dropFriendLocally(friend.id);
+    } catch (err) { console.error("Failed to unfriend", err); }
+    finally { setFriendBusyId(null); }
+  };
+
+  const handleBlockFriend = async (friend) => {
+    if (!friend?.id || friendBusyId) return;
+    if (!window.confirm(`block @${friend.username}? this also removes them as a friend.`)) return;
+    setFriendBusyId(friend.id);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/blocks/`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: friend.id }),
+      });
+      if (res.ok) {
+        const block = await res.json();
+        dropFriendLocally(friend.id);
+        // Surface immediately in the blocked-users section below.
+        setBlocks((prev) => (prev.some((b) => b.id === block.id) ? prev : [block, ...prev]));
+      }
+    } catch (err) { console.error("Failed to block friend", err); }
+    finally { setFriendBusyId(null); }
+  };
+
   const handleUnblock = async (blockId) => {
     setUnblockingId(blockId);
     try {
@@ -293,6 +373,68 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
     } finally {
       setUnblockingId(null);
     }
+  };
+
+  // ── Invite: backfill the code for stale sessions that predate invite_code ──
+  useEffect(() => {
+    if (openSection !== "invite" || currentUser?.invite_code) return;
+    (async () => {
+      try {
+        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/user/`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            setCurrentUser(data.user);
+            localStorage.setItem("user", JSON.stringify(data.user));
+          }
+        }
+      } catch (err) { console.error("Failed to refresh user for invite code", err); }
+    })();
+  }, [openSection, currentUser?.invite_code, setCurrentUser]);
+
+  // ── Invite: lazily load the server-rendered QR PNG once the section opens ──
+  // Guard on qrUrl (not qrLoading) and depend only on openSection — putting the
+  // loading/url state in deps would re-run the effect, fire the cleanup that
+  // cancels the in-flight fetch, and leave qrUrl null forever.
+  useEffect(() => {
+    if (openSection !== "invite" || qrUrl) return;
+    setQrLoading(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/invite/qr/`);
+        if (res.ok) {
+          const blob = await res.blob();
+          if (!cancelled) setQrUrl(URL.createObjectURL(blob));
+        }
+      } catch (err) { console.error("Failed to load invite QR", err); }
+      finally { if (!cancelled) setQrLoading(false); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSection]);
+
+  // Release the object URL when the QR is replaced / the page unmounts.
+  useEffect(() => () => { if (qrUrl) URL.revokeObjectURL(qrUrl); }, [qrUrl]);
+
+  const handleCopyInvite = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch (err) { console.error("copy failed", err); }
+  };
+
+  const handleShareInvite = async () => {
+    if (!inviteLink || !navigator.share) return;
+    try {
+      await navigator.share({
+        title: "Join me on Timetify",
+        text: `add me on Timetify (@${currentUser.username}) — see my schedule and snaps:`,
+        url: inviteLink,
+      });
+    } catch { /* user dismissed the share sheet — nothing to do */ }
   };
 
   useEffect(() => {
@@ -361,9 +503,18 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    setEmailNotice(null);
     try {
+      const nextUsername = formData.username.trim();
+      const nextEmail = formData.email.trim();
+      const usernameChanged = nextUsername !== currentUser.username;
+      // Email is compared case-insensitively — the server normalises it too.
+      const emailChanged = nextEmail.toLowerCase() !== (currentUser.email || "").toLowerCase();
+
       const body = new FormData();
-      // username/email are read-only server-side; sending them would be silently dropped.
+      // Username applies immediately (validated server-side). Email is NOT sent
+      // here — it goes through the separate verify-the-new-address flow below.
+      if (usernameChanged) body.append("username", nextUsername);
       body.append("university", formData.university);
       body.append("major", formData.major);
       body.append("grad_year", formData.grad_year);
@@ -375,15 +526,33 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
         method: "PATCH",
         body,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentUser(data.user);
-        localStorage.setItem("user", JSON.stringify(data.user));
-        setIsEditing(false);
-      } else {
+      if (!res.ok) {
         setError(await res.json());
+        return;
       }
-    } catch (err) {
+      const data = await res.json();
+      setCurrentUser(data.user);
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      // Email change: request a verification link to the new address. The live
+      // email won't change until the user confirms, so we don't touch it locally.
+      if (emailChanged) {
+        const eres = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/user/change-email/`, {
+          method: "POST",
+          body: JSON.stringify({ email: nextEmail }),
+        });
+        if (!eres.ok) {
+          setError(await eres.json());
+          return;
+        }
+        const ed = await eres.json();
+        setEmailNotice(`verification link sent to ${ed.pending_email} — open it to finish changing your email.`);
+        const withPending = { ...data.user, pending_email: ed.pending_email };
+        setCurrentUser(withPending);
+        localStorage.setItem("user", JSON.stringify(withPending));
+      }
+      setIsEditing(false);
+    } catch {
       setError({ non_field_errors: ["An unexpected error occurred."] });
     } finally {
       setSaving(false);
@@ -394,6 +563,39 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
     if (!d) return "N/A";
     const [y, m, day] = d.split("-");
     return `${m}/${day}/${y}`;
+  };
+
+  // ── Archive: view details / remove a course ───────────────────────────────
+  // Build a single-entry "cluster" in the shape CourseDetailsModal expects. The
+  // modal re-fetches /api/courses/ and matches on course_id to pull the rich
+  // weeks/exams/assignments, so we only need enough for its header banner.
+  const openCourseDetails = (course) => {
+    setDetailCluster([
+      {
+        courseId: course.course_id,
+        baseCourse: course.course_id,
+        courseName: course.course_name,
+        course: course.course_name,
+        dayKey: (course.rep_date || "").split(",")[0] || "",
+        startStr: course.start_time || "",
+        endStr: course.end_time || "",
+        location: course.classroom || "",
+        owners: [],
+      },
+    ]);
+  };
+
+  const handleRemoveCourse = async (course) => {
+    if (removingCourseId) return;
+    if (!window.confirm(`remove ${course.course_id} from your courses? this can't be undone.`)) return;
+    setRemovingCourseId(course.id);
+    try {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/courses/${course.id}/`, {
+        method: "DELETE",
+      });
+      if (res.ok) setAllCourses((prev) => prev.filter((c) => c.id !== course.id));
+    } catch (err) { console.error("Failed to remove course", err); }
+    finally { setRemovingCourseId(null); }
   };
 
   const inputClasses = "w-full px-3 py-2 border border-ink-15 bg-white rounded-full text-sm outline-none focus:ring-2 focus:ring-coral/20 focus:border-coral transition-all";
@@ -427,6 +629,13 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
           settings &amp; such
         </h1>
       </div>
+
+      {emailNotice && (
+        <div className="rounded-2xl border px-4 py-3 flex items-start gap-3" style={{ background: "#fff", borderColor: T.ink15 }}>
+          <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: T.lime }} />
+          <p className="text-sm text-ink lowercase">{emailNotice}</p>
+        </div>
+      )}
 
       {/* Profile card (dark) */}
       <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-5">
@@ -480,13 +689,23 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>username</label>
-                  <input name="username" value={formData.username} disabled className={`${inputClasses} opacity-60 cursor-not-allowed`} />
-                  <p className="text-[10px] text-ink-40 mt-1 lowercase">contact support to change</p>
+                  <input name="username" value={formData.username} onChange={handleChange} className={inputClasses} />
+                  {error?.username ? (
+                    <p className="text-[10px] text-coral-dark mt-1 lowercase">{error.username[0]}</p>
+                  ) : (
+                    <p className="text-[10px] text-ink-40 mt-1 lowercase">must be unique</p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>email</label>
-                  <input name="email" type="email" value={formData.email} disabled className={`${inputClasses} opacity-60 cursor-not-allowed`} />
-                  <p className="text-[10px] text-ink-40 mt-1 lowercase">contact support to change</p>
+                  <input name="email" type="email" value={formData.email} onChange={handleChange} className={inputClasses} />
+                  {error?.email ? (
+                    <p className="text-[10px] text-coral-dark mt-1 lowercase">{error.email[0]}</p>
+                  ) : currentUser.pending_email ? (
+                    <p className="text-[10px] text-ink-40 mt-1 lowercase">pending: {currentUser.pending_email} — confirm via the link we sent</p>
+                  ) : (
+                    <p className="text-[10px] text-ink-40 mt-1 lowercase">changing this needs email verification</p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-ink-60 uppercase tracking-widest mb-1 block" style={{ fontFamily: FF.mono }}>university</label>
@@ -510,7 +729,12 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                     className={inputClasses}
                   />
                   {profilePreview && (
-                    <img src={profilePreview} alt="Preview" className="mt-3 w-20 h-20 rounded-full object-cover" />
+                    <img
+                      src={profilePreview}
+                      alt="Preview"
+                      className="mt-3 w-20 h-20 rounded-full object-cover"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
                   )}
                   {error?.profile_picture && (
                     <p className="text-xs text-coral-dark mt-1">{error.profile_picture[0]}</p>
@@ -547,6 +771,9 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                 <div>
                   <MonoLabel fs={10}>email</MonoLabel>
                   <p className="text-sm text-ink mt-1 truncate">{currentUser.email || '—'}</p>
+                  {currentUser.pending_email && (
+                    <p className="text-[10px] text-ink-40 mt-0.5 lowercase truncate">pending: {currentUser.pending_email}</p>
+                  )}
                 </div>
                 <div>
                   <MonoLabel fs={10}>university</MonoLabel>
@@ -831,6 +1058,74 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                 </div>
               )}
             </SettingsSection>
+
+            {/* Invite friends */}
+            <SettingsSection
+              title="invite friends"
+              hint="qr code + a link — you'll be friends automatically"
+              open={openSection === "invite"}
+              onToggle={() => setOpenSection(openSection === "invite" ? null : "invite")}
+            >
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-44 h-44 rounded-2xl border border-ink-8 bg-white flex items-center justify-center overflow-hidden">
+                  {qrUrl ? (
+                    <img src={qrUrl} alt="your invite qr code" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="w-full h-full bg-ink-8 animate-pulse" />
+                  )}
+                </div>
+                <p className="text-xs text-ink-60 text-center lowercase max-w-xs">
+                  friends scan this to sign up — you&apos;ll be connected the moment they join.
+                </p>
+
+                <div className="w-full flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={inviteLink || "…"}
+                    onFocus={(e) => e.target.select()}
+                    className="flex-1 min-w-0 px-3 py-2 border border-ink-15 bg-cream rounded-full text-xs text-ink-60 outline-none"
+                    style={{ fontFamily: FF.mono }}
+                  />
+                  <button
+                    onClick={handleCopyInvite}
+                    disabled={!inviteLink}
+                    className="px-3 py-2 rounded-full text-xs font-semibold lowercase whitespace-nowrap disabled:opacity-50"
+                    style={{ background: copied ? T.lime : T.ink, color: copied ? T.ink : "#fff" }}
+                  >
+                    {copied ? "copied!" : "copy"}
+                  </button>
+                </div>
+
+                <div className="w-full flex flex-wrap gap-2">
+                  {typeof navigator !== "undefined" && typeof navigator.share === "function" && (
+                    <button
+                      onClick={handleShareInvite}
+                      disabled={!inviteLink}
+                      className="flex-1 min-w-[120px] py-2.5 rounded-full text-sm font-semibold lowercase disabled:opacity-50"
+                      style={{ background: T.coral, color: "#fff" }}
+                    >
+                      share…
+                    </button>
+                  )}
+                  <a
+                    href={
+                      inviteLink
+                        ? `mailto:?subject=${encodeURIComponent("Join me on Timetify")}&body=${encodeURIComponent(
+                            `add me on Timetify (@${currentUser.username}) — see my schedule and snaps:\n\n${inviteLink}`,
+                          )}`
+                        : undefined
+                    }
+                    className="flex-1 min-w-[120px] py-2.5 rounded-full text-sm font-semibold lowercase text-center"
+                    style={{ background: "#fff", color: T.ink, border: `1px solid ${T.ink15}` }}
+                  >
+                    email
+                  </a>
+                </div>
+                <p className="text-[10px] text-center lowercase" style={{ color: T.ink40, fontFamily: FF.mono, letterSpacing: 0.3 }}>
+                  paste the link into any instagram or snapchat dm to invite friends there.
+                </p>
+              </div>
+            </SettingsSection>
           </div>
         )}
       </div>
@@ -883,6 +1178,89 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
         </div>
       </section>
 
+      {/* Friends */}
+      <section>
+        <div className="mb-4">
+          <MonoLabel>my people</MonoLabel>
+          <h2 className="text-2xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -0.8 }}>
+            friends
+          </h2>
+        </div>
+        <div className="bg-white border border-ink-8 rounded-2xl p-5">
+          {friends.length === 0 ? (
+            <p className="text-ink-40 text-sm lowercase">
+              no friends yet — invite people below, or find them from the feed search.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {(friendsExpanded ? friends : friends.slice(0, 5)).map((f) => {
+                const busy = friendBusyId === f.id;
+                return (
+                  <div key={f.id} className="bg-cream rounded-xl p-3 flex items-center justify-between gap-2 border border-ink-8">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <ProfileAvatar
+                        profilePictureUrl={f.profile_picture_url}
+                        name={(f.username || "?").slice(0, 2).toLowerCase()}
+                        bg={T.ink08}
+                        fg={T.ink}
+                        size={36}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-sm lowercase truncate" style={{ fontFamily: FF.serif, color: T.ink, letterSpacing: -0.3 }}>
+                          {f.username}
+                        </div>
+                        {f.university && (
+                          <div className="text-[10px] text-ink-40 mt-0.5 lowercase truncate">{f.university}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenChat(f)}
+                        disabled={busy}
+                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
+                        style={{ background: T.ink, color: "#fff" }}
+                      >
+                        chat
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUnfriend(f)}
+                        disabled={busy}
+                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
+                        style={{ background: "#fff", color: T.ink, border: `1px solid ${T.ink15}` }}
+                      >
+                        {busy ? "…" : "remove"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleBlockFriend(f)}
+                        disabled={busy}
+                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
+                        style={{ background: "#fff", color: T.coralDk, border: `1px solid ${T.ink15}` }}
+                      >
+                        block
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {friends.length > 5 && (
+                <button
+                  type="button"
+                  onClick={() => setFriendsExpanded((v) => !v)}
+                  className="w-full py-2 rounded-full text-xs font-semibold lowercase hover:bg-ink-8 transition-colors"
+                  style={{ background: "#fff", color: T.ink, border: `1px solid ${T.ink15}` }}
+                >
+                  {friendsExpanded ? "show less" : `show more (+${friends.length - 5})`}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* All My Courses */}
       <section>
         <div className="flex items-end justify-between mb-4 flex-wrap gap-3">
@@ -917,19 +1295,44 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
             </div>
           ) : filteredCourses.length > 0 ? (
             <div className="space-y-2">
-              {filteredCourses.map((course) => (
-                <div key={course.id} className="bg-cream rounded-xl p-4 flex items-center justify-between border border-ink-8">
-                  <div>
-                    <span className="font-semibold text-ink lowercase" style={{ fontFamily: FF.serif, fontSize: 16, letterSpacing: -0.3 }}>{course.course_id}</span>
-                    {course.course_name && (
-                      <span className="text-xs text-ink-60 ml-2 lowercase">{course.course_name}</span>
-                    )}
+              {filteredCourses.map((course) => {
+                const removing = removingCourseId === course.id;
+                return (
+                  <div key={course.id} className="bg-cream rounded-xl p-4 flex items-center justify-between gap-3 border border-ink-8">
+                    <div className="min-w-0">
+                      <div className="min-w-0">
+                        <span className="font-semibold text-ink lowercase" style={{ fontFamily: FF.serif, fontSize: 16, letterSpacing: -0.3 }}>{course.course_id}</span>
+                        {course.course_name && (
+                          <span className="text-xs text-ink-60 ml-2 lowercase">{course.course_name}</span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-ink-40 mt-0.5 block" style={{ fontFamily: FF.mono }}>
+                        {formatDate(course.start_date)} – {formatDate(course.end_date)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openCourseDetails(course)}
+                        disabled={removing}
+                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
+                        style={{ background: T.ink, color: "#fff" }}
+                      >
+                        details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCourse(course)}
+                        disabled={removing}
+                        className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase disabled:opacity-50"
+                        style={{ background: "#fff", color: T.coralDk, border: `1px solid ${T.ink15}` }}
+                      >
+                        {removing ? "…" : "remove"}
+                      </button>
+                    </div>
                   </div>
-                  <span className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>
-                    {formatDate(course.start_date)} – {formatDate(course.end_date)}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="py-8 text-center">
@@ -963,7 +1366,8 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                   className="bg-cream rounded-xl p-4 flex items-center justify-between border border-ink-8"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <Avatar
+                    <ProfileAvatar
+                      profilePictureUrl={b.blocked_profile_picture_url}
                       name={(b.blocked_username || "?").slice(0, 2).toLowerCase()}
                       bg={T.ink08}
                       fg={T.ink}
@@ -1021,6 +1425,14 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
             log out
           </button>
         </div>
+      )}
+
+      {detailCluster && (
+        <CourseDetailsModal
+          cluster={detailCluster}
+          currentUser={currentUser}
+          onClose={() => setDetailCluster(null)}
+        />
       )}
     </div>
   );

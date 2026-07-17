@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { HeaderNavApp } from "@/components/application/app-navigation/header-nav-app.jsx";
 import { MobileBottomNav } from "@/components/application/app-navigation/mobile-bottom-nav.jsx";
@@ -8,6 +8,7 @@ import { Feed } from "@/components/feed/feed";
 import { ChatThread } from "@/components/chat/ChatThread";
 import { ClassDetails } from "@/components/class/class";
 import Register from "@/components/register/register";
+import InviteLanding from "@/components/invite/inviteLanding";
 import Login from "@/components/login/login";
 import { HeaderNavigationBase } from "@/components/application/app-navigation/header-navigation";
 import Add from "@/components/add/add";
@@ -144,7 +145,26 @@ const App = () => {
       }
     };
 
+    // currentUser is seeded from localStorage for instant paint, but that cache
+    // goes stale when the profile is edited elsewhere (e.g. on the deployed site
+    // while a dev tab is open). Re-sync from the server on load so name/avatar
+    // reflect the account's current state, then refresh the cache.
+    const fetchCurrentUser = async () => {
+      try {
+        const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/user/`);
+        if (!res.ok) return;
+        const { user } = await res.json();
+        if (!user) return;
+        setCurrentUser(user);
+        localStorage.setItem("user", JSON.stringify(user));
+      } catch (err) {
+        Sentry.captureException(err);
+        console.error("Error fetching current user:", err);
+      }
+    };
+
     fetchData();
+    fetchCurrentUser();
     fetchFriendsData();
     fetchSnapFeed();
     fetchEvents();
@@ -316,7 +336,9 @@ const App = () => {
         body: isFormData ? courseData : JSON.stringify(courseData),
       });
       const data = await response.json();
-      if (response.ok) { window.location.reload(); return { success: true }; }
+      // No reload here — the Add page shows its own "ur all set" screen and the
+      // user navigates to the schedule from there (a full load that refetches).
+      if (response.ok) return { success: true };
       else { setCourseErrors(data); return { success: false }; }
     } catch (err) {
       setCourseErrors({ non_field_errors: ["An unexpected error occurred."] });
@@ -349,7 +371,8 @@ const App = () => {
         body: JSON.stringify({ courses: coursesData }),
       });
       const data = await response.json();
-      if (response.ok) { window.location.reload(); return { success: true }; }
+      // No reload — the Add page's "ur all set" screen handles navigation.
+      if (response.ok) return { success: true };
       setCourseErrors(data);
       // Surface the failure payload so callers (e.g. the Add page) can route to
       // a dedicated screen for structured errors like {error: "overlap"}.
@@ -370,12 +393,13 @@ const App = () => {
 
   const sendFriendRequest = async (friendId) => {
     try {
-      await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friend-requests/`, {
+      const res = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friend-requests/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ friend: friendId }),
       });
-    } catch (err) { console.error("Send friend request error:", err); }
+      return res.ok;
+    } catch (err) { console.error("Send friend request error:", err); return false; }
   };
 
   const respondToFriendRequest = async (requestId, action) => {
@@ -469,6 +493,17 @@ const AppShell = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  // username → profile-picture URL, so schedule views (where a class "owner"
+  // is only a username string) can show a real avatar instead of initials.
+  const picByUsername = useMemo(() => {
+    const map = {};
+    (friendsList || []).forEach((f) => {
+      const d = f.friend_details;
+      if (d?.username) map[d.username] = d.profile_picture_url || null;
+    });
+    if (currentUser?.username) map[currentUser.username] = currentUser.profile_picture_url || null;
+    return map;
+  }, [friendsList, currentUser]);
   // Chat thread has its own pinned input bar + header; hiding the floating
   // mobile pill AND the mobile top bar prevents either from competing with
   // the chat's own chrome.
@@ -589,6 +624,7 @@ const AppShell = ({
                       events={events}
                       scheduleSkips={scheduleSkips}
                       currentUser={currentUser}
+                      picByUsername={picByUsername}
                       onEventsChanged={onEventsChanged}
                       respondToEventInvite={respondToEventInvite}
                     />
@@ -646,6 +682,16 @@ const AppShell = ({
               }
             />
             <Route path="/register" element={<Register registerUser={registerUser} errors={registrationErrors} />} />
+            <Route
+              path="/invite/:code"
+              element={
+                <InviteLanding
+                  currentUser={currentUser}
+                  registerUser={registerUser}
+                  registrationErrors={registrationErrors}
+                />
+              }
+            />
             <Route path="/login" element={<Login loginUser={loginUser} errors={loginErrors} />} />
             <Route
               path="/Add"

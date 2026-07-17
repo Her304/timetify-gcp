@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authenticatedFetch } from "@/utils/api";
-import { T, FF, Icon, Avatar } from "@/components/shared/brand";
+import { T, FF, Icon, ProfileAvatar } from "@/components/shared/brand";
 import ReportModal from "@/components/shared/ReportModal";
 
 const resolveMediaUrl = (url) => {
@@ -270,7 +270,8 @@ export default function SnapViewerModal({
           title={`@${prevTile.username}`}
           className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 hover:opacity-80 transition-opacity"
         >
-          <Avatar
+          <ProfileAvatar
+            profilePictureUrl={prevTile.friend?.profile_picture_url}
             name={prevTile.username[0].toLowerCase()}
             bg={T.coral} fg="#fff" size={52} ring={T.coral}
           />
@@ -299,7 +300,8 @@ export default function SnapViewerModal({
           title={`@${nextTile.username}`}
           className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 hover:opacity-80 transition-opacity"
         >
-          <Avatar
+          <ProfileAvatar
+            profilePictureUrl={nextTile.friend?.profile_picture_url}
             name={nextTile.username[0].toLowerCase()}
             bg={T.coral} fg="#fff" size={52} ring={T.coral}
           />
@@ -318,7 +320,7 @@ export default function SnapViewerModal({
       >
         {/* header */}
         <div className="flex items-center gap-3 px-4 py-3">
-          <Avatar name={avatarLetter} bg={T.lime} fg={T.ink} size={38} ring={T.coral}/>
+          <ProfileAvatar profilePictureUrl={current.uploader_profile_picture_url} name={avatarLetter} bg={T.lime} fg={T.ink} size={38} ring={T.coral}/>
           <div className="flex-1 min-w-0">
             <div className="text-base font-semibold text-white truncate" style={{ letterSpacing: -0.2 }}>
               @{current.uploader_username}

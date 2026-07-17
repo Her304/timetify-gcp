@@ -1,4 +1,4 @@
-import { T, FF, Avatar, MonoLabel } from "@/components/shared/brand";
+import { T, FF, ProfileAvatar, MonoLabel } from "@/components/shared/brand";
 import { timeAgo, colorForUser } from "./utils";
 
 const GROUP_CAP = 5;
@@ -80,7 +80,8 @@ export default function GroupChatList({
                         zIndex: 3 - j,
                       }}
                     >
-                      <Avatar
+                      <ProfileAvatar
+                        profilePictureUrl={u.profile_picture_url}
                         name={u.username.slice(0, 2).toLowerCase()}
                         bg={colorForUser(u.username)}
                         fg={colorForUser(u.username) === T.coral ? "#fff" : T.ink}
