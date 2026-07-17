@@ -201,8 +201,10 @@ export const HeaderNavApp = ({ currentUser, onLogout, onRespondToRequest, onResp
           <button
             type="button"
             onClick={onLogout}
-            className="px-3 py-1.5 text-xs font-semibold text-white bg-coral hover:opacity-90 rounded-full transition-opacity whitespace-nowrap lowercase"
+            className="h-10 pl-3 pr-4 rounded-full flex items-center gap-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 whitespace-nowrap lowercase"
+            style={{ background: T.coral, fontFamily: FF.sans }}
           >
+            <Icon name="logout" size={16} color="#fff" />
             log out
           </button>
         )}

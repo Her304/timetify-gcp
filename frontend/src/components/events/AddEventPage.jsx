@@ -11,13 +11,8 @@ const VISIBILITY_OPTIONS = [
   { value: "PUBLIC",  label: "public",  hint: "all your accepted friends see the full event" },
 ];
 
-const hashStr = (s) => {
-  let h = 0;
-  for (let i = 0; i < (s || "").length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-};
-const AVATAR_BG = [T.coral, T.lilac, "#f0c4a8", "#b8d8c2", T.lime];
-const colorForUser = (name) => AVATAR_BG[hashStr(name) % AVATAR_BG.length];
+// All avatars are coral — flat, not hashed per-user.
+const colorForUser = () => T.coral;
 
 const todayIso = () => {
   const d = new Date();

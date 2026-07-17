@@ -46,6 +46,9 @@ export const Feed = ({
   const [connectToast, setConnectToast] = useState(false);
   // null | "show" | "scan" — drives the QR sheet next to the search bar.
   const [qrMode, setQrMode] = useState(null);
+  // Mobile-only: "messages" | "groups" — which inbox section is visible.
+  // Desktop ignores this and shows both stacked.
+  const [chatTab, setChatTab] = useState("messages");
 
   const navigate = useNavigate();
 
@@ -314,25 +317,44 @@ export const Feed = ({
 
             <div className="border-t border-ink-15" />
 
-            <GroupChatList
-              groupChats={groupChats}
-              filteredGroups={groupChats}
-              search=""
-              expanded={groupsExpanded}
-              onToggleExpanded={() => setGroupsExpanded((v) => !v)}
-              onOpenChat={(id) => navigate(`/chat/${id}`)}
-              onOpenCreate={() => setGroupCreateOpen(true)}
-            />
+            <div className="flex items-center gap-2 md:hidden">
+              <FilterChip
+                value="messages"
+                label="messages"
+                active={chatTab === "messages"}
+                onSelect={setChatTab}
+              />
+              <FilterChip
+                value="groups"
+                label="group chat"
+                active={chatTab === "groups"}
+                onSelect={setChatTab}
+              />
+            </div>
 
-            <DmInboxList
-              inboxRows={inboxRows}
-              filteredRows={inboxRows}
-              search=""
-              expanded={dmsExpanded}
-              onToggleExpanded={() => setDmsExpanded((v) => !v)}
-              onOpenChat={openChat}
-              creatingDmFor={creatingDmFor}
-            />
+            <div className={`${chatTab === "groups" ? "block" : "hidden"} md:block`}>
+              <GroupChatList
+                groupChats={groupChats}
+                filteredGroups={groupChats}
+                search=""
+                expanded={groupsExpanded}
+                onToggleExpanded={() => setGroupsExpanded((v) => !v)}
+                onOpenChat={(id) => navigate(`/chat/${id}`)}
+                onOpenCreate={() => setGroupCreateOpen(true)}
+              />
+            </div>
+
+            <div className={`${chatTab === "messages" ? "block" : "hidden"} md:block`}>
+              <DmInboxList
+                inboxRows={inboxRows}
+                filteredRows={inboxRows}
+                search=""
+                expanded={dmsExpanded}
+                onToggleExpanded={() => setDmsExpanded((v) => !v)}
+                onOpenChat={openChat}
+                creatingDmFor={creatingDmFor}
+              />
+            </div>
           </>
         )}
       </div>

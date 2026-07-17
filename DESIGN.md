@@ -22,9 +22,11 @@ All tokens live in `T` (exported from `brand.jsx`). Use Tailwind utility classes
 | `T.coral` | `#ED6A4A` | Primary CTA, active state fills, badges, unread dots |
 | `T.coralDk` | `#C04A2E` | Coral pressed / dark variant |
 | `T.coralLt` | `#F9D9CC` | Declined status chip background |
-| `T.lilac` | `#C8B0DF` | Avatar default, event blocks, accent |
+| `T.lilac` | `#C8B0DF` | Avatar default, accent, redacted/private event dashed border |
 | `T.lilacDk` | `#7A5BA0` | Lilac dark (hover/emphasis) |
 | `T.lime` | `#C9EE6F` | Decorative blobs, "going" status chip, dot accents |
+
+> **Calendar block fills are a separate light-tint pair, not these raw tokens directly** — course blocks use `#E5D5F2`/`#5A3A85` and accepted event blocks use `#DCF5A9`/`#3F5E14`. The saturated `T.lilac`/`T.lime` tokens read too bold as a full block fill. See §7.
 | `T.ink` | `#1F1A22` | All body text, active nav pill background |
 | `T.ink60` | `rgba(31,26,34,.6)` | Secondary / muted text |
 | `T.ink40` | `rgba(31,26,34,.4)` | Placeholder text, disabled states |
@@ -194,20 +196,22 @@ File: `frontend/src/components/home/week_view.jsx`
 
 - 7-column grid (MON–SUN) with a scrollable time axis (vertical, 24h).
 - **Course blocks:** positioned absolutely within the day column using `top` + `height` derived from `start_time` / `end_time` in minutes.
-- **Stable color palette:** 6 tones (`coral, lime, lilac, peach, mint, ink`). Hashed from course ID with `hashStr(courseId) % 6` — same course always gets the same color across all users.
-- **Event blocks** (`EventBlock`): lilac fill, `z-index: 10` — floats above course blocks on overlap.
+- **Flat color, not per-course:** every course block shares one tone (`COURSE_TONE` in `week_view.jsx`) — light lilac fill `#E5D5F2`, `#5A3A85` accent for code/location text. The old 6-tone hash-based `COURSE_PALETTE` (per-course rainbow) has been removed entirely.
+- **Event blocks** (`EventBlock`): flat light lime fill `#DCF5A9`, `#3F5E14` accent/border — same light-tint pairing as course blocks, `z-index: 10`, floats above course blocks on overlap. Pending-invite (dashed coral) and redacted/private (dashed lilac) events keep their own distinct treatment — only the accepted state uses the lime tint.
+- **All friend/owner avatars are flat `T.coral`** (white `fg`) — the old per-user hashed avatar palette (`AVATAR_BG`/`colorForUser`/`avatarBgFor`, 5–6 tones incl. lilac/peach/mint) was removed everywhere: `week_view.jsx` (`AvatarStack`), `EventBlock`, `AddEventModal`, `AddEventPage`, `EventDetailsModal`, `ChatThread`, `GroupCreateModal`, `GroupInfoModal`, and `feed/utils.js` (shared by `AvatarRow`, `DmInboxList`, `GroupChatList`, `PeopleSearch`, `RequestsBanner`). One exception: the redacted/private event card's creator avatar stays `T.lilac` — that's tied to the card's own private-state theming, not per-user identity, so it wasn't folded into the coral-everywhere change.
+- **Cramped-block behavior:** a block needs ~66px to comfortably fit avatar + code + location (`roomy = height >= 66` in `CourseBlock`). Below that, the location line drops and only the course code + a shrunk (16px) avatar show. The avatar/profile pic is **never** hidden entirely, even at the smallest (40px) min block height — dropping it was tried and reverted per user feedback.
 - **Time label axis:** left column, `MonoLabel` format (`8 AM`, `12 PM`).
 - **Today column** highlighted with a subtle indicator.
 
-### Course Palette
-| Tone | Block bg | Dot accent | Code color |
-|---|---|---|---|
-| coral | `#F4A28A` | lime | `#5F2614` |
-| lime | `#DCF5A9` | coral | `#3F5E14` |
-| lilac | `#E5D5F2` | lime | `#5A3A85` |
-| peach | `#F6D9C1` | lime | `#7A4520` |
-| mint | `#CDE6D2` | coral | `#2D5538` |
-| ink | `#1F1A22` | coral | cream text |
+### Block fill reference
+| Block | Fill | Accent (code / border) |
+|---|---|---|
+| Course (all courses) | `#E5D5F2` light lilac | `#5A3A85` |
+| Event — accepted | `#DCF5A9` light lime | `#3F5E14` |
+| Event — pending invite | `rgba(237,106,74,0.12)` dashed | `T.coral` |
+| Event — redacted / private | `rgba(200,176,223,0.35)` dashed | `T.lilacDk` |
+
+`CourseDetailsModal.jsx` still carries its own separate copy of the old 6-tone palette for its header chip — a pre-existing, not-yet-reconciled inconsistency with the calendar's flat course-block color.
 
 ---
 
@@ -278,7 +282,7 @@ Files: `AddEventModal.jsx`, `EventBlock.jsx`, `EventDetailsModal.jsx`
 - Each friend row has a checkmark toggle; selected friends highlighted with coral border + check icon
 
 **EventBlock** (in week view)
-- Lilac (`T.lilac`) fill, `z-index: 10`, rounded corners.
+- Light lime fill (`#DCF5A9`) with `#3F5E14` accent/border, `z-index: 10`, rounded corners — not the raw `T.lime` token, which reads too saturated as a full block fill. Pending-invite and redacted/private states keep their own dashed coral/lilac treatment.
 - Shows event name + time range in `FF.sans` lowercase.
 
 **EventDetailsModal**

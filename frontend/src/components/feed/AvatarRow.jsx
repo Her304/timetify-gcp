@@ -27,7 +27,7 @@ function SnapPreviewCard({ tile, onClick }) {
           width: 92,
           height: 116,
           background: "#2a2226",
-          boxShadow: live ? `0 0 0 2px ${T.coral}` : `0 0 0 1px ${T.ink15}`,
+          boxShadow: live ? `0 0 0 2px ${T.coral}` : `0 0 0 1px ${T.ink8}`,
         }}
       >
         {mediaUrl ? (
@@ -86,7 +86,7 @@ export default function AvatarRow({
       >
         <div
           className="relative rounded-2xl flex items-center justify-center"
-          style={{ width: 92, height: 116, background: T.cream, boxShadow: `0 0 0 1px ${T.ink15}` }}
+          style={{ width: 92, height: 116, background: "#fff", boxShadow: `0 0 0 1px ${T.ink8}` }}
         >
           <div className="relative">
             <ProfileAvatar

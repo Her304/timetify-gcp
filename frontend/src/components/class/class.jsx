@@ -6,9 +6,28 @@ import { T, FF, MonoLabel, Icon, PillBtn } from "@/components/shared/brand";
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const editInputCls = "w-full px-3 py-2 text-sm rounded-xl border border-ink-15 bg-cream focus:outline-none focus:border-coral";
+// Fields nested inside a cream item card (weeks/exams/assignments) get a white
+// fill instead — cream-on-cream made the boundary between card and field
+// unreadable, and an empty flex-1 input with no min-w-0 was collapsing down to
+// its intrinsic min-content size (a tiny nub) instead of filling the row.
+const nestedInputCls = "w-full min-w-0 px-3 py-2 text-sm rounded-xl border border-ink-15 bg-white focus:outline-none focus:border-coral";
+const fieldLabelCls = "text-[10px] text-ink-40 uppercase tracking-widest";
+
+// Icon-only delete button for an item row — round touch target with a hover fill,
+// sized to match the ~36px row height of a nestedInputCls field.
+const RemoveItemBtn = ({ onClick, label }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label={label}
+    className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white transition-colors"
+  >
+    <Icon name="trash" size={14} color={T.coralDk} />
+  </button>
+);
 
 const EditorSectionHead = ({ label, onAdd }) => (
-  <div className="flex justify-between items-center border-b border-ink-8 pb-1">
+  <div className="flex justify-between items-center border-b border-ink-8 pb-2">
     <MonoLabel>{label}</MonoLabel>
     <button type="button" onClick={onAdd} className="text-xs font-semibold text-coral hover:text-coral-dark lowercase flex items-center gap-1">
       <Icon name="plus" size={12} stroke={2.6} />
@@ -75,46 +94,62 @@ const CourseEditor = ({ draft, setDraft, onSave, onCancel, saving, error, onDele
       </div>
 
       {/* weeks */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         <EditorSectionHead label="weeks" onAdd={() => addItem("weeks")} />
         {draft.weeks.map((w, i) => (
-          <div key={i} className="flex gap-2 items-center">
-            <span className="text-xs text-ink-60 w-12 shrink-0" style={{ fontFamily: FF.mono }}>wk {w.week_number}</span>
-            <input className={`${editInputCls} flex-1`} placeholder="topic" value={w.week_topic} onChange={(e) => setItem("weeks", i, "week_topic", e.target.value)} />
-            <input type="date" className={`${editInputCls} w-40 shrink-0`} value={w.week_date} onChange={(e) => setItem("weeks", i, "week_date", e.target.value)} />
-            <button type="button" onClick={() => removeItem("weeks", i)} className="text-coral-dark shrink-0"><Icon name="trash" size={14} /></button>
+          <div key={i} className="bg-cream rounded-xl border border-ink-8 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span
+                className="text-xs text-ink-60 shrink-0 px-2.5 py-2 rounded-lg bg-white border border-ink-8"
+                style={{ fontFamily: FF.mono }}
+              >
+                wk {w.week_number}
+              </span>
+              <input className={`${nestedInputCls} flex-1`} placeholder="topic" value={w.week_topic} onChange={(e) => setItem("weeks", i, "week_topic", e.target.value)} />
+              <RemoveItemBtn onClick={() => removeItem("weeks", i)} label={`remove week ${w.week_number}`} />
+            </div>
+            <label className="block space-y-1">
+              <span className={fieldLabelCls} style={{ fontFamily: FF.mono }}>starts</span>
+              <input type="date" className={`${nestedInputCls} sm:w-52`} value={w.week_date} onChange={(e) => setItem("weeks", i, "week_date", e.target.value)} />
+            </label>
           </div>
         ))}
         {draft.weeks.length === 0 && <p className="text-xs text-ink-40">no weeks.</p>}
       </div>
 
       {/* exams */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         <EditorSectionHead label="exams" onAdd={() => addItem("exams")} />
         {draft.exams.map((e, i) => (
-          <div key={i} className="bg-cream rounded-xl p-3 border border-ink-8 space-y-2">
-            <div className="flex gap-2 items-center">
-              <input className={`${editInputCls} flex-1`} placeholder="exam title" value={e.exam_topic} onChange={(ev) => setItem("exams", i, "exam_topic", ev.target.value)} />
-              <input type="date" className={`${editInputCls} w-40 shrink-0`} value={e.exam_date} onChange={(ev) => setItem("exams", i, "exam_date", ev.target.value)} />
-              <button type="button" onClick={() => removeItem("exams", i)} className="text-coral-dark shrink-0"><Icon name="trash" size={14} /></button>
+          <div key={i} className="bg-cream rounded-xl border border-ink-8 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <input className={`${nestedInputCls} flex-1`} placeholder="exam title" value={e.exam_topic} onChange={(ev) => setItem("exams", i, "exam_topic", ev.target.value)} />
+              <RemoveItemBtn onClick={() => removeItem("exams", i)} label="remove exam" />
             </div>
-            <input className={editInputCls} placeholder="details (optional)" value={e.exam_details || ""} onChange={(ev) => setItem("exams", i, "exam_details", ev.target.value)} />
+            <label className="block space-y-1">
+              <span className={fieldLabelCls} style={{ fontFamily: FF.mono }}>date</span>
+              <input type="date" className={`${nestedInputCls} sm:w-52`} value={e.exam_date} onChange={(ev) => setItem("exams", i, "exam_date", ev.target.value)} />
+            </label>
+            <input className={nestedInputCls} placeholder="details (optional)" value={e.exam_details || ""} onChange={(ev) => setItem("exams", i, "exam_details", ev.target.value)} />
           </div>
         ))}
         {draft.exams.length === 0 && <p className="text-xs text-ink-40">no exams.</p>}
       </div>
 
       {/* assignments */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         <EditorSectionHead label="assignments" onAdd={() => addItem("assignments")} />
         {draft.assignments.map((a, i) => (
-          <div key={i} className="bg-cream rounded-xl p-3 border border-ink-8 space-y-2">
-            <div className="flex gap-2 items-center">
-              <input className={`${editInputCls} flex-1`} placeholder="assignment title" value={a.assignment_topic} onChange={(ev) => setItem("assignments", i, "assignment_topic", ev.target.value)} />
-              <input type="date" className={`${editInputCls} w-40 shrink-0`} value={a.assignment_due} onChange={(ev) => setItem("assignments", i, "assignment_due", ev.target.value)} />
-              <button type="button" onClick={() => removeItem("assignments", i)} className="text-coral-dark shrink-0"><Icon name="trash" size={14} /></button>
+          <div key={i} className="bg-cream rounded-xl border border-ink-8 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <input className={`${nestedInputCls} flex-1`} placeholder="assignment title" value={a.assignment_topic} onChange={(ev) => setItem("assignments", i, "assignment_topic", ev.target.value)} />
+              <RemoveItemBtn onClick={() => removeItem("assignments", i)} label="remove assignment" />
             </div>
-            <input className={editInputCls} placeholder="details (optional)" value={a.assignment_detail || ""} onChange={(ev) => setItem("assignments", i, "assignment_detail", ev.target.value)} />
+            <label className="block space-y-1">
+              <span className={fieldLabelCls} style={{ fontFamily: FF.mono }}>due</span>
+              <input type="date" className={`${nestedInputCls} sm:w-52`} value={a.assignment_due} onChange={(ev) => setItem("assignments", i, "assignment_due", ev.target.value)} />
+            </label>
+            <input className={nestedInputCls} placeholder="details (optional)" value={a.assignment_detail || ""} onChange={(ev) => setItem("assignments", i, "assignment_detail", ev.target.value)} />
           </div>
         ))}
         {draft.assignments.length === 0 && <p className="text-xs text-ink-40">no assignments.</p>}
@@ -131,19 +166,22 @@ const CourseEditor = ({ draft, setDraft, onSave, onCancel, saving, error, onDele
             {saving ? "saving…" : "save all →"}
           </PillBtn>
         </div>
+      </div>
 
-        {/* drop / delete the whole course */}
+      {/* danger zone: drop the whole course */}
+      <div className="flex flex-col gap-2 pt-4 border-t border-ink-8">
+        <MonoLabel color={T.coralDk} fs={10}>danger zone</MonoLabel>
         {!confirmDrop ? (
           <button
             type="button"
             onClick={() => setConfirmDrop(true)}
-            className="flex items-center justify-center gap-1.5 text-xs font-semibold text-coral-dark hover:text-coral lowercase mt-1"
+            className="flex items-center gap-1.5 text-xs font-semibold text-coral-dark hover:text-coral lowercase"
           >
             <Icon name="trash" size={13} />
             drop this class
           </button>
         ) : (
-          <div className="flex flex-col items-center gap-2 mt-1 bg-cream rounded-xl p-3 border border-ink-8">
+          <div className="flex flex-col items-center gap-2 bg-cream rounded-xl p-3 border border-ink-8">
             <p className="text-xs text-ink-60 lowercase text-center">this permanently removes the class and all its weeks, exams &amp; assignments.</p>
             <div className="flex items-center gap-3">
               <button type="button" onClick={() => setConfirmDrop(false)} className="text-xs font-semibold text-ink-40 hover:text-ink-60 lowercase">
