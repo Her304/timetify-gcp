@@ -20,6 +20,31 @@ class UserLogFilter(logging.Filter):
         return True
 
 
+class NoIndexMiddleware:
+    """Tell crawlers not to index anything served by the backend service.
+
+    The API and /admin are reachable on a public *.run.app hostname. Nothing
+    there should ever appear in search results, and any that did would compete
+    with the canonical timetify.net pages for the same content.
+
+    sitemap.xml is exempt from *this* header because Django's sitemap view
+    already applies its own (@x_robots_tag -> "noindex, noodp, noarchive").
+    Layering "nofollow" on top would be actively wrong: it would ask crawlers
+    not to follow the very URLs the sitemap exists to advertise.
+    """
+
+    EXEMPT_PATHS = frozenset({"/sitemap.xml"})
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path not in self.EXEMPT_PATHS:
+            response["X-Robots-Tag"] = "noindex, nofollow"
+        return response
+
+
 class LastSeenMiddleware:
     """Stamp last_seen on authenticated users at most once per THROTTLE seconds.
 

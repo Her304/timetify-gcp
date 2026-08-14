@@ -15,8 +15,11 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
+from django.contrib.sitemaps.views import sitemap
 from django.urls import path, include
 from django.views.generic import RedirectView
+
+from main.sitemaps import SITEMAPS
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -47,6 +50,10 @@ urlpatterns = [
     path("admin", RedirectView.as_view(url="/admin/", query_string=True, permanent=False)),
     path("admin/login", RedirectView.as_view(url="/admin/login/", query_string=True, permanent=False)),
     path("admin/", admin_site.urls),
+    # Served from the backend but advertised at https://timetify.net/sitemap.xml,
+    # which nginx proxies through to here. See main/sitemaps.py for why the
+    # <loc> entries point at the frontend origin rather than this one.
+    path("sitemap.xml", sitemap, {"sitemaps": SITEMAPS}, name="sitemap"),
     path("", include("main.urls")),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

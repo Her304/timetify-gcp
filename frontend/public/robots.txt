@@ -1,0 +1,22 @@
+# https://timetify.net/robots.txt
+
+User-agent: *
+
+# Authenticated surfaces. Nothing here renders without a session, so crawling
+# it only ever yields an empty shell.
+Disallow: /feed
+Disallow: /chat/
+Disallow: /class
+Disallow: /profile
+Disallow: /add-event
+Disallow: /Add
+Disallow: /reset-password
+
+# /invite/<code> and /login are deliberately NOT disallowed. They carry
+# noindex meta instead, because invite links get shared constantly and a
+# Disallow would stop scrapers fetching the Open Graph tags that make those
+# links unfurl.
+
+Allow: /
+
+Sitemap: https://timetify.net/sitemap.xml

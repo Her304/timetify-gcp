@@ -1,0 +1,107 @@
+# Rendered by the nginx image's envsubst entrypoint at container start.
+# Substituted vars: ${PORT} (set by Cloud Run), ${BACKEND_HOST}.
+#
+# Replaces the previous inline `echo`-generated config, which served a 200 for
+# every URL on the domain (soft 404s) and had no cache or canonical-host rules.
+
+# $host, not $http_host: $http_host carries the port, so a local
+# `docker run -p 8080:8080` would arrive as "localhost:8080", miss every entry
+# below, and get redirected to production.
+map $host $is_canonical_host {
+    default                 0;
+    "timetify.net"          1;
+    "www.timetify.net"      1;
+    # Cloud Run's health checks and any local/container probes arrive on other
+    # hosts; treating them as canonical keeps them off the redirect path.
+    "localhost"             1;
+    ""                      1;
+}
+
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # ── Canonical host ────────────────────────────────────────────────────
+    # The app answers on timetify.net and two *.run.app hostnames. Left alone
+    # that is three copies of every page competing for the same rankings, so
+    # everything non-canonical is redirected rather than merely canonical-tagged.
+    if ($is_canonical_host = 0) {
+        return 301 https://timetify.net$request_uri;
+    }
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json
+               image/svg+xml application/xml application/rss+xml;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # ── Hashed build assets ───────────────────────────────────────────────
+    # ^~ so this beats the regex route matcher below. Filenames are content
+    # hashed by Vite, so they can be cached indefinitely.
+    location ^~ /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+        try_files $uri =404;
+    }
+
+    # Self-hosted fonts. Filenames are stable rather than content-hashed, so
+    # they get a long-but-revalidatable cache instead of `immutable`.
+    location ^~ /fonts/ {
+        expires 30d;
+        add_header Cache-Control "public" always;
+        try_files $uri =404;
+    }
+
+    # ── Sitemap ───────────────────────────────────────────────────────────
+    # Proxied to Django rather than baked into the bundle so a newly published
+    # blog post is crawlable without a frontend redeploy. Must be served from
+    # the canonical host: a sitemap may only list URLs on its own origin.
+    location = /sitemap.xml {
+        resolver 169.254.169.254 valid=30s;
+        proxy_pass https://${BACKEND_HOST}/sitemap.xml;
+        proxy_ssl_server_name on;
+        proxy_set_header Host ${BACKEND_HOST};
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location = /robots.txt {
+        expires 1h;
+        add_header Cache-Control "public" always;
+    }
+
+    # ── HTML documents ────────────────────────────────────────────────────
+    # Never cached: prerendered heads change on every deploy, and a stale
+    # index.html would pin visitors to deleted asset hashes.
+    location = / {
+        add_header Cache-Control "no-cache" always;
+        try_files /index.html =404;
+    }
+
+    # Known application routes. $uri/index.html picks up the per-route
+    # prerendered files (dist/about/index.html, dist/blog/<slug>/index.html);
+    # /index.html is the fallback for routes with no prerendered variant,
+    # such as /chat/<id>.
+    location ~ ^/(about|blog|help|privacy|terms|community|login|register|feed|profile|add-event|Add|class|chat|invite|reset-password)(/.*)?$ {
+        add_header Cache-Control "no-cache" always;
+        try_files $uri $uri/index.html /index.html;
+    }
+
+    # ── Everything else is genuinely missing ──────────────────────────────
+    # Serves the SPA shell so the NotFound route still renders, but with a real
+    # 404 status so crawlers stop treating typo'd URLs as indexable pages.
+    location / {
+        try_files $uri $uri/index.html =404;
+    }
+
+    error_page 404 /404.html;
+    location = /404.html {
+        internal;
+        add_header Cache-Control "no-cache" always;
+    }
+}
