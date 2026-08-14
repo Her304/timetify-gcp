@@ -167,7 +167,7 @@ export default function AddEventPage({ friendsList = [], currentUser, onCreated 
       </div>
 
       {/* body */}
-      <div className="flex-1 px-5 py-6 flex flex-col gap-4 max-w-lg w-full mx-auto">
+      <div className="px-5 py-6 flex flex-col gap-4 max-w-lg w-full mx-auto">
         {step === 1 && (
           <>
             <div className="flex flex-col gap-1.5">
@@ -431,7 +431,7 @@ export default function AddEventPage({ friendsList = [], currentUser, onCreated 
       </div>
 
       {/* footer */}
-      <div className="px-5 py-4 border-t flex gap-2 flex-shrink-0 max-w-lg w-full mx-auto" style={{ borderColor: T.ink15 }}>
+      <div className="px-5 py-4 pb-24 border-t flex gap-2 max-w-lg w-full mx-auto" style={{ borderColor: T.ink15 }}>
         <button
           onClick={goBack}
           className="px-4 py-2.5 rounded-full text-sm lowercase"

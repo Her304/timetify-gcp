@@ -478,7 +478,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     if (viewState === "analyzing") {
         const saving = busyKind === "saving";
         return (
-            <div className="space-y-8 pb-12">
+            <div className="space-y-8 pb-24">
                 {status === "upload" && <StepIndicator step={saving ? 3 : 2}/>}
                 <div className="bg-white rounded-3xl border border-ink-8 shadow-sm text-center space-y-8 p-10">
                     <div className="relative w-24 h-24 mx-auto">
@@ -669,7 +669,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         const anyMissing = missingFieldsByCourse.some((m) => m.length > 0);
         const canReparse = !!selectedFile && (reparseRemaining === null || reparseRemaining > 0);
         return (
-            <div className="max-w-4xl mx-auto w-full space-y-8 pb-12">
+            <div className="max-w-4xl mx-auto w-full space-y-8 pb-24">
                     <StepIndicator step={3}/>
                     <div>
                         <MonoLabel>step 3 of 4 · we found {analysisResult.courses.length} class{analysisResult.courses.length === 1 ? '' : 'es'}</MonoLabel>
@@ -1015,7 +1015,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     }
 
     return (
-        <div className="space-y-6 pb-12">
+        <div className="space-y-6 pb-24">
             <div>
                 <MonoLabel>add a class</MonoLabel>
                 <h1 className="text-4xl text-ink mt-1 leading-none" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
