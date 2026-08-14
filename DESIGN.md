@@ -114,6 +114,8 @@ Single-path SVG icons (25+), lucide-style. `fill="none"` except `play`. Stroke i
 
 Available names: `x chevL chevR chevD chevU plus search heart msg share bolt cam flash flip settings calendar filter sort user bell lock info up file check edit play home logout trash flag dots block`
 
+For icons outside that set, pages instead use Google's Material Symbols Outlined font directly: `<span className="material-symbols-outlined" style={{ fontSize }}>icon_name</span>`. The font is loaded as a curated subset via the `icon_names=...` query param on the `<link>` in `index.html` — adding a new icon means appending its name to that query param, not just using the class. Used for e.g. `chat_bubble` (profile friends-row chat button), `chevron_right` (profile "more from timetify" list rows), `qr_code`/`qr_code_scanner` (feed).
+
 ### `Blob`
 Organic wavy SVG shape. `seed` 0–3 selects path variant. Used at large size (280–320px) as decorative page backgrounds (landing hero, add-course page).
 
@@ -174,7 +176,7 @@ Options: **add class** → `/Add` | **add event** → `AddEventModal`.
 
 ### App Shell
 - **Public pages** (landing, login, register, about, legal): cream or ink background, `HeaderNavigationBase` or none, `Footer`.
-- **Authenticated pages**: cream body, `HeaderNavApp` (desktop) + `MobileTopBar` + `MobileBottomNav`, no footer.
+- **Authenticated pages**: cream body, `HeaderNavApp` (desktop) + `MobileTopBar` + `MobileBottomNav`. `Footer` still renders at the bottom on desktop (`md:block`) but is dropped on mobile (`hidden md:block` wrapper in `App.jsx`) — mobile has no room for it below the bottom nav. Profile page fills that gap with its own mobile-only "more from timetify" vertical link list (same link set as `Footer`), placed under the blocked-users section.
 - `body` background switches to `T.cream` when logged in.
 
 ### Modal pattern
