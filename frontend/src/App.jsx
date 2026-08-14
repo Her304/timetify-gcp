@@ -1,37 +1,57 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { HeaderNavApp } from "@/components/application/app-navigation/header-nav-app.jsx";
 import { MobileBottomNav } from "@/components/application/app-navigation/mobile-bottom-nav.jsx";
 import { MobileTopBar } from "@/components/application/app-navigation/mobile-top-bar.jsx";
-import { WeekView } from "@/components/home/week_view";
-import { Feed } from "@/components/feed/feed";
-import { ChatThread } from "@/components/chat/ChatThread";
-import { ClassDetails } from "@/components/class/class";
 import Register from "@/components/register/register";
 import InviteLanding from "@/components/invite/inviteLanding";
 import Login from "@/components/login/login";
 import ForgotPassword from "@/components/login/ForgotPassword";
 import ResetPasswordConfirm from "@/components/login/ResetPasswordConfirm";
 import { HeaderNavigationBase } from "@/components/application/app-navigation/header-navigation";
-import Add from "@/components/add/add";
-import Profile from "@/components/user/profile";
 import * as Sentry from "@sentry/react";
 import { initLogger } from "@/utils/logger";
 import { authenticatedFetch } from "@/utils/api";
 import ErrorToast from "@/components/shared/ErrorToast";
 import NotFound from "@/components/shared/NotFound";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
+import RouteSeo from "@/components/shared/RouteSeo";
+import AdSenseLoader from "@/components/shared/AdSenseLoader";
 import { Footer } from "@/components/application/footer/footer";
-import About from "@/components/about/about";
-import Blog from "@/components/blog/Blog";
-import BlogPost from "@/components/blog/BlogPost";
-import Help from "@/components/help/help";
-import Privacy from "@/components/privacy/privacy";
-import Terms from "@/components/terms/terms";
-import Community from "@/components/community/community";
 import Landing from "@/components/landing/Landing";
-import AddEventPage from "@/components/events/AddEventPage";
 import OnboardingTour from "@/components/onboarding/OnboardingTour";
+
+// Route-level code splitting. Every component below was previously in the
+// single entry chunk, so a logged-out visitor to the landing page downloaded
+// the chat UI, the feed and the QR/camera stack before anything rendered.
+//
+// Landing, Login, Register and the password-reset screens stay eagerly imported
+// on purpose: they are the entry points for logged-out traffic, and making them
+// lazy would put a second round trip in front of the largest contentful paint
+// on exactly the pages search traffic lands on.
+const WeekView = lazy(() =>
+  import("@/components/home/week_view").then((m) => ({ default: m.WeekView })),
+);
+const Feed = lazy(() =>
+  import("@/components/feed/feed").then((m) => ({ default: m.Feed })),
+);
+const ChatThread = lazy(() =>
+  import("@/components/chat/ChatThread").then((m) => ({ default: m.ChatThread })),
+);
+const ClassDetails = lazy(() =>
+  import("@/components/class/class").then((m) => ({ default: m.ClassDetails })),
+);
+const Add = lazy(() => import("@/components/add/add"));
+const Profile = lazy(() => import("@/components/user/profile"));
+const About = lazy(() => import("@/components/about/about"));
+const Blog = lazy(() => import("@/components/blog/Blog"));
+const BlogPost = lazy(() => import("@/components/blog/BlogPost"));
+const Help = lazy(() => import("@/components/help/help"));
+const Privacy = lazy(() => import("@/components/privacy/privacy"));
+const Terms = lazy(() => import("@/components/terms/terms"));
+const Community = lazy(() => import("@/components/community/community"));
+const AddEventPage = lazy(() => import("@/components/events/AddEventPage"));
+
 
 // New-user coach-mark tour. Each step spotlights a real nav anchor
 // (data-tour="…") in the header / bottom bar, in the order the user meets them.
@@ -605,8 +625,15 @@ const AppShell = ({
         />
       )}
 
+      <RouteSeo />
+      {location.pathname.startsWith("/blog") && <AdSenseLoader />}
+
       <main ref={mainRef} className={`flex-1 ${isLandingRoute ? "pt-16" : "overflow-y-auto"} flex flex-col`}>
         <div className={`flex-1 ${(currentUser && location.pathname !== "/add-event") || ["/about", "/help", "/privacy", "/terms", "/community"].includes(location.pathname) || location.pathname.startsWith("/blog") ? "p-4 md:p-8 max-w-7xl w-full mx-auto" : ""}`}>
+          {/* Required by the lazy() route components above. */}
+          <Suspense
+            fallback={<p className="text-center text-sm text-ink-60 py-16">loading…</p>}
+          >
           <Routes>
             <Route
               path="/"
@@ -736,6 +763,7 @@ const AppShell = ({
             <Route path="/community" element={<Community />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </div>
         <div className={currentUser ? "hidden md:block" : ""}>
           <Footer currentUser={currentUser} />

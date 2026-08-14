@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Star, Blob, T, FF, MonoLabel, PillBtn } from "@/components/shared/brand";
+import Seo from "@/components/shared/Seo";
+import { blogPostPageSchema, DEFAULT_DESCRIPTION } from "@/seo/config";
 
 const formatDate = (iso) => {
   if (!iso) return "";
@@ -31,6 +33,10 @@ const BlogPost = () => {
     load();
   }, [slug]);
 
+  // Built before the early returns so the hook order stays stable, and memoised
+  // so <Seo> is not tearing down and re-inserting the JSON-LD on every render.
+  const postSchema = useMemo(() => (post ? blogPostPageSchema(post) : null), [post]);
+
   if (loading) {
     return <p className="text-center text-sm text-ink-60 py-16">loading…</p>;
   }
@@ -38,6 +44,12 @@ const BlogPost = () => {
   if (notFound || !post) {
     return (
       <div className="text-center py-16 space-y-4">
+        <Seo
+          path={`/blog/${slug}`}
+          title="Post not found — Timetify"
+          description="This blog post does not exist."
+          noindex
+        />
         <MonoLabel>not found</MonoLabel>
         <h1 className="text-4xl text-ink" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
           this post doesn&apos;t exist.
@@ -53,6 +65,14 @@ const BlogPost = () => {
 
   return (
     <article className="max-w-3xl mx-auto py-8 space-y-8 relative">
+      <Seo
+        path={`/blog/${post.slug}`}
+        title={`${post.title} — Timetify Blog`}
+        description={post.excerpt || DEFAULT_DESCRIPTION}
+        image={post.cover_image || undefined}
+        type="article"
+        schema={postSchema}
+      />
       <Star color={T.lime} size={24} style={{ position: 'absolute', top: 0, right: '4%', transform: 'rotate(-15deg)' }}/>
 
       <Link to="/blog" className="inline-block">

@@ -353,6 +353,25 @@ function HeroSection() {
               we all suffer from{' '}
               <span style={{ color: T.coral }}>coming up a free timeslot</span>.
             </h1>
+            {/* The h1 carries the brand voice but no search signal — nobody
+                types "coming up a free timeslot" into Google. This subhead says
+                plainly what the product is, in the same layer so it animates
+                with the headline and stays genuinely visible to readers. */}
+            <p
+              style={{
+                fontFamily: "'Geist', sans-serif",
+                fontSize: 'clamp(15px, 2vw, 19px)',
+                fontWeight: 300,
+                color: 'rgba(248,244,237,0.7)',
+                lineHeight: 1.5,
+                letterSpacing: '-0.2px',
+                maxWidth: 620,
+                margin: '22px auto 0',
+              }}
+            >
+              timetify is a free class schedule app for students — share your
+              timetable with friends and find a time everyone&apos;s actually free.
+            </p>
           </div>
         </motion.div>
 

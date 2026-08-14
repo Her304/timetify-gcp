@@ -934,7 +934,10 @@ class BlogPostListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BlogPost
-        fields = ['slug', 'title', 'excerpt', 'cover_image', 'author_username', 'published_at']
+        # updated_at feeds schema.org dateModified on the public post page; an
+        # edited post that still advertises its original date looks stale to
+        # crawlers and loses the freshness signal.
+        fields = ['slug', 'title', 'excerpt', 'cover_image', 'author_username', 'published_at', 'updated_at']
 
 
 class BlogPostDetailSerializer(BlogPostListSerializer):

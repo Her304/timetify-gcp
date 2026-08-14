@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.sitemaps",
     'rest_framework',
     'corsheaders',
     'main',
@@ -90,6 +91,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     'main.middleware.LoggingMiddleware',
+    'main.middleware.NoIndexMiddleware',
     'main.middleware.LastSeenMiddleware',
 ]
 
