@@ -214,6 +214,48 @@ class ReadToolTests(McpTestCase):
         result = self.call_tool(self.raw, 'get_today_schedule', {'timezone': 'Mars/Olympus'})
         self.assertTrue(result.get('isError'))
 
+    def test_schedule_matches_full_day_names(self):
+        """rep_date written as 'Monday,Wednesday' must still match.
+
+        Regression: every fixture in this file used 'MON,WED', but the
+        add-course UI and the syllabus parser both write full day names — the
+        format of ~90% of production rows. Matching them with a bare .upper()
+        compared 'MONDAY' against 'MON', so the tool reported an empty
+        timetable to users who had classes that day.
+        """
+        today_full = date.today().strftime('%A')  # e.g. 'Monday'
+        make_course(self.user, 'FULLNAME', rep=today_full)
+        payload = self.call_tool(self.raw, 'get_today_schedule')['structuredContent']
+        self.assertEqual([c['course_id'] for c in payload['classes']], ['FULLNAME'])
+
+    def test_free_busy_matches_full_day_names(self):
+        """The same normalization bug, via get_busy_blocks — which also backs
+        the app's own availability endpoints, not just this tool."""
+        make_course(self.user, 'FULLNAME', rep=date.today().strftime('%A'),
+                    start=time(10, 0), end=time(11, 0))
+        payload = self.call_tool(self.raw, 'get_free_busy')['structuredContent']
+        self.assertNotEqual(payload['status'], 'unknown')
+        # A free slot must not span the class; the day is genuinely blocked.
+        self.assertTrue(
+            any(s['start'] < s['end'] for s in payload['free_slots']),
+            'expected free slots around the course block',
+        )
+        self.assertFalse(
+            any(s['start'] <= f"{date.today().isoformat()}T10:30" <= s['end']
+                for s in payload['free_slots']),
+            '10:30 falls inside the course and must not be reported free',
+        )
+
+    def test_schedule_reports_the_timezone_it_resolved(self):
+        """A UTC-defaulted answer naming tomorrow is otherwise indistinguishable
+        from a correct one, so the resolved zone travels with the date."""
+        payload = self.call_tool(self.raw, 'get_today_schedule')['structuredContent']
+        self.assertEqual(payload['timezone'], 'UTC')
+        payload = self.call_tool(
+            self.raw, 'get_today_schedule', {'timezone': 'America/Toronto'}
+        )['structuredContent']
+        self.assertEqual(payload['timezone'], 'America/Toronto')
+
 
 class FriendToolTests(McpTestCase):
     def setUp(self):
@@ -357,6 +399,36 @@ class CreateClassTests(McpTestCase):
     def test_invalid_rep_date_is_rejected(self):
         result = self.call_tool(self.raw, 'create_class', {**self.args, 'rep_date': 'FUNDAY'})
         self.assertTrue(result.get('isError'))
+
+    def test_full_day_names_are_accepted_and_normalized(self):
+        """An agent echoing a day name it read back from the app's own data
+        must not be rejected. Stored in the canonical 3-letter form either way."""
+        args = {**self.args, 'rep_date': 'Monday,Wednesday'}
+        preview = self.call_tool(self.raw, 'create_class', args)['structuredContent']
+        self.call_tool(self.raw, 'create_class',
+                       {**args, 'confirmation_token': preview['confirmation_token']})
+        self.assertEqual(
+            Course.objects.get(user=self.user, course_id=args['course_id']).rep_date,
+            'MON,WED',
+        )
+
+    def test_overlap_is_found_across_rep_date_formats(self):
+        """Regression: the preview's overlap check normalized with .capitalize(),
+        so an incoming 'Monday,Wednesday' never intersected a stored 'MON,WED'
+        and a genuine clash was previewed as conflict-free."""
+        Course.objects.create(
+            user=self.user, course_id='CLASH', course_name='Clash',
+            start_date=date(2026, 9, 1), end_date=date(2026, 12, 1),
+            start_time=time(14, 30), end_time=time(15, 30),
+            rep_date='MON,WED', classroom='Hall B')
+        payload = self.call_tool(
+            self.raw, 'create_class',
+            {**self.args, 'rep_date': 'Monday,Wednesday'},
+        )['structuredContent']
+        overlaps = payload['preview'].get('overlaps')
+        self.assertTrue(overlaps)
+        # Rendered as a full day name, and the earliest shared day of the week.
+        self.assertEqual(overlaps[0]['day'], 'Monday')
 
 
 class CreateEventTests(McpTestCase):

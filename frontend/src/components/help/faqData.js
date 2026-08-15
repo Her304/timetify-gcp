@@ -110,4 +110,26 @@ export const FAQ_SECTIONS = [
       },
     ],
   },
+  {
+    id: "agents",
+    label: "ai agents",
+    items: [
+      {
+        q: "can i connect an ai agent to my schedule?",
+        a: "yes, though it is an advanced feature and entirely optional — nothing is connected until you choose to connect it. open your profile, select “settings”, and expand “connect an ai agent”. you may either generate an access token and paste it into your agent's configuration, or, for clients that are able to sign in themselves, give them the address https://timetify.net/mcp/v1/ and approve the request on the consent screen that follows.",
+      },
+      {
+        q: "what can a connected agent see and do?",
+        a: "only what you permit, and only within your own account. you may grant access to your class schedule, your free and busy times, the times you share with friends, and your unread message count, together with the ability to create classes and events on your own calendar. an agent can never reach another person's information, the contents of your snaps or chat messages, or the ability to post or send messages on your behalf. anything an agent wishes to create must first be returned to you as a preview and confirmed before it is saved.",
+      },
+      {
+        q: "how do i disconnect an agent?",
+        a: "return to “connect an ai agent” in your settings. tokens may be revoked individually, and applications you have signed in to may be disconnected; both take effect immediately. you may also narrow what an existing token is permitted to reach without replacing it. should a token ever be exposed — pasted into a conversation, for example, or committed to a repository — revoke it and generate a fresh one.",
+      },
+      {
+        q: "why will my agent not connect?",
+        a: "an agent running in the cloud cannot reach an address beginning “127.0.0.1” or “localhost”, as those refer to the machine the agent itself is running on rather than to yours; use https://timetify.net/mcp/v1/ instead. please note also that most clients require such a connection to be added from their own settings, as a custom connector, and cannot be instructed to add one during a conversation.",
+      },
+    ],
+  },
 ];

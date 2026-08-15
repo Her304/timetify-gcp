@@ -64,6 +64,32 @@ Security posture, all tested in `test_agent_oauth.py`:
 
 That URL gets copied into config files we don't control, so it has to survive the backend service being renamed or moved — same reasoning as `CANONICAL_DOMAIN`. **Changing the nginx block needs a frontend redeploy**, since that's where nginx lives.
 
+**A push to `main` does not ship the nginx block.** `cloudbuild.yaml` builds and deploys `./backend` only, so the Django half goes out on its own and the frontend image — which is where `/mcp/v1/` and the `/oauth/` proxy rules live — needs its own deploy. A half-deploy is quiet rather than loud: nginx has no matching `location`, so the request falls through to the SPA and the client gets **`200` with HTML** instead of JSON-RPC. Verify the whole chain after any deploy that touches either side:
+
+```
+curl -s -i -X POST https://timetify.net/mcp/v1/ -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Correct answer is `401` with `content-type: application/json`, `{"error": "invalid_token"}`, and a `WWW-Authenticate` header naming the resource metadata. HTML in the body means the frontend didn't deploy; a `500` mentioning a missing relation means the migrations didn't run.
+
+## Connecting a hosted client
+
+`127.0.0.1:8000` cannot be used with a hosted agent (claude.ai, ChatGPT, Codex). Loopback resolves on *their* infrastructure, so the request never reaches the developer's machine and the client reports the server as down — accurately, from where it is standing. This costs an hour every time it is rediscovered. Use `https://timetify.net/mcp/v1/`, or a tunnel (`cloudflared tunnel --url http://localhost:8000`) with the tunnel hostname added to `ALLOWED_HOSTS` when testing unreleased changes.
+
+Timetify is **not in any connector registry**, and does not need to be — registries carry curated one-click connectors; everything else is added as a *custom connector by URL* in the client's own settings. Clients frequently misreport this as "not found in the registry, therefore cannot be added". Relatedly, an assistant cannot attach a connector from inside a conversation: it is a settings-level action requiring the account holder's consent, which is what stops page content from talking an agent into wiring an MCP server to someone's account. Every discovery document a client needs to self-register is already served (`WWW-Authenticate` → resource metadata → auth-server metadata → DCR), so the URL alone is sufficient wherever custom connectors are supported at all.
+
+`claude mcp add --transport http timetify https://timetify.net/mcp/v1/` is the fastest way to exercise the real flow — no registry, no plan gate.
+
+## Local dev writes to the production database
+
+`.env` sets `DB_PORT=5433`, which is the Cloud SQL Auth Proxy (`./cloud-sql-proxy --port 5433 timetify-prod:us-central1:timetify-gcp-v2`), so **`manage.py runserver` on a laptop reads and writes production data.** The Homebrew Postgres on `5432` is not used by the app. Consequences worth internalising before running anything:
+
+- A token minted against `127.0.0.1:8000` is **live on the public endpoint immediately** — dev tokens are production credentials, and leaking one is a real leak.
+- `manage.py migrate` from a laptop migrates production. `0032` / `0033` were applied this way; they must be applied **before** the backend deploy or every `/api/agent-tokens/` request 500s on `relation "main_agentaccesstoken" does not exist`.
+- Sentry events from a dev server are real events. They are labelled by `SENTRY_ENVIRONMENT`, defaulting from `DEBUG` — before that existed, every laptop 500 was filed as production.
+- Point the test suite somewhere else: `DB_PORT=5432 DB_USER=<local role> DB_PASS= manage.py test` runs against local Postgres instead of creating a `test_timetify_db` on the production instance.
+
 ## Scopes
 
 `mcp/scopes.py` is the single vocabulary — the mint UI, the OAuth consent screen and the resource check all read the same strings. `VALID` is a **closed set**: an unrecognised scope grants *nothing*, never everything — a tampered `scopes` JSON fails closed. Write scopes are never pre-checked in the mint UI.
@@ -80,14 +106,24 @@ No tool takes a user identifier — cross-user access isn't a permission check t
 
 | Tool | Notes |
 |---|---|
-| `get_today_schedule` | Reuses `availability._DAY_ABBR` weekday matching; **excludes `CourseSkip`** rows (`get_busy_blocks` doesn't, so this filter lives in the tool). Optional `timezone` arg — see below. |
+| `get_today_schedule` | Reuses `availability._DAY_ABBR` weekday matching **through `availability.norm_day`** — see below; **excludes `CourseSkip`** rows (`get_busy_blocks` doesn't, so this filter lives in the tool). Optional `timezone` arg — see below. |
 | `get_free_busy` | Mirrors `AvailabilityMeView`. Intervals only, never event titles. |
 | `get_unread_count` | Mirrors `UnreadCountView` incl. `_blocked_user_ids`. Count only — no rooms, senders or previews. |
 | `get_shared_free_slots` | Mirrors `SharedGapsView`. Takes **usernames**, resolved via `_visible_friend_ids`. |
 | `create_class` | Two-step. Narrow `AgentCourseCreateSerializer`, not `CourseSerializer`. |
 | `create_event` | Two-step. Invites/chat/public all forced off. |
 
-**Timezone:** `TIME_ZONE="UTC"` and `availability.py` treats course times as UTC wall-clock. Invisible in-app, but a tool called "today's schedule" makes it visible (8pm in UTC-5 is already tomorrow UTC). Tools accept an optional IANA `timezone`; default is UTC for parity with the app.
+**`rep_date` has no single stored format, so never match it by hand.** The add-course UI (`add.jsx` joins `selectedDays`) and the syllabus parser write **full day names** — `"Monday,Wednesday"` — and that is the shape of the overwhelming majority of rows. The agent bridge's `AgentCourseCreateSerializer` writes **abbreviations** — `"MON,WED"`. Everything that compares a weekday token must go through **`availability.norm_day`** (`.strip().upper()[:3]`) or `availability.parse_rep_days`; `views._norm_day` is an alias of it.
+
+This is not hypothetical tidiness. `get_busy_blocks` and the MCP `_courses_on` both compared with a bare `.upper()` and no truncation, so `"MONDAY" != "MON"` and **every course stored in the app's own dominant format silently never matched**. `get_today_schedule` returned an empty timetable, and free/busy — `AvailabilityMeView`, friends' availability, `SharedGapsView` — reported users as free during their own classes. The MCP suite was green throughout because every fixture in it used `rep_date='MON,WED'`, the one format the app never writes. New schedule tests must use a full day name.
+
+`views._parse_rep_days` had the same blind spot mirrored — it normalized with `.capitalize()`, so on `CourseFinalizeView` an incoming `"MON"` did not intersect an existing `"Monday"` and a real clash was reported as conflict-free; `create_class`'s overlap preview imports the helper and inherited it. It now delegates to `parse_rep_days` as well. **Matching and display are deliberately separate jobs:** the sets hold abbrevs, and `_find_overlap_day` renders the answer through `availability.day_label` because `add.jsx:603` prints `overlapInfo.day.toLowerCase()` straight into "both meet monday" — the conflict screen's copy must not dictate how weekdays are compared. `_conflict_for_user` is the one response that emits a bare abbrev (`"day": "WED"`); that shape is already consumed that way, so it was left alone.
+
+Both conflict paths now pick the earliest shared day via `availability.sort_days` rather than the alphabetically first, which used to report a Mon+Fri clash as "Friday". `sort_days` is total — callers index `[0]` off a set they have already checked is non-empty, so an unrecognised token sorts last instead of being dropped into an IndexError.
+
+`test_availability.py` covers these as pure functions; no DB, so it is the cheap place to pin normalization rules.
+
+**Timezone:** `TIME_ZONE="UTC"` and `availability.py` treats course times as UTC wall-clock. Invisible in-app, but a tool called "today's schedule" makes it visible (8pm in UTC-5 is already tomorrow UTC). Tools accept an optional IANA `timezone`; default is UTC for parity with the app. There is **no timezone field on `CustomUser`**, so the server cannot infer one — the client has to send it. The date-bearing responses echo the resolved zone back as `timezone`, because a UTC-defaulted reply naming tomorrow is otherwise indistinguishable from a correct one.
 
 **Friend lookup is deliberately non-committal:** unknown usernames and non-friends are both silently dropped and the response never distinguishes them. Otherwise the tool is a username-existence oracle and a friendship-status probe. Tested.
 

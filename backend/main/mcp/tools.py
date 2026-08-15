@@ -85,6 +85,17 @@ def _resolve_tz(arguments):
         raise ToolError(f"Unknown timezone: {name}")
 
 
+def _tz_label(arguments):
+    """The timezone name a date-bearing response resolved under.
+
+    Echoed back so the agent can see which day boundary produced the answer
+    instead of assuming it was the user's. Without it, a UTC-defaulted reply
+    naming tomorrow's date is indistinguishable from a correct one.
+    """
+    tz = _resolve_tz(arguments)
+    return getattr(tz, 'key', None) or 'UTC'
+
+
 def _resolve_day(arguments):
     raw = arguments.get('date')
     if raw:
@@ -103,7 +114,7 @@ def _courses_on(user, day):
     (ScheduleSkipView); a tool that didn't would confidently tell someone to
     attend a class they already opted out of.
     """
-    from ..availability import _DAY_ABBR
+    from ..availability import _DAY_ABBR, parse_rep_days
 
     abbr = _DAY_ABBR[day.weekday()]
     active = Course.objects.filter(user=user, start_date__lte=day, end_date__gte=day)
@@ -114,8 +125,7 @@ def _courses_on(user, day):
     for c in active:
         if c.pk in skipped:
             continue
-        rep_days = [x.strip().upper() for x in (c.rep_date or '').split(',')]
-        if abbr in rep_days:
+        if abbr in parse_rep_days(c.rep_date):
             out.append(c)
     return out
 
@@ -133,6 +143,7 @@ def _get_today_schedule(principal, arguments):
     courses = sorted(_courses_on(principal.user, day), key=lambda c: (c.start_time, c.course_id))
     return {
         'date': day.isoformat(),
+        'timezone': _tz_label(arguments),
         'classes': [
             {
                 'course_id': c.course_id,
@@ -171,6 +182,7 @@ def _get_free_busy(principal, arguments):
 
     return {
         'date': day.isoformat(),
+        'timezone': _tz_label(arguments),
         **status_data,
         # Intervals only, never titles — the same rule the friends availability
         # endpoint enforces, kept here so no later scope change can leak a
@@ -269,6 +281,7 @@ def _get_shared_free_slots(principal, arguments):
 
     return {
         'matched_usernames': sorted(matched.values()),
+        'timezone': _tz_label(arguments),
         'shared_free_slots': slots,
     }
 
@@ -539,7 +552,9 @@ _DATE_ARG = {'type': 'string', 'description': 'Target date as YYYY-MM-DD. Defaul
 _TZ_ARG = {
     'type': 'string',
     'description': "IANA timezone (e.g. 'America/Toronto') used to decide what "
-                   "'today' means. Defaults to UTC.",
+                   "'today' means. Always pass the user's own timezone when you "
+                   "know it: this defaults to UTC, so late-evening callers west "
+                   "of UTC get tomorrow's date instead of today's.",
 }
 
 REGISTRY = {}
