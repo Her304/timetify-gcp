@@ -22,8 +22,15 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env'))
 
+# sentry_sdk.init runs at import time, before the settings body below has defined
+# DEBUG, so the flag is read once here as well. Without an explicit `environment`
+# every event is labelled production — including ones from a laptop dev server,
+# which is how a local 500 ended up paging the team about production.
+_DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+
 sentry_sdk.init(
     dsn=os.environ.get("BACK_SENTRY_DSN", "https://217fefa78aae5014c25593fae678a2b1@o4511148277235712.ingest.us.sentry.io/4511148311445504"),
+    environment=os.environ.get("SENTRY_ENVIRONMENT", "development" if _DEBUG else "production"),
     integrations=[DjangoIntegration()],
     # Add data like request headers and IP for users
     send_default_pii=True,
