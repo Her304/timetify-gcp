@@ -18,6 +18,52 @@ from typing import List, Tuple, Optional
 # Python weekday() → Course.rep_date abbreviation mapping.
 # weekday(): 0=Monday … 6=Sunday
 _DAY_ABBR = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday",
+              "Friday", "Saturday", "Sunday"]
+
+
+def norm_day(token) -> str:
+    """Normalize one weekday token to the canonical 3-letter UPPERCASE form.
+
+    `Course.rep_date` has no single stored format: the add-course UI and the
+    syllabus parser both write full names ("Monday,Wednesday"), while the agent
+    bridge writes abbreviations ("MON,WED"). Comparing without truncating means
+    "MONDAY" != "MON" and the course silently never matches — which is exactly
+    how free/busy came to report users as free during their own classes.
+
+    This is the canonical definition; views._norm_day aliases it. Anything that
+    matches a weekday token against `_DAY_ABBR` must go through here.
+    """
+    return (token or '').strip().upper()[:3]
+
+
+def parse_rep_days(rep_date) -> set:
+    """Split a `Course.rep_date` string into a set of canonical day abbrevs."""
+    return {norm_day(t) for t in (rep_date or '').split(',') if t.strip()}
+
+
+def day_label(abbr) -> str:
+    """Canonical abbrev → the full day name shown to users ("MON" → "Monday").
+
+    Matching happens on the abbrev; anything user-facing renders through here.
+    Keeping those two jobs in separate functions is the point — the conflict
+    screen's copy shouldn't dictate how weekdays are compared.
+    """
+    key = norm_day(abbr)
+    return _DAY_NAMES[_DAY_ABBR.index(key)] if key in _DAY_ABBR else str(abbr or '')
+
+
+def sort_days(abbrs) -> list:
+    """Canonical abbrevs in weekday order, not alphabetical.
+
+    Total on purpose: callers pick `[0]` off a set they have already checked is
+    non-empty, so dropping a token this doesn't recognise (a malformed
+    `rep_date`/`repeat_days` reaching both sides of an intersection) would turn
+    a guarded lookup into an IndexError. Unknown tokens sort last instead.
+    """
+    def key(a):
+        return (_DAY_ABBR.index(a), '') if a in _DAY_ABBR else (len(_DAY_ABBR), str(a))
+    return sorted(abbrs, key=key)
 
 
 def _day_abbr(d: date) -> str:
@@ -58,8 +104,7 @@ def get_busy_blocks(courses, events, day: date) -> List[Tuple[datetime, datetime
     day_end_dt   = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=utc_tz.utc)
 
     for c in courses:
-        rep_days = [x.strip().upper() for x in (c.rep_date or '').split(',')]
-        if day_abbr not in rep_days:
+        if day_abbr not in parse_rep_days(c.rep_date):
             continue
         if c.start_date > day or c.end_date < day:
             continue

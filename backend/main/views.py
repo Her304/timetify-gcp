@@ -48,6 +48,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main.pdf import process_course_outline
+from main.availability import norm_day, parse_rep_days, day_label, sort_days
 
 def convert_date(date_str):
     """Convert date from 'Jan 13 2026' to '2026-01-13'"""
@@ -634,9 +635,15 @@ def _slot_to_minutes(t):
 
 
 def _parse_rep_days(rep):
-    if not rep:
-        return set()
-    return {d.strip().capitalize() for d in str(rep).split(',') if d.strip()}
+    """`Course.rep_date` → a set of canonical 3-letter day abbrevs.
+
+    This used to normalize with `.capitalize()`, which made "MON" and "Monday"
+    two different days and let a real clash through unreported — the same
+    cross-format blind spot that broke free/busy matching, mirrored. Callers
+    intersect on these abbrevs and render with `day_label` (see
+    `_find_overlap_day`), so the conflict screen's wording is unchanged.
+    """
+    return parse_rep_days(rep)
 
 
 _WEEKDAY_INDEX = {
@@ -672,9 +679,16 @@ def _weekly_occurrences(start_str, end_str, weekday, max_count=40):
 
 
 def _find_overlap_day(days_a, sa, ea, days_b, sb, eb):
+    """The first shared day these two slots collide on, as a display name.
+
+    `days_a`/`days_b` are canonical abbrevs from `_parse_rep_days`; the return
+    value is the full name ("Monday") because it goes straight into the
+    conflict screen. Earliest in the week, not alphabetically first — sorting
+    the raw tokens reported a Mon+Fri clash as "Friday".
+    """
     shared = days_a & days_b
     if shared and sa < eb and sb < ea:
-        return sorted(shared)[0]
+        return day_label(sort_days(shared)[0])
     return None
 
 
@@ -3420,8 +3434,11 @@ def _expand_event_occurrences(evt, week_start, week_end):
 
 def _norm_day(d):
     """Normalize a weekday token from any source (e.g. Course.rep_date 'Mon',
-    Event.repeat_days 'MON') to the canonical 3-letter UPPERCASE form."""
-    return (d or '').strip().upper()[:3]
+    Event.repeat_days 'MON') to the canonical 3-letter UPPERCASE form.
+
+    Alias of availability.norm_day, which is the single definition — this file
+    and availability.py disagreeing on it is what broke free/busy matching."""
+    return norm_day(d)
 
 
 def _target_event_days(date_, is_repeating, repeat_days):
@@ -3453,7 +3470,7 @@ def _conflict_for_user(user, target_days, target_start, target_end, target_date,
         courses_qs = courses_qs.filter(end_date__gte=today)
 
     for c in courses_qs:
-        c_days = {_norm_day(d) for d in (c.rep_date or '').split(',') if d.strip()}
+        c_days = parse_rep_days(c.rep_date)
         shared = c_days & target_days
         if shared and target_start < c.end_time and c.start_time < target_end:
             conflicts.append({
@@ -3461,7 +3478,9 @@ def _conflict_for_user(user, target_days, target_start, target_end, target_date,
                 "course_pk": c.pk,
                 "course_id": c.course_id,
                 "course_name": c.course_name,
-                "day": sorted(shared)[0],
+                # Abbrev here, unlike the finalize screen's full name — this
+                # shape is already consumed that way. Earliest in the week.
+                "day": sort_days(shared)[0],
                 "start_time": c.start_time.strftime("%H:%M"),
                 "end_time": c.end_time.strftime("%H:%M"),
             })
@@ -3486,7 +3505,7 @@ def _conflict_for_user(user, target_days, target_start, target_end, target_date,
                 "kind": "event",
                 "event_id": evt.id,
                 "event_name": evt.name,
-                "day": sorted(shared)[0],
+                "day": sort_days(shared)[0],
                 "start_time": evt.start_time.strftime("%H:%M"),
                 "end_time": evt.end_time.strftime("%H:%M"),
             })

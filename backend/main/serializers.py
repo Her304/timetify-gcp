@@ -971,8 +971,14 @@ class AgentCourseCreateSerializer(serializers.ModelSerializer):
                   'start_time', 'end_time', 'rep_date', 'classroom', 'is_lab']
 
     def validate_rep_date(self, value):
-        valid = {'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'}
-        tokens = [t.strip().upper() for t in (value or '').split(',') if t.strip()]
+        # Accepts full day names too ("Monday,Wednesday"), because that is what
+        # the add-course UI and the syllabus parser write — so it is also what
+        # get_today_schedule hands back, and an agent echoing a day it just read
+        # would otherwise be rejected. Stored normalized either way.
+        from .availability import _DAY_ABBR, norm_day
+
+        valid = set(_DAY_ABBR)
+        tokens = [norm_day(t) for t in (value or '').split(',') if t.strip()]
         if not tokens or any(t not in valid for t in tokens):
             raise serializers.ValidationError('Use comma-separated MON,TUE,WED,THU,FRI,SAT,SUN.')
         return ','.join(tokens)
