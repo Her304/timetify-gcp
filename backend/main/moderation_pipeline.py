@@ -588,6 +588,7 @@ def run_moderation_tick() -> dict:
     summary = {
         'pending': 0, 'appeal_pending': 0, 'third_loop': 0,
         'snap_media_purged': 0, 'restrictions_expired': 0,
+        'oauth_rows_purged': 0,
         'errors': 0,
     }
 
@@ -620,4 +621,18 @@ def run_moderation_tick() -> dict:
 
     summary['snap_media_purged'] = purge_snap_media()
     summary['restrictions_expired'] = deactivate_expired_restrictions()
+
+    # Spent authorization codes and long-dead OAuth tokens are pure landfill —
+    # nothing reads them, and the tables would otherwise grow with every refresh
+    # forever. This tick is the only thing already running on a schedule, so it
+    # carries the housekeeping rather than us standing up a second cron. Its own
+    # try/except: an OAuth cleanup failure must not lose the moderation work
+    # this pass already did.
+    try:
+        from .mcp.oauth import purge_expired
+        summary['oauth_rows_purged'] = purge_expired()
+    except Exception:
+        logger.exception("moderation: oauth purge failed")
+        summary['errors'] += 1
+
     return summary

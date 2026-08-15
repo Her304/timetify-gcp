@@ -1,8 +1,32 @@
 from django.urls import path
 from . import views
+from .mcp import oauth as mcp_oauth
+from .mcp.views import McpEndpointView
 
 urlpatterns = [
     path('', views.home, name='home'),
+    # OAuth 2.1 for MCP clients that sign in rather than paste a token
+    # (claude.ai, ChatGPT). Discovery paths are spec-fixed — they must sit at
+    # the root of the same origin the client reached the resource on, which is
+    # why nginx proxies them from the canonical domain.
+    path('.well-known/oauth-protected-resource', mcp_oauth.protected_resource_metadata),
+    path('.well-known/oauth-protected-resource/mcp/v1', mcp_oauth.protected_resource_metadata),
+    path('.well-known/oauth-authorization-server', mcp_oauth.authorization_server_metadata),
+    path('oauth/register', mcp_oauth.register, name='oauth-register'),
+    path('oauth/authorize', mcp_oauth.authorize, name='oauth-authorize'),
+    path('oauth/token', mcp_oauth.token, name='oauth-token'),
+    path('oauth/revoke', mcp_oauth.revoke, name='oauth-revoke'),
+    # AI-agent bridge (MCP). Registered under both spellings because the project
+    # sets APPEND_SLASH=False, so the slashless form would otherwise hard-404
+    # with no redirect for anyone who typed the URL by hand.
+    path('mcp/v1/', McpEndpointView.as_view(), name='mcp-endpoint'),
+    path('mcp/v1', McpEndpointView.as_view()),
+    path('api/agent-tokens/', views.AgentTokenListCreateView.as_view(), name='agent-token-list-create'),
+    path('api/agent-tokens/<int:pk>/', views.AgentTokenRevokeView.as_view(), name='agent-token-revoke'),
+    # Connected apps (the OAuth half). client_id is the natural key here: the
+    # user is disconnecting an app, not one of its rotating tokens.
+    path('api/agent-connections/', views.AgentConnectionListView.as_view(), name='agent-connection-list'),
+    path('api/agent-connections/<str:client_id>/', views.AgentConnectionRevokeView.as_view(), name='agent-connection-revoke'),
     path('api/register/', views.RegisterView.as_view(), name='register'),
     path('api/register/check/', views.RegistrationAvailabilityView.as_view(), name='register-check'),
     path('api/login/', views.LoginView.as_view(), name='login'),

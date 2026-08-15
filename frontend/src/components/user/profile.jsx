@@ -4,6 +4,7 @@ import { authenticatedFetch } from "../../utils/api";
 import { T, FF, MonoLabel, ProfileAvatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
 import CourseDetailsModal from "@/components/home/CourseDetailsModal";
 import FriendDetailsModal from "@/components/user/FriendDetailsModal";
+import AgentAccessSection from "@/components/user/AgentAccessSection";
 
 const PROFILE_PIC_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -1114,6 +1115,17 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                   paste the link into any instagram or snapchat dm to invite friends there.
                 </p>
               </div>
+            </SettingsSection>
+
+            {/* Connect an AI agent — advanced, and last on purpose. The
+                accordion already keeps it collapsed until asked for. */}
+            <SettingsSection
+              title="connect an ai agent"
+              hint="advanced — let your own ai read your schedule"
+              open={openSection === "agent"}
+              onToggle={() => setOpenSection(openSection === "agent" ? null : "agent")}
+            >
+              <AgentAccessSection />
             </SettingsSection>
           </div>
         )}

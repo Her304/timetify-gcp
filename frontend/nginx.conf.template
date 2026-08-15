@@ -70,6 +70,47 @@ server {
         proxy_set_header X-Forwarded-Proto https;
     }
 
+    # ── AI-agent bridge (MCP) ─────────────────────────────────────────────
+    # Proxied to Django so the address users paste into their agent is
+    # https://timetify.net/mcp/v1/ rather than the raw Cloud Run hostname.
+    # That URL ends up copied into config files we don't control, so it has to
+    # be one we can keep stable if the backend service is ever moved or renamed.
+    # Both spellings: Django sets APPEND_SLASH=False, so /mcp/v1 must reach it
+    # too instead of 404ing here.
+    location ~ ^/mcp/v1/?$ {
+        resolver 169.254.169.254 valid=30s;
+        proxy_pass https://${BACKEND_HOST}$request_uri;
+        proxy_ssl_server_name on;
+        proxy_set_header Host ${BACKEND_HOST};
+        proxy_set_header X-Forwarded-Proto https;
+        # Agents are server-side clients, so no CORS involvement — but the
+        # bearer credential must survive the hop.
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    # ── OAuth for MCP clients that sign in instead of pasting a token ──────
+    # The discovery documents are spec-required to live at the root of the same
+    # origin the client reached the resource on, and the issuer they advertise
+    # must match — so the whole flow has to run on timetify.net, not the Cloud
+    # Run hostname. It also means the user sees timetify.net in the address bar
+    # while typing their password, which is the point.
+    location ~ ^/(\.well-known/oauth-|oauth/) {
+        resolver 169.254.169.254 valid=30s;
+        proxy_pass https://${BACKEND_HOST}$request_uri;
+        proxy_ssl_server_name on;
+        proxy_set_header Host ${BACKEND_HOST};
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+        # Django's CSRF check on the consent form compares Origin/Referer
+        # against CSRF_TRUSTED_ORIGINS, so the browser's real origin has to
+        # survive the proxy rather than being replaced by the backend host.
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Referer $http_referer;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header Cookie $http_cookie;
+        proxy_pass_header Set-Cookie;
+    }
+
     location = /robots.txt {
         expires 1h;
         add_header Cache-Control "public" always;

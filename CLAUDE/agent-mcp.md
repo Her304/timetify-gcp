@@ -1,0 +1,124 @@
+# AI-agent bridge (MCP server)
+
+`backend/main/mcp/` — a generic remote MCP server over the calling user's own data. Opt-in, reachable only from the "connect an ai agent" card in Settings. Any MCP client works (Hermes, Claude Code, a script); nothing is Hermes-specific.
+
+Two ways in, one authorization model: a **personal access token** pasted into a config file, or **OAuth 2.1 sign-in** for clients that take a URL and run the handshake themselves (claude.ai, ChatGPT). Both resolve to the same `Principal` in `mcp/auth.py`, and nothing above that layer knows which was used.
+
+## Transport
+
+- Single endpoint `POST /mcp/v1/`, stateless JSON-RPC. **No SSE, no session id.** Prod is `gunicorn --workers 2 --threads 2` = 4 concurrent requests app-wide; a long-lived stream per agent would starve the app. `GET` returns 405 (the spec's "no server-initiated stream").
+- Registered at **both** `mcp/v1/` and `mcp/v1` because `APPEND_SLASH=False` — the slashless form would otherwise hard-404 with no redirect.
+- No `mcp` SDK dependency: it's asyncio/Starlette-shaped and this is sync WSGI. `protocol.py` hand-rolls `initialize` / `notifications/*` / `ping` / `tools/list` / `tools/call`, so a spec bump is a patch, not a dep upgrade.
+- JSON-RPC batching was dropped in the 2025-06-18 revision but arrays are still accepted for older clients.
+
+## Auth
+
+- `Authorization: Bearer ttfy_agent_<random>`. Only the **sha256** is stored (`AgentAccessToken.token_hash`) — unsalted on purpose, because the hash *is* the lookup key. Raw value is returned once by `POST /api/agent-tokens/` and is unrecoverable after.
+- **`McpEndpointView` sets `authentication_classes = []`.** Without it the project-default `JWTAuthentication` tries to decode the PAT and raises before the view runs — every request 401s with a confusing JWT error. It also enforces the isolation: a session JWT is rejected at `/mcp/v1/`, and an agent token is rejected everywhere else. Both directions are tested.
+- Revocation is a column write re-checked on every request — no cache window.
+- A deactivated (`is_active=False`) user's token stops working too.
+- `AgentCredential` is an abstract base holding revocation + rate-limit state; both `AgentAccessToken` (PAT) and `OAuthAccessToken` inherit it, so revocation, rate limiting and `last_used_at` behave identically for either.
+- `resolve_credential()` dispatches on **prefix** (`ttfy_agent_` → PAT, `ttfy_oat_` → OAuth) rather than trying each resolver in turn, so the two credential systems stay unambiguous.
+
+## OAuth 2.1 (`mcp/oauth.py`)
+
+Timetify is both authorization server and resource server — the simple shape for a single first-party API, and it avoids standing up an IdP when Django already owns the accounts.
+
+| Path | What |
+|---|---|
+| `/.well-known/oauth-protected-resource` | RFC 9728. The `WWW-Authenticate` on the 401 from `/mcp/v1/` points here; this points at the auth server. That chain is the whole bootstrap — without it a web connector cannot discover the flow. |
+| `/.well-known/oauth-authorization-server` | RFC 8414. Advertises `S256` **only**. |
+| `POST /oauth/register` | RFC 7591 dynamic client registration. Not optional: clients like Claude have no pre-arranged `client_id`. Anyone can register, so it's rate-limited (20/hour globally) — a `client_id` alone grants nothing until a user completes consent. |
+| `GET/POST /oauth/authorize` | Login + consent, rendered by **Django templates** (`backend/templates/oauth/`), not the SPA. The SPA authenticates with a JWT in localStorage on a different origin; bouncing through it would move credentials across origins for no benefit. |
+| `POST /oauth/token` | `authorization_code` + `refresh_token` grants. |
+| `POST /oauth/revoke` | RFC 7009. Always 200 — answering "unknown token" would make it an oracle. |
+
+Two things that unit tests could not catch, both found by running a real client against a live server — check them before trusting a green suite here:
+
+- **`/oauth/register`, `/oauth/token` and `/oauth/revoke` are `@csrf_exempt`.** They are called by an MCP client's HTTP stack, which has no cookie and no CSRF token, so `CsrfViewMiddleware` answered **403 to the very first request of the flow** — with all tests passing, because Django's test client disables CSRF enforcement by default. Nothing is weakened: CSRF defends cookie-authenticated requests, and these authenticate with credentials a browser never attaches on its own (PKCE verifier, client_secret, or the token being revoked). `/oauth/authorize` is the one browser form and keeps `@csrf_protect`. `CsrfTests` uses `Client(enforce_csrf_checks=True)` and covers both directions.
+- **`_issuer()` follows the request in DEBUG.** It was unconditionally the canonical domain, so a dev server on `127.0.0.1:8000` told every client its authorization server was `https://timetify.net` — the handshake left the machine and the flow could not be run locally at all. Production stays pinned to `CANONICAL_DOMAIN` regardless of the Host header; only DEBUG derives it from the request.
+
+Security posture, all tested in `test_agent_oauth.py`:
+
+- **PKCE S256 required.** `plain` and a missing challenge are both rejected; there are no legacy non-PKCE clients to stay compatible with.
+- **`redirect_uri` must match a registration exactly.** No prefix matching — that's the classic route to an open redirect and, through it, code theft. Parameter errors before that check render a page instead of redirecting, because there's no destination we can safely send a browser to yet.
+- **Codes are single-use, 60s, and bound to client + redirect_uri + challenge**, all re-checked at redemption. A replay revokes *every* live token from that grant, not just the second exchange — a replayed code means the code leaked.
+- **Refresh tokens rotate on every use**, so reuse of an old one fails instead of working forever.
+- Only sha256 of access/refresh tokens is stored, same reasoning as the PAT.
+- Registration accepts `https` anywhere, `http` on **loopback only** (MCP clients commonly catch the redirect on 127.0.0.1), and RFC 8252 private-use schemes. `javascript:` / `data:` / `file:` and friends are denied outright — they aren't destinations, and nothing legitimate registers one.
+- **`resource` (RFC 8707) is recorded, not enforced.** There is exactly one resource, so there's nothing to check against; if a second is ever added, the audience check goes in `_resolve_oauth` *before* that resource exists.
+
+**The server-rendered pages** (`backend/templates/base.html` + `oauth/*.html`, shared with the email-change result) carry **no third-party resources**. They used to pull Tailwind from `cdn.tailwindcss.com` and CSS from Google Fonts — an executable script from another origin on the one page in the product where users type their password. The replacement is a hand-written stylesheet in `base.html` plus `/fonts/fonts.css`, which nginx serves from the SPA build on the same origin. Three constraints worth knowing before editing these:
+
+- **Every selector is scoped under `.tf` on `<body>`.** A browser extension's injected stylesheet can define bare class names — one defines `.dot` as a 3px white absolutely-positioned circle, which silently blanked the consent screen's scope bullets. `.tf .x` outranks any single-class rule an extension can inject, whatever the cascade order.
+- **Multi-line `{# … #}` does not work.** Django's comment tag is single-line; a wrapped one renders into the page (it did, at the top of every page, and inside `login.html`'s form). Use `{% comment %}` for anything longer than a line.
+- **The CSP deliberately omits `form-action`.** Approving consent POSTs and is answered with a 302 to the client's redirect_uri, and browsers have disagreed about whether `form-action` covers the redirect following a form submission. Everything else is locked to `'none'`/`'self'`; there is no script on these pages at all.
+
+**Connected apps UI:** `GET /api/agent-connections/` lists grants **grouped by client**, not per token — refresh rotation mints a row per refresh, so one connection is a stream of rows and listing them would make a single app look like dozens. Scopes shown are the union across live grants (re-consenting leaves the older grant alive). `DELETE /api/agent-connections/<client_id>/` revokes every live token for that user/client pair *and* consumes unredeemed authorization codes — otherwise a code issued seconds earlier, or a refresh in flight, would quietly undo the disconnect.
+
+`purge_expired()` (spent codes >1d, tokens >7d past refresh expiry) runs from `run_moderation_tick()` — the only thing already on a schedule. It's wrapped in its own try/except so a cleanup failure can't discard the moderation work in the same pass.
+
+## The public address is proxied, not direct
+
+`timetify.net` is nginx serving the static SPA; Django is a **separate** Cloud Run service, and `VITE_API_URL` points at the raw `*.run.app` hostname. So `frontend/nginx.conf.template` proxies `^/mcp/v1/?$` through to `${BACKEND_HOST}` (same pattern as `/sitemap.xml`), and the Settings card hardcodes `https://timetify.net/mcp/v1/` in prod rather than deriving it from `VITE_API_URL`.
+
+That URL gets copied into config files we don't control, so it has to survive the backend service being renamed or moved — same reasoning as `CANONICAL_DOMAIN`. **Changing the nginx block needs a frontend redeploy**, since that's where nginx lives.
+
+## Scopes
+
+`mcp/scopes.py` is the single vocabulary — the mint UI, the OAuth consent screen and the resource check all read the same strings. `VALID` is a **closed set**: an unrecognised scope grants *nothing*, never everything — a tampered `scopes` JSON fails closed. Write scopes are never pre-checked in the mint UI.
+
+`schedule:read` · `availability:read` · `unread:read` · `friends:read` · `schedule:write` · `events:write`
+
+Scopes are editable on a live **PAT** (`PATCH /api/agent-tokens/<pk>/`) — the raw token is untouched, only its reach changes, effective on the next request. Narrowing is the case that matters: if tightening access meant re-pasting a new token into a config file, nobody would bother. Revoke (`DELETE`) is a soft delete: the row disappears from the user's list and stops working immediately, but is retained (hash + timestamps only) so `agent_token_created` still counts every token ever minted.
+
+OAuth grants are **not** editable in place — scopes are fixed at consent, and changing them means disconnecting and reconnecting so the client re-asks. Editing them behind the client's back would leave it believing it holds scopes it doesn't.
+
+## Tools
+
+No tool takes a user identifier — cross-user access isn't a permission check that could be forgotten, it's not expressible.
+
+| Tool | Notes |
+|---|---|
+| `get_today_schedule` | Reuses `availability._DAY_ABBR` weekday matching; **excludes `CourseSkip`** rows (`get_busy_blocks` doesn't, so this filter lives in the tool). Optional `timezone` arg — see below. |
+| `get_free_busy` | Mirrors `AvailabilityMeView`. Intervals only, never event titles. |
+| `get_unread_count` | Mirrors `UnreadCountView` incl. `_blocked_user_ids`. Count only — no rooms, senders or previews. |
+| `get_shared_free_slots` | Mirrors `SharedGapsView`. Takes **usernames**, resolved via `_visible_friend_ids`. |
+| `create_class` | Two-step. Narrow `AgentCourseCreateSerializer`, not `CourseSerializer`. |
+| `create_event` | Two-step. Invites/chat/public all forced off. |
+
+**Timezone:** `TIME_ZONE="UTC"` and `availability.py` treats course times as UTC wall-clock. Invisible in-app, but a tool called "today's schedule" makes it visible (8pm in UTC-5 is already tomorrow UTC). Tools accept an optional IANA `timezone`; default is UTC for parity with the app.
+
+**Friend lookup is deliberately non-committal:** unknown usernames and non-friends are both silently dropped and the response never distinguishes them. Otherwise the tool is a username-existence oracle and a friendship-status probe. Tested.
+
+## Writes are two-step
+
+`mcp/confirm.py`. First call → preview + `confirmation_token`, **nothing saved**. Second call with the token commits. An agent can't create anything in one round trip, so the preview has to go back through it — and in practice, in front of the user.
+
+MCP tool annotations (`readOnlyHint` etc.) and description text can only *ask* a client to confirm; a self-hosted agent may auto-approve and ignore both. Hence the server-side enforcement. `payload_hash` binds the token to the previewed content, so a token issued for one thing can't commit another. The same row is the idempotency record — agents retry, and without it one dropped response becomes five identical courses.
+
+**`create_event` constraints (all forced, each a one-line flag to relax):** no invites, `create_chat=False`, `visibility=PRIVATE`, `on_conflict` defaults to `fail`. It also checks `FunctionRestriction`, which the app's own `EventListCreateView.post` does not.
+
+**`create_class`:** `has_ai_content` stays `False` — it gates the weeks/exams/assignments panels in `class.jsx`, and an agent-created course has none. `sections[]` children are parented to the row created in the same request, never to a caller-supplied id. Agents parse syllabus PDFs themselves; `pdf.py` is not involved and the agent path spends no OpenAI budget.
+
+## Rate limiting
+
+On the credential row, not in a cache — **no `CACHES` is configured**, so Django would fall back to per-process LocMemCache and count roughly 1/(workers × instances) of real traffic. Fixed 60s windows: 60 reads/min, 10 writes/min (a write consumes both budgets). `last_used_at` is written at most once a minute.
+
+## Metrics
+
+No analytics pipeline. `agent_token_created` = row count on the `AgentAccessToken` admin changelist; `agent_tool_calls_per_week` = `mcp.tool_call` log lines; `last_used_at` distinguishes real use from curiosity. For the OAuth half: `oauth.client_registered` / `oauth.token_issued` log lines, and live `OAuthAccessToken` rows grouped by client. Splitting the two tells you *which front door people actually use* — the earlier `agent_oauth_interest` waitlist button existed only to answer that before OAuth was built, and is gone along with its endpoint.
+
+## Not built (deliberate)
+
+- **Elicitation** (server asks the client to prompt its user mid-call) — uneven client support.
+- **Age gate** — there is no DOB or age field anywhere on `CustomUser`, so it was unimplementable.
+- **Account-deletion / data-export wiring** — neither flow exists in this codebase. FK `CASCADE` covers token cleanup on user delete; whoever builds deletion/export should include `AgentAccessToken`, `AgentPendingWrite`, `OAuthAccessToken` and `OAuthAuthorizationCode`.
+- **Editing an OAuth grant's scopes from Settings** — see above; disconnect/reconnect is the intended path.
+- **Client attestation / a vetted-client allowlist** — DCR means any client can register. Consent is the control, which is why the consent screen names the app and lists exactly what it will reach.
+
+## Pre-existing issues found while building this (not fixed here)
+
+- `CourseSerializer` is `fields='__all__'` with only `id`/`user` read-only, leaving `parent_course` writable and unvalidated — a course can be parented to **another user's** row (IDOR). The agent path avoids it via `AgentCourseCreateSerializer`; the app API still has it.
+- `EventListCreateView.post` never checks `FunctionRestriction`, so a chat-muted user can still create events and spawn chat rooms.
+- Event names are never moderated — `moderation_pipeline` is report-driven and only handles `CONTENT_SNAP` / `CONTENT_CHAT`; there is no `Report.CONTENT_EVENT`. An event name becomes a chat room title with no takedown path.

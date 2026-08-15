@@ -7,7 +7,7 @@ from .models import (
     ChatRoom, ChatRoomMember, Message,
     Report, AiReport, Appeal, UserBlock, FunctionRestriction,
     NotificationPreference, SnapGroup, SnapGroupMember,
-    Event, EventInvite, BlogPost,
+    Event, EventInvite, BlogPost, AgentAccessToken,
 )
 
 User = get_user_model()
@@ -943,3 +943,43 @@ class BlogPostListSerializer(serializers.ModelSerializer):
 class BlogPostDetailSerializer(BlogPostListSerializer):
     class Meta(BlogPostListSerializer.Meta):
         fields = BlogPostListSerializer.Meta.fields + ['content']
+
+
+class AgentAccessTokenSerializer(serializers.ModelSerializer):
+    """Metadata for the Settings list. `token_hash` is never exposed — the raw
+    value is returned once by the mint endpoint and nowhere else."""
+
+    class Meta:
+        model = AgentAccessToken
+        fields = ['id', 'name', 'scopes', 'created_at', 'last_used_at']
+        read_only_fields = fields
+
+
+class AgentCourseCreateSerializer(serializers.ModelSerializer):
+    """Narrow course create for the agent bridge.
+
+    Explicitly not CourseSerializer: that one is `fields = '__all__'` with only
+    id/user read-only, which leaves `course_outline` (a FileField),
+    `has_ai_content` and `parent_course` writable. `parent_course` in particular
+    is an unvalidated FK, so a caller could parent a course to another user's
+    row. Child sections here are parented to the course created in the same
+    request and never to a caller-supplied id.
+    """
+    class Meta:
+        model = Course
+        fields = ['course_id', 'course_name', 'start_date', 'end_date',
+                  'start_time', 'end_time', 'rep_date', 'classroom', 'is_lab']
+
+    def validate_rep_date(self, value):
+        valid = {'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'}
+        tokens = [t.strip().upper() for t in (value or '').split(',') if t.strip()]
+        if not tokens or any(t not in valid for t in tokens):
+            raise serializers.ValidationError('Use comma-separated MON,TUE,WED,THU,FRI,SAT,SUN.')
+        return ','.join(tokens)
+
+    def validate(self, attrs):
+        if attrs['end_time'] <= attrs['start_time']:
+            raise serializers.ValidationError({'end_time': 'end_time must be after start_time.'})
+        if attrs['end_date'] < attrs['start_date']:
+            raise serializers.ValidationError({'end_date': 'end_date must not be before start_date.'})
+        return attrs
