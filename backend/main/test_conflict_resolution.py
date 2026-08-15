@@ -369,6 +369,31 @@ class ConflictResolutionTests(APITestCase):
         self.assertGreater(skips.count(), 1)
         print(f"✓ TEST 8: Repeating event created {skips.count()} skip records")
 
+    def test_9_blocked_friend_cannot_be_invited(self):
+        """A block in either direction has to read as "not a friend" here.
+        Validating against the raw roster left a blocked person invitable, and
+        the invite would surface in their notifications."""
+        from main.models import UserBlock
+        UserBlock.objects.create(blocker=self.user1, blocked=self.user2)
+
+        event_data = {
+            'name': 'Study Session',
+            'start_time': '09:00',
+            'end_time': '10:00',
+            'date': self.base_date.isoformat(),
+            'is_repeating': False,
+            'visibility': 'PRIVATE',
+            'create_chat': False,
+            'invite_user_ids': [self.user2.id],
+        }
+
+        response = self.client.post('/api/events/', event_data, format='json')
+
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(response.json()['detail'], 'not_friends')
+        self.assertEqual(EventInvite.objects.count(), 0)
+        print("✓ TEST 9: Blocked friend rejected as an invite target")
+
 
 if __name__ == '__main__':
     import unittest

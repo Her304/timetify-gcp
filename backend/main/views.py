@@ -33,7 +33,7 @@ from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.shortcuts import render
-from main.utils import send_email
+from main.utils import canonical_username, send_email
 from main.account_email import send_welcome_email, send_password_reset_email, send_email_change_verification
 
 # Salt + lifetime for the signed email-change token. The token itself carries
@@ -381,9 +381,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Username should not be case sensitive
         username = attrs.get("username")
         if username:
-            user = User.objects.filter(username__iexact=username).first()
-            if user:
-                attrs["username"] = user.username
+            attrs["username"] = canonical_username(username)
         data = super().validate(attrs)
         data['user'] = UserSerializer(self.user, context={'request': self.context.get('request')}).data
         data['is_temp_password'] = self.user.is_temp_password
@@ -3709,7 +3707,12 @@ class EventListCreateView(APIView):
                 source_room = None
 
         if invite_user_ids:
-            my_friends = _friend_user_ids(me)
+            # _visible_friend_ids, not the raw roster: a block in either
+            # direction has to read as "not a friend" here, or blocking someone
+            # still leaves them invitable (and the invite surfaces in their
+            # notifications). See the note on _visible_friend_ids, which names
+            # Events as one of the features that must filter blocks out.
+            my_friends = _visible_friend_ids(me)
             strangers = [uid for uid in invite_user_ids if uid not in my_friends]
             if strangers:
                 return Response(
