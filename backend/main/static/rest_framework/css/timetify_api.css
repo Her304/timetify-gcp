@@ -1,0 +1,218 @@
+/* Timetify browsable-API theme — aligns DRF's default page with the app's design language.
+   Brand: coral #ED6A4A  lilac #C8B0DF  lime #C9EE6F  ink #1F1A22  cream #F8F4ED  paper #FCFAF5 */
+
+:root {
+  --tt-coral: #ED6A4A;
+  --tt-coral-dark: #C04A2E;
+  --tt-coral-light: #F9D9CC;
+  --tt-lilac: #C8B0DF;
+  --tt-lime: #C9EE6F;
+  --tt-ink: #1F1A22;
+  --tt-ink-60: rgba(31, 26, 34, 0.6);
+  --tt-ink-40: rgba(31, 26, 34, 0.4);
+  --tt-ink-15: rgba(31, 26, 34, 0.15);
+  --tt-ink-08: rgba(31, 26, 34, 0.08);
+  --tt-cream: #F8F4ED;
+  --tt-paper: #FCFAF5;
+}
+
+html, body {
+  background: var(--tt-cream) !important;
+  color: var(--tt-ink);
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+.wrapper { background: var(--tt-cream); }
+
+/* ---- Navbar ---- */
+.navbar-timetify {
+  background: var(--tt-cream) !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--tt-ink-08) !important;
+  border-radius: 0 !important;
+  box-shadow: none;
+  margin-bottom: 0;
+}
+.navbar-timetify .navbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: auto;
+  padding: 14px 0;
+}
+.tt-api-wordmark {
+  font-family: 'Bricolage Grotesque', Georgia, serif;
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--tt-ink) !important;
+  letter-spacing: -0.2px;
+}
+.tt-api-sub {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--tt-coral) !important;
+  border-left: 1px solid var(--tt-ink-15);
+  padding-left: 10px;
+}
+.navbar-timetify .navbar-nav > li > a,
+.navbar-timetify .navbar-text {
+  color: var(--tt-ink-60) !important;
+  font-size: 13px;
+}
+.navbar-timetify .navbar-nav > li > a:hover { color: var(--tt-ink) !important; }
+
+/* ---- Breadcrumbs ----
+   Kept in the layout but invisible: DRF's navbar is position:fixed and
+   relies on the breadcrumb's top margin (bootstrap-tweaks.css) to push
+   page content clear of it. The page-header h1 below already names the
+   current resource, so showing breadcrumb text too was a duplicate title. */
+.breadcrumb {
+  visibility: hidden;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+/* ---- Headings ---- */
+.page-header {
+  border-bottom: 1px solid var(--tt-ink-08);
+  margin-bottom: 16px;
+}
+.page-header h1 {
+  font-family: 'Bricolage Grotesque', Georgia, serif;
+  font-weight: 600;
+  color: var(--tt-ink);
+}
+
+/* ---- Buttons ---- */
+.btn { border-radius: 999px !important; font-weight: 600; font-size: 13px; border: 0; padding: 10px 16px !important; }
+
+/* Grouped buttons (e.g. GET + format-dropdown caret) join into one pill
+   instead of two overlapping pills, and the caret button gets real padding. */
+.btn-group { display: inline-flex; }
+.btn-group > .btn {
+  border-radius: 0 !important;
+}
+.btn-group > .btn:first-child {
+  border-top-left-radius: 999px !important;
+  border-bottom-left-radius: 999px !important;
+}
+.btn-group > .btn:last-child {
+  border-top-right-radius: 999px !important;
+  border-bottom-right-radius: 999px !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}
+.btn-group > .btn + .btn {
+  margin-left: 1px !important;
+  border-left: 1px solid rgba(255,255,255,0.35) !important;
+}
+.btn-primary, .btn-primary:focus {
+  background: var(--tt-coral) !important;
+  border-color: var(--tt-coral) !important;
+  color: #fff !important;
+}
+.btn-primary:hover { background: var(--tt-coral-dark) !important; border-color: var(--tt-coral-dark) !important; }
+.btn-danger, .btn-danger:focus {
+  background: #fff !important;
+  color: #b91c1c !important;
+  border: 1px solid #fecaca !important;
+}
+.btn-danger:hover { background: #fef2f2 !important; }
+.btn-default, .btn-default:focus {
+  background: #fff !important;
+  border: 1px solid var(--tt-ink-15) !important;
+  color: var(--tt-ink) !important;
+}
+.btn-default:hover { background: var(--tt-paper) !important; }
+.dropdown-menu {
+  border-radius: 12px !important;
+  border: 1px solid var(--tt-ink-08);
+  box-shadow: 0 4px 16px rgba(31,26,34,0.08);
+}
+.dropdown-menu > li > a:hover { background: var(--tt-cream) !important; color: var(--tt-ink) !important; }
+
+/* ---- Request / response panels ---- */
+.request-info, .response-info {
+  background: transparent;
+}
+pre.prettyprint {
+  background: var(--tt-ink) !important;
+  color: #f4f1ea !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  padding: 16px !important;
+  font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace !important;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+pre.prettyprint .str { color: var(--tt-lime) !important; }
+pre.prettyprint .kwd { color: var(--tt-lilac) !important; }
+pre.prettyprint .com { color: var(--tt-ink-60) !important; }
+pre.prettyprint .typ, pre.prettyprint .lit { color: var(--tt-coral-light) !important; }
+pre.prettyprint a, pre.prettyprint a.lit { color: var(--tt-lime) !important; }
+
+/* ---- Forms ---- */
+.form-control {
+  border: 1px solid var(--tt-ink-15) !important;
+  border-radius: 10px !important;
+  background: #fff;
+  font-family: 'Geist', sans-serif;
+  font-size: 13px;
+  box-shadow: none !important;
+}
+.form-control:focus {
+  border-color: var(--tt-coral) !important;
+  box-shadow: 0 0 0 3px var(--tt-coral-light) !important;
+}
+.control-label { color: var(--tt-ink); font-weight: 600; font-size: 13px; }
+.help-block { color: var(--tt-ink-60); font-size: 12px; }
+.has-error .form-control { border-color: #dc2626 !important; }
+.has-error .help-block { color: #dc2626; }
+
+.well {
+  background: var(--tt-paper) !important;
+  border: 1px solid var(--tt-ink-08) !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+.nav-tabs { border-bottom-color: var(--tt-ink-08); }
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover,
+.nav-tabs > li.active > a:focus {
+  color: var(--tt-ink) !important;
+  background: var(--tt-paper) !important;
+  border-color: var(--tt-ink-08) var(--tt-ink-08) transparent !important;
+  border-radius: 10px 10px 0 0 !important;
+  font-weight: 600;
+}
+.nav-tabs > li > a { color: var(--tt-ink-60); border-radius: 10px 10px 0 0 !important; }
+
+/* ---- Pagination ---- */
+.pagination > li > a, .pagination > li > span {
+  border: 1px solid var(--tt-ink-15);
+  color: var(--tt-ink);
+  border-radius: 8px !important;
+  margin: 0 2px;
+}
+.pagination > .active > a, .pagination > .active > span {
+  background: var(--tt-coral) !important;
+  border-color: var(--tt-coral) !important;
+  color: #fff !important;
+}
+.pagination > li > a:hover { background: var(--tt-cream); }
+
+/* ---- Modal ---- */
+.modal-content { border-radius: 16px !important; border: 0; }
+.modal-footer { border-top: 1px solid var(--tt-ink-08); }
+
+/* ---- Misc ---- */
+a { color: var(--tt-coral-dark); }
+a:hover { color: var(--tt-coral); }
