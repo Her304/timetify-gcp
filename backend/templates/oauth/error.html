@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% comment %} Shown only for failures that happen before redirect_uri has been
+   validated against a registration — at that point there is no destination we
+   can safely send a browser to, so the error stays here. {% endcomment %}
+{% block content %}
+<div class="page">
+  <div class="card center">
+    <div class="eyebrow eyebrow--alert">couldn't connect</div>
+    <h1 class="title lower">something's off</h1>
+    <p class="muted lower">{{ message }}</p>
+    <p class="fine fine--faint lower" style="margin-top:1.25rem">
+      nothing was shared. try connecting again from the app you started in.
+    </p>
+  </div>
+</div>
+{% endblock %}

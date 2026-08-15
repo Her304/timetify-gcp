@@ -16,7 +16,7 @@ from .models import (
     CustomUser, Course, Week, Exam, Assignment, Friend, BackendLog, ErrorReport,
     Snap, SnapAudience, ChatRoom, ChatRoomMember, Message,
     Report, AiReport, SimilarityCheck, Appeal, FunctionRestriction, UserBlock,
-    Event, EventInvite, BlogPost,
+    Event, EventInvite, BlogPost, AgentAccessToken,
 )
 from .moderation_pipeline import admin_remove, admin_dismiss
 from .serializers import validate_blog_cover_image
@@ -425,3 +425,24 @@ class BlogPostAdmin(admin.ModelAdmin):
                 count += 1
         self.message_user(request, f"Published {count} post(s).")
     action_publish.short_description = "Publish selected posts"
+
+
+@admin.register(AgentAccessToken, site=site)
+class AgentAccessTokenAdmin(admin.ModelAdmin):
+    """This changelist is the adoption metric for the agent bridge: row count is
+    `agent_token_created`, and `last_used_at` distinguishes tokens in real use
+    from ones minted once out of curiosity. No analytics pipeline needed."""
+    list_display = ('id', 'user', 'name', 'scopes', 'created_at', 'last_used_at', 'revoked_at')
+    list_filter = ('created_at', 'revoked_at')
+    search_fields = ('user__username', 'name')
+    # token_hash is deliberately absent — it's the lookup key for a live
+    # credential and has no business being browsable in the admin UI.
+    readonly_fields = ('user', 'name', 'scopes', 'created_at', 'last_used_at',
+                       'revoked_at', 'window_started_at', 'window_count',
+                       'write_window_started_at', 'write_window_count')
+    exclude = ('token_hash',)
+
+    def has_add_permission(self, request):
+        # Tokens are only meaningful when their raw value reaches the user, and
+        # that only happens through the mint API.
+        return False

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% comment %} Consent step. The scope list is rendered from what the client
+   actually requested (already filtered to known scopes server-side), so it can
+   never understate what approving would grant. {% endcomment %}
+{% block content %}
+<div class="page">
+  <div class="card">
+
+    <div class="center" style="margin-bottom:1.75rem">
+      <div class="eyebrow">authorize</div>
+      <h1 class="title lower">{{ client.name|default:"an ai agent" }}</h1>
+      <p class="muted lower">
+        signed in as <span class="strong">{{ request.user.username }}</span>
+      </p>
+    </div>
+
+    <div class="panel" style="margin-bottom:1.25rem">
+      <div class="eyebrow eyebrow--faint">it will be able to</div>
+      <ul class="scopes">
+        {% for row in scope_rows %}
+        <li>
+          <span class="scope-dot{% if row.is_write %} scope-dot--write{% endif %}"></span>
+          <span class="scope-label">
+            {{ row.label }}
+            {% if row.is_write %}<span class="badge-write">can change things</span>{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <p class="fine lower" style="margin-bottom:1.25rem">
+      it can't post snaps, send messages, or see anyone else's data. anything it
+      creates has to be confirmed first. you can disconnect it any time from
+      settings.
+    </p>
+
+    <div class="btn-row">
+      <form method="post">
+        {% csrf_token %}
+        {% for key, value in params.items %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endfor %}
+        <input type="hidden" name="action" value="deny">
+        <button type="submit" class="btn btn--ghost">cancel</button>
+      </form>
+
+      <form method="post">
+        {% csrf_token %}
+        {% for key, value in params.items %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endfor %}
+        <input type="hidden" name="action" value="approve">
+        <button type="submit" class="btn btn--primary">allow</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

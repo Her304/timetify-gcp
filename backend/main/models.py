@@ -702,3 +702,169 @@ class BlogPost(models.Model):
 
     def __str__(self):
         return f"{self.title} ({'published' if self.is_published else 'draft'})"
+
+
+# ---------------------------------------------------------------------------
+# AI-agent bridge (MCP). Credentials here are deliberately NOT session
+# credentials: they authenticate a narrow tool surface at /mcp/v1/ and can
+# never mint a JWT or drive the app as the user. See CLAUDE/agent-mcp.md.
+# ---------------------------------------------------------------------------
+
+class AgentCredential(models.Model):
+    """Shared shape for anything that authenticates an MCP client.
+
+    Abstract so a future OAuth access-token model inherits the same revocation
+    and rate-limit fields rather than duplicating (and drifting from) them.
+
+    Rate-limit state lives on the row rather than in a cache because no CACHES
+    backend is configured — Django would fall back to a per-process LocMemCache,
+    which on Cloud Run (2 gunicorn workers x N instances) would only ever see a
+    fraction of a token's real traffic.
+    """
+    scopes            = models.JSONField(default=list)
+    created_at        = models.DateTimeField(auto_now_add=True)
+    # Written at most once a minute (see mcp/auth.py) so a polling agent doesn't
+    # cost a DB write per request.
+    last_used_at      = models.DateTimeField(null=True, blank=True)
+    revoked_at        = models.DateTimeField(null=True, blank=True)
+    window_started_at = models.DateTimeField(null=True, blank=True)
+    window_count      = models.PositiveIntegerField(default=0)
+    write_window_started_at = models.DateTimeField(null=True, blank=True)
+    write_window_count      = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        abstract = True
+
+    @property
+    def is_live(self):
+        return self.revoked_at is None
+
+
+class AgentAccessToken(AgentCredential):
+    """A personal access token the user pastes into their own agent's config.
+
+    Only the sha256 of the raw token is stored; the raw value is shown once at
+    creation and is unrecoverable afterwards. Plain (unsalted) sha256 rather
+    than Django's password hasher because the hash doubles as the lookup key —
+    a salted hash couldn't be looked up. Nothing secret is compared in Python,
+    so there's no timing side channel to defend here.
+    """
+    user       = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='agent_tokens')
+    name       = models.CharField(max_length=100, blank=True)
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'revoked_at'])]
+
+    def __str__(self):
+        return f"AgentToken {self.name or '(unnamed)'} · {self.user.username}"
+
+
+class OAuthClient(models.Model):
+    """An MCP client registered via RFC 7591 dynamic client registration.
+
+    DCR is not optional for this use case: clients like Claude have no
+    pre-arranged client_id with us, so without it there is no way for a user to
+    connect from a web connector at all. It does mean anyone can create a row
+    here — that's inherent to DCR, and why registration is rate-limited and a
+    client_id alone grants nothing until a user completes a consent screen.
+    """
+    client_id     = models.CharField(max_length=64, unique=True, db_index=True)
+    # Null for public (PKCE-only) clients, which is what most MCP clients are.
+    secret_hash   = models.CharField(max_length=64, null=True, blank=True)
+    name          = models.CharField(max_length=200, blank=True)
+    redirect_uris = models.JSONField(default=list)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"OAuthClient {self.name or self.client_id}"
+
+
+class OAuthAuthorizationCode(models.Model):
+    """One-shot code bridging the consent screen and the token endpoint.
+
+    Bound to the client, the exact redirect_uri, and the PKCE challenge, all of
+    which are re-checked at redemption — a stolen code is useless without the
+    matching verifier. Deliberately short-lived and single-use.
+    """
+    code           = models.CharField(max_length=64, unique=True, db_index=True)
+    client         = models.ForeignKey(OAuthClient, on_delete=models.CASCADE, related_name='codes')
+    user           = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='oauth_codes')
+    redirect_uri   = models.TextField()
+    code_challenge = models.CharField(max_length=128)
+    scopes         = models.JSONField(default=list)
+    # RFC 8707 resource indicator: which MCP server the client asked the token
+    # for. Recorded and carried onto the token, but not enforced anywhere —
+    # there is exactly one resource today, so there is nothing to enforce it
+    # against. If a second one is ever added, `_resolve_oauth` is where the
+    # audience check goes, and it must go in before that resource exists.
+    resource       = models.TextField(blank=True)
+    expires_at     = models.DateTimeField()
+    consumed_at    = models.DateTimeField(null=True, blank=True)
+    created_at     = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"AuthCode {self.user.username} → {self.client.client_id}"
+
+
+class OAuthAccessToken(AgentCredential):
+    """An access token issued through the OAuth flow.
+
+    Inherits AgentCredential so revocation, rate limiting and last_used_at
+    behave identically to a PAT — mcp/auth.py resolves both to the same
+    Principal and nothing downstream knows which kind it got.
+
+    Only hashes are stored, same reasoning as AgentAccessToken: the hash is the
+    lookup key, so it can't be salted.
+    """
+    user              = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='oauth_tokens')
+    client            = models.ForeignKey(OAuthClient, on_delete=models.CASCADE, related_name='tokens')
+    token_hash        = models.CharField(max_length=64, unique=True, db_index=True)
+    # Rotated on every refresh, so a leaked refresh token is single-use and its
+    # reuse is detectable.
+    refresh_hash      = models.CharField(max_length=64, unique=True, null=True, blank=True, db_index=True)
+    expires_at        = models.DateTimeField()
+    refresh_expires_at = models.DateTimeField(null=True, blank=True)
+    resource          = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'revoked_at'])]
+
+    def __str__(self):
+        return f"OAuthToken {self.user.username} · {self.client.name or self.client.client_id}"
+
+
+class AgentPendingWrite(models.Model):
+    """Backs both halves of the agent write protocol.
+
+    Every write tool is two-step: the first call returns a preview plus a
+    short-lived `token`, and only a second call carrying that token commits.
+    An agent therefore cannot create anything in a single round trip, which
+    forces the preview back through the agent (and in practice, in front of the
+    user) before anything is saved. Tool annotations and description text can
+    only *ask* a client to confirm — a self-hosted agent is free to ignore them,
+    so the guarantee has to live server-side.
+
+    `payload_hash` binds the token to the exact previewed content: a token
+    obtained for one event can't be replayed to create a different one.
+
+    The same row doubles as the idempotency record. Agents retry; without this,
+    one flaky connection turns into five identical courses.
+    """
+    user         = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='agent_pending_writes')
+    token        = models.CharField(max_length=64, unique=True, db_index=True)
+    tool         = models.CharField(max_length=64)
+    payload_hash = models.CharField(max_length=64)
+    expires_at   = models.DateTimeField()
+    # Set when the write actually lands, which is also what makes the token
+    # single-use and what a retry of the same confirm call reads back.
+    consumed_at      = models.DateTimeField(null=True, blank=True)
+    result_object_id = models.PositiveIntegerField(null=True, blank=True)
+    result_payload   = models.JSONField(null=True, blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'expires_at'])]
+
+    def __str__(self):
+        return f"PendingWrite {self.tool} · {self.user.username}"

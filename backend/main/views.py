@@ -18,6 +18,7 @@ from .serializers import (
     EventSerializer, EventInviteSerializer, EventCreateSerializer,
     PasswordResetConfirmSerializer,
     BlogPostListSerializer, BlogPostDetailSerializer,
+    AgentAccessTokenSerializer, AgentCourseCreateSerializer,
 )
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -4134,3 +4135,199 @@ class BlogPostDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
     queryset = BlogPost.objects.filter(is_published=True)
     lookup_field = 'slug'
+
+
+# ---------------------------------------------------------------------------
+# Agent access tokens (AI-agent bridge). These endpoints are ordinary
+# JWT-authenticated app API — they're how the Settings card mints and revokes
+# credentials. The credentials themselves are only ever used against /mcp/v1/.
+# ---------------------------------------------------------------------------
+
+MAX_LIVE_AGENT_TOKENS = 5
+
+
+class AgentTokenListCreateView(APIView):
+    """GET  /api/agent-tokens/ — my live tokens, metadata only.
+       POST /api/agent-tokens/ — mint one; the raw value is returned exactly
+            once here and is unrecoverable afterwards (only its hash is kept)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        rows = models.AgentAccessToken.objects.filter(
+            user=request.user, revoked_at__isnull=True
+        ).order_by('-created_at')
+        return Response({'tokens': [AgentAccessTokenSerializer(r).data for r in rows]})
+
+    def post(self, request):
+        from .mcp import auth as agent_auth
+        from .mcp import scopes as scope_defs
+
+        live = models.AgentAccessToken.objects.filter(user=request.user, revoked_at__isnull=True).count()
+        if live >= MAX_LIVE_AGENT_TOKENS:
+            return Response(
+                {'detail': f'You can have at most {MAX_LIVE_AGENT_TOKENS} agent tokens. Revoke one first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        requested = request.data.get('scopes') or list(scope_defs.DEFAULT)
+        if not isinstance(requested, list):
+            return Response({'detail': 'scopes must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+        unknown = [s for s in requested if s not in scope_defs.VALID]
+        if unknown:
+            return Response({'detail': f'Unknown scopes: {", ".join(map(str, unknown))}'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        granted = scope_defs.clean(requested)
+        if not granted:
+            return Response({'detail': 'Pick at least one scope.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        raw = agent_auth.mint_raw_token()
+        row = models.AgentAccessToken.objects.create(
+            user=request.user,
+            name=str(request.data.get('name') or '')[:100],
+            token_hash=agent_auth.hash_token(raw),
+            scopes=granted,
+        )
+        logger.info('agent_token_created user_id=%s token_id=%s scopes=%s',
+                    request.user.id, row.pk, granted)
+        return Response(
+            {**AgentAccessTokenSerializer(row).data, 'token': raw},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AgentConnectionListView(APIView):
+    """GET /api/agent-connections/ — apps connected through the OAuth flow.
+
+    Grouped by client rather than listed per token: refresh rotation mints a new
+    row on every refresh, so a single connection is a stream of rows over time.
+    A user thinks in terms of "claude.ai has access", not "token #47 has access",
+    and showing the rows would make one connection look like dozens.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        rows = (
+            models.OAuthAccessToken.objects
+            .select_related('client')
+            .filter(user=request.user, revoked_at__isnull=True)
+            .order_by('created_at')
+        )
+        grouped = {}
+        for row in rows:
+            entry = grouped.get(row.client.client_id)
+            if entry is None:
+                grouped[row.client.client_id] = {
+                    'client_id': row.client.client_id,
+                    'name': row.client.name,
+                    # Earliest live row: when the user actually approved, not
+                    # when the current token happened to be refreshed.
+                    'connected_at': row.created_at,
+                    'last_used_at': row.last_used_at,
+                    # Union across live grants: re-consenting with more scopes
+                    # leaves the older grant alive, so either one alone would
+                    # understate what the app can reach.
+                    'scopes': list(row.scopes or []),
+                }
+                continue
+            entry['scopes'] += [s for s in (row.scopes or []) if s not in entry['scopes']]
+            if row.last_used_at and (entry['last_used_at'] is None
+                                     or row.last_used_at > entry['last_used_at']):
+                entry['last_used_at'] = row.last_used_at
+
+        return Response({'connections': list(grouped.values())})
+
+
+class AgentConnectionRevokeView(APIView):
+    """DELETE /api/agent-connections/<client_id>/ — disconnect an app.
+
+    Revokes every live token for this user/client pair, not just the newest:
+    a connection can hold several live rows (re-consent, or a refresh in flight),
+    and leaving any of them alive would mean "disconnect" silently didn't.
+    Outstanding authorization codes go too — an unredeemed code is a token the
+    app hasn't collected yet.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, client_id):
+        client = models.OAuthClient.objects.filter(client_id=client_id).first()
+        if client is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        now = timezone.now()
+        revoked = models.OAuthAccessToken.objects.filter(
+            user=request.user, client=client, revoked_at__isnull=True
+        ).update(revoked_at=now)
+        if not revoked:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        models.OAuthAuthorizationCode.objects.filter(
+            user=request.user, client=client, consumed_at__isnull=True
+        ).update(consumed_at=now)
+
+        logger.info('agent_connection_revoked user_id=%s client_id=%s tokens=%s',
+                    request.user.id, client_id, revoked)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AgentTokenRevokeView(APIView):
+    """PATCH  /api/agent-tokens/<pk>/ — change a live token's scopes or label.
+       DELETE /api/agent-tokens/<pk>/ — revoke immediately.
+
+    Revocation is a column write and every /mcp/v1/ request re-checks it, so
+    there's no cache window in which a revoked token still works."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        """Editing scopes in place rather than forcing revoke-and-remint.
+
+        Narrowing is the case that matters: if tightening an agent's access
+        means re-pasting a new token into a config file, people won't bother.
+        Widening is no less safe than minting a fresh token, since either way
+        the user is authenticated in the app to do it. The raw token is
+        untouched — only what it may reach changes, and the next /mcp/v1/
+        request already sees the new scopes."""
+        from .mcp import scopes as scope_defs
+
+        row = models.AgentAccessToken.objects.filter(
+            pk=pk, user=request.user, revoked_at__isnull=True
+        ).first()
+        if row is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        fields = []
+        if 'scopes' in request.data:
+            requested = request.data.get('scopes')
+            if not isinstance(requested, list):
+                return Response({'detail': 'scopes must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+            unknown = [s for s in requested if s not in scope_defs.VALID]
+            if unknown:
+                return Response({'detail': f'Unknown scopes: {", ".join(map(str, unknown))}'},
+                                status=status.HTTP_400_BAD_REQUEST)
+            granted = scope_defs.clean(requested)
+            if not granted:
+                return Response({'detail': 'Pick at least one scope.'}, status=status.HTTP_400_BAD_REQUEST)
+            row.scopes = granted
+            fields.append('scopes')
+
+        if 'name' in request.data:
+            row.name = str(request.data.get('name') or '')[:100]
+            fields.append('name')
+
+        if not fields:
+            return Response({'detail': 'Nothing to update.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        row.save(update_fields=fields)
+        logger.info('agent_token_updated user_id=%s token_id=%s scopes=%s',
+                    request.user.id, row.pk, row.scopes)
+        return Response(AgentAccessTokenSerializer(row).data)
+
+    def delete(self, request, pk):
+        row = models.AgentAccessToken.objects.filter(
+            pk=pk, user=request.user, revoked_at__isnull=True
+        ).first()
+        if row is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.revoked_at = timezone.now()
+        row.save(update_fields=['revoked_at'])
+        logger.info('agent_token_revoked user_id=%s token_id=%s', request.user.id, row.pk)
+        return Response(status=status.HTTP_204_NO_CONTENT)

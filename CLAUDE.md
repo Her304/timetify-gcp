@@ -14,6 +14,7 @@ Index. Full detail for each topic lives in `CLAUDE/<file>.md` — read the linke
 - [AI course parse](CLAUDE/ai-course-parse.md) — PDF/docx parsing, reparse/refine-with-dates, recurring assignments, editing saved courses, add-page layout.
 - [Static Pages / Content Voice](CLAUDE/static-pages.md) — about/help/community/terms/privacy voice differences, help-page FAQ structure and screenshot slots.
 - [SEO](CLAUDE/seo.md) — shared seo/config.js, build-time prerendered heads, Django sitemap, nginx canonical-host/404 rules, font + code-splitting constraints.
+- [AI-Agent Bridge (MCP)](CLAUDE/agent-mcp.md) — `/mcp/v1/` server, agent access tokens, scopes, two-step confirm on write tools.
 - [Deploy / Infra](CLAUDE/deploy-infra.md) — GCS media, Cloud Run/Dockerfile specifics, moderation cron.
 
 # Security / Work Style

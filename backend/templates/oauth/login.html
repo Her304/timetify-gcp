@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% comment %} Sign-in step of the OAuth consent flow. Rendered by Django rather
+   than the SPA: the SPA authenticates with a JWT in localStorage on a different
+   origin, so bouncing through it would move credentials across origins for no
+   gain.
+
+   Multi-line {# … #} does NOT work — Django's comment tag is single-line, and
+   the text renders into the page. Use {% comment %} for anything that wraps.
+{% endcomment %}
+{% block content %}
+<div class="page">
+  <div class="card">
+
+    <div class="center" style="margin-bottom:1.75rem">
+      <div class="eyebrow">timetify</div>
+      <h1 class="title lower">sign in to continue</h1>
+      <p class="muted lower">
+        <span class="strong">{{ client.name|default:"an ai agent" }}</span>
+        wants to connect to your timetify account.
+      </p>
+    </div>
+
+    {% if error %}
+    <div class="alert lower" style="margin-bottom:1.25rem">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" class="stack">
+      {% csrf_token %}
+      {% comment %} Carry the authorization request through the login round trip
+         so the consent step still knows what was asked for. {% endcomment %}
+      {% for key, value in params.items %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endfor %}
+      <input type="hidden" name="action" value="login">
+
+      <div>
+        <label class="label" for="id_username">username</label>
+        <input class="input" id="id_username" name="username" autocomplete="username" autofocus required>
+      </div>
+
+      <div>
+        <label class="label" for="id_password">password</label>
+        <input class="input" id="id_password" name="password" type="password"
+               autocomplete="current-password" required>
+      </div>
+
+      <button type="submit" class="btn btn--primary">continue</button>
+    </form>
+
+    <p class="fine fine--faint lower center" style="margin-top:1.5rem">
+      you'll get to choose exactly what this app can see on the next screen.
+    </p>
+  </div>
+</div>
+{% endblock %}

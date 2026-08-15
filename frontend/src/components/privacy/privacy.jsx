@@ -234,21 +234,33 @@ const Privacy = () => {
         example, when you share a schedule, send a Snap to a group, or post a chat message).
       </p>
       <p>
-        <b>(c) Affiliates</b> of Company, subject to the protections in this Policy.
+        <b>(c) AI agents you authorize.</b> You may authorize an external AI agent or client (for example, a
+        self-hosted agent, or an assistant such as Claude) either by generating an access token in Settings
+        and providing it to that agent, or by signing in through our authorization page when the agent
+        requests access. In either case you choose what it may reach: a limited set of your own data
+        &mdash; your class schedule, your free/busy times, times you share with friends, and your unread
+        message count &mdash; and, if you grant those permissions, the ability to create classes and events on
+        your own calendar. Such access never extends to another User&rsquo;s data, to Snap or chat message
+        content, or to any ability to post or message as you. Once an agent holds that access, its handling of
+        the data it retrieves is governed by that third party, not by this Policy. You may revoke a token, or
+        disconnect an app you signed in to, at any time in Settings, which takes effect immediately.
       </p>
       <p>
-        <b>(d) Successors in a business transfer</b> &mdash; in connection with a merger, acquisition,
+        <b>(d) Affiliates</b> of Company, subject to the protections in this Policy.
+      </p>
+      <p>
+        <b>(e) Successors in a business transfer</b> &mdash; in connection with a merger, acquisition,
         financing, reorganization, bankruptcy, or sale of assets, in which case Personal Information may be
         transferred to the successor entity, subject to the protections in this Policy.
       </p>
       <p>
-        <b>(e) Legal, safety, and compliance disclosures</b> &mdash; when we believe in good faith that
+        <b>(f) Legal, safety, and compliance disclosures</b> &mdash; when we believe in good faith that
         sharing is necessary to (i) comply with Applicable Law or legal process; (ii) enforce our Terms of
         Service or other agreements; (iii) detect, prevent, or address fraud, security, or technical issues;
         or (iv) protect the rights, property, or safety of Company, our Users, or the public.
       </p>
       <p>
-        <b>(f) With your direction or consent</b>, for any other purpose disclosed to you at the time of
+        <b>(g) With your direction or consent</b>, for any other purpose disclosed to you at the time of
         collection or as otherwise authorized by you.
       </p>
       <p>
