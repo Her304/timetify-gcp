@@ -219,10 +219,8 @@ def _get_unread_count(principal, arguments):
 
 def _get_shared_free_slots(principal, arguments):
     from ..availability import get_busy_blocks, get_shared_free_slots
+    from ..utils import users_by_username
     from ..views import _fetch_events_for_day, _get_day_window, _visible_friend_ids
-
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
 
     me = principal.user
     raw_names = arguments.get('usernames') or []
@@ -240,9 +238,13 @@ def _get_shared_free_slots(principal, arguments):
     # response never says which happened. Distinguishing them would turn this
     # tool into a username-existence oracle and a friendship-status probe for
     # anyone holding a token.
+    #
+    # The match is case-insensitive: because that silent drop is indistinguishable
+    # from a real miss, a case-sensitive lookup here returned the caller's own
+    # calendar labelled as a shared one, with nothing to signal the mismatch.
     matched = {
         u.id: u.username
-        for u in User.objects.filter(username__in=[str(n) for n in raw_names])
+        for u in users_by_username(raw_names)
         if u.id in visible
     }
     valid_ids = list({me.id} | set(matched.keys()))
@@ -438,11 +440,53 @@ _EVENT_KEYS = ('name', 'date', 'start_time', 'end_time', 'location',
                'is_repeating', 'repeat_days', 'on_conflict')
 
 
+def _resolve_invitees(user, raw_names):
+    """(sorted friend ids, display usernames) for `raw_names`, strictly.
+
+    get_shared_free_slots drops names it can't resolve; this must not. A
+    silently dropped invitee is invisible at every later step — the user
+    confirms an event believing someone was invited, and nothing ever reaches
+    them. So an unresolved name is an error, not an omission.
+
+    It still won't say *why* a name failed. "No such account" and "not your
+    friend" share one message, so the tool can't be used to ask questions about
+    accounts the caller couldn't already see in their own friends list.
+    """
+    from ..utils import users_by_username
+    from ..views import _visible_friend_ids
+
+    if raw_names is None:
+        return [], []
+    if not isinstance(raw_names, list):
+        raise ToolError('invite_usernames must be a list of strings')
+    if not raw_names:
+        return [], []
+
+    # _visible_friend_ids, so someone blocked in either direction is simply not
+    # invitable — matching what the app's own event POST does.
+    visible = _visible_friend_ids(user)
+    found = {
+        u.username.lower(): u
+        for u in users_by_username(raw_names)
+        if u.id in visible and u.id != user.id
+    }
+
+    unmatched = sorted({str(n) for n in raw_names if str(n).lower() not in found})
+    if unmatched:
+        raise ToolError(
+            'Not among your friends on Timetify: ' + ', '.join(unmatched) +
+            '. Check the spelling, or add them as a friend in the app first.'
+        )
+
+    picked = {u.id: u.username for u in found.values()}
+    return sorted(picked), sorted(picked.values(), key=str.lower)
+
+
 def _create_event(principal, arguments):
     from django.db import transaction
     from rest_framework import serializers as drf_serializers
 
-    from ..models import Event, EventInvite
+    from ..models import ChatRoom, ChatRoomMember, Event, EventInvite
     from ..serializers import EventCreateSerializer
     from ..views import (_active_restriction, _apply_skips, _collect_event_conflicts,
                          _target_event_days)
@@ -464,17 +508,20 @@ def _create_event(principal, arguments):
     payload = {k: arguments.get(k) for k in
                ('name', 'date', 'start_time', 'end_time', 'location', 'is_repeating', 'repeat_days')
                if arguments.get(k) is not None}
-    # Forced, not defaulted. An agent creates events on the user's own calendar:
-    # no invites (no notification blast), no chat room, and never public. Each is
-    # a one-line change if that decision is ever revisited.
+    # Still forced, not defaulted: an agent never makes an event public or opens
+    # it to join requests. Invites are fine alongside PRIVATE — an invite row
+    # grants full detail on its own (see EventDetailView._get_visible).
     payload['visibility'] = Event.VISIBILITY_PRIVATE
     payload['allow_join_requests'] = False
 
-    if arguments.get('invite_usernames') or arguments.get('source_chat_room_id'):
+    if arguments.get('source_chat_room_id'):
         raise ToolError(
-            'This tool cannot invite people or post to a chat. Create the event, '
-            'then invite from the app.'
+            'This tool cannot post an event card into a chat. Create the event, '
+            'then share it from the app.'
         )
+
+    invite_ids, invite_names = _resolve_invitees(user, arguments.get('invite_usernames'))
+    create_chat = bool(arguments.get('create_chat', False))
 
     ser = EventCreateSerializer(data={**payload, 'invite_user_ids': [], 'create_chat': False},
                                 context={'request': None})
@@ -487,7 +534,14 @@ def _create_event(principal, arguments):
     data.pop('invite_user_ids', None)
     data.pop('create_chat', None)
 
-    conflicts = [c for c in _collect_event_conflicts(user, [], data) if c['user_id'] == user.id]
+    # Split by whose clash it is. The host resolves their own (skip / keep both);
+    # they can't decide for an invitee, who makes that choice on accepting. So
+    # invitee clashes are surfaced for acknowledgement rather than resolution —
+    # confirming the preview is the acknowledgement, which is what
+    # proceed_invitee_conflicts means on the app's own POST.
+    all_conflicts = _collect_event_conflicts(user, invite_ids, data)
+    conflicts = [c for c in all_conflicts if c['user_id'] == user.id]
+    invitee_conflicts = [c for c in all_conflicts if c['user_id'] != user.id]
 
     preview = {
         'name': data['name'],
@@ -498,21 +552,39 @@ def _create_event(principal, arguments):
         'is_repeating': data.get('is_repeating', False),
         'repeat_days': data.get('repeat_days', ''),
         'visibility': 'PRIVATE',
-        'invites': [],
+        'invites': invite_names,
+        'creates_chat_room': create_chat,
         'chat_room': None,
     }
-    bound = _normalised_for_hash(arguments, _EVENT_KEYS)
+    # Bind the *resolved* ids, not the raw strings. Hashing the strings would
+    # make ["JaeHyun"] and ["jaehyun"] two different payloads and break an
+    # otherwise-valid token; omitting invites altogether would let a preview of
+    # a solo event be committed with guests attached.
+    bound = {
+        **_normalised_for_hash(arguments, _EVENT_KEYS),
+        'invite_user_ids': invite_ids,
+        'create_chat': create_chat,
+    }
     token = arguments.get('confirmation_token')
 
     if not token:
         if conflicts:
             preview['conflicts'] = conflicts
+        message = ('Nothing has been saved yet. Show these details to the user, '
+                   'then call create_event again with the confirmation_token.')
+        if invitee_conflicts:
+            preview['invitee_conflicts'] = invitee_conflicts
+            message += (' Some invitees already have something booked then. Tell the '
+                        'user who, and let them decide whether to invite anyway — '
+                        'each invitee sorts out their own clash when they accept.')
+        if invite_names:
+            message += (' Confirming sends the invites, which appear in those '
+                        "friends' notifications.")
         return {
             'status': 'preview',
             'confirmation_token': confirm.issue(user, 'create_event', bound),
             'preview': preview,
-            'message': 'Nothing has been saved yet. Show these details to the user, '
-                       'then call create_event again with the confirmation_token.',
+            'message': message,
         }
 
     if conflicts and on_conflict == 'fail':
@@ -529,6 +601,7 @@ def _create_event(principal, arguments):
     if previous is not None:
         return previous
 
+    room = None
     with transaction.atomic():
         event = Event.objects.create(creator=user, **data)
         if conflicts and on_conflict == 'skip':
@@ -537,10 +610,28 @@ def _create_event(principal, arguments):
             target_date = data['date'] if not data.get('is_repeating', False) else None
             _apply_skips(user, conflicts, event, target_days, target_date)
 
-    result = {'status': 'created', 'event': {'id': event.pk, **preview}}
+        if create_chat:
+            room = ChatRoom.objects.create(
+                room_type=ChatRoom.ROOM_GROUP,
+                name=event.name[:80],
+                created_by=user,
+            )
+            ChatRoomMember.objects.create(room=room, user=user, is_admin=True)
+            event.chat_room = room
+            event.save(update_fields=['chat_room'])
+
+        if invite_ids:
+            EventInvite.objects.bulk_create([
+                EventInvite(event=event, invitee_id=uid) for uid in invite_ids
+            ])
+
+    result = {
+        'status': 'created',
+        'event': {'id': event.pk, **preview, 'chat_room': room.pk if room else None},
+    }
     confirm.mark_consumed(row, event.pk, result)
-    logger.info('mcp.create_event user_id=%s event_id=%s on_conflict=%s',
-                user.id, event.pk, on_conflict)
+    logger.info('mcp.create_event user_id=%s event_id=%s on_conflict=%s invites=%s chat=%s',
+                user.id, event.pk, on_conflict, len(invite_ids), bool(room))
     return result
 
 
@@ -685,11 +776,11 @@ register(Tool(
 register(Tool(
     name='create_event',
     description=(
-        "Add an event to the user's own calendar. Two-step: call without a "
-        "confirmation_token to get a preview and a token, show that to the user, "
-        "then call again with the token to save. This tool cannot invite anyone, "
-        "cannot create a chat, and always creates a private event — inviting "
-        "people is done in the app."
+        "Add an event to the user's calendar, optionally inviting friends. "
+        "Two-step: call without a confirmation_token to get a preview and a "
+        "token, show that to the user, then call again with the token to save. "
+        "Confirming is what sends the invites, so show who is on the list. "
+        "Events are always private; only the user's own friends can be invited."
     ),
     scope=scope_defs.EVENTS_WRITE,
     is_write=True,
@@ -706,8 +797,23 @@ register(Tool(
             'on_conflict': {
                 'type': 'string',
                 'enum': ['fail', 'skip', 'keep_both'],
-                'description': "What to do if it clashes with the user's schedule. "
-                               "Default 'fail' — ask the user rather than choosing for them.",
+                'description': "What to do if it clashes with the user's own schedule. "
+                               "Default 'fail' — ask the user rather than choosing for them. "
+                               "Does not apply to invitees' clashes, which they resolve "
+                               "themselves on accepting.",
+            },
+            'invite_usernames': {
+                'type': 'array',
+                'items': {'type': 'string'},
+                'description': "Usernames of friends to invite. Case-insensitive. "
+                               "Anyone who is not the user's friend is an error, not a "
+                               "silent skip, so the whole list is rejected until it is "
+                               "correct. Omit for an event on the user's own calendar.",
+            },
+            'create_chat': {
+                'type': 'boolean',
+                'description': 'Also open a group chat named after the event. '
+                               'Default false — only pass true if the user asked for one.',
             },
             'confirmation_token': _CONFIRM_ARG,
         },

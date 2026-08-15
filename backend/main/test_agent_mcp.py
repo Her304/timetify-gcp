@@ -16,7 +16,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from .models import (AgentAccessToken, AgentPendingWrite, Course, CourseSkip, Event,
-                     Friend, UserBlock)
+                     EventInvite, Friend, UserBlock)
 from .mcp import auth as agent_auth
 from .mcp import scopes as scope_defs
 
@@ -280,6 +280,14 @@ class FriendToolTests(McpTestCase):
         self.assertEqual(real['matched_usernames'], [])
         self.assertEqual(real, fake)
 
+    def test_username_match_is_case_insensitive(self):
+        """Sign-up enforces case-insensitive uniqueness, so 'BOB' can only mean
+        bob. Matching case-sensitively here silently returned the caller's own
+        free time labelled as shared, with nothing in the payload to signal it."""
+        payload = self.call_tool(self.raw, 'get_shared_free_slots',
+                                 {'usernames': ['BOB'], 'days_ahead': 1})['structuredContent']
+        self.assertEqual(payload['matched_usernames'], ['bob'])
+
     def test_blocked_friend_is_excluded(self):
         UserBlock.objects.create(blocker=self.me, blocked=self.friend)
         payload = self.call_tool(self.raw, 'get_shared_free_slots',
@@ -453,11 +461,85 @@ class CreateEventTests(McpTestCase):
         self.assertIsNone(event.chat_room)
         self.assertEqual(event.invites.count(), 0)
 
-    def test_invite_attempt_is_refused(self):
+    def test_invites_named_friends(self):
+        args = {**self.args, 'invite_usernames': ['bob']}
+        token = self.call_tool(self.raw, 'create_event', args)['structuredContent']['confirmation_token']
+        payload = self.call_tool(self.raw, 'create_event',
+                                 {**args, 'confirmation_token': token})['structuredContent']
+        self.assertEqual(payload['event']['invites'], ['bob'])
+        event = Event.objects.get(creator=self.user)
+        self.assertEqual([i.invitee_id for i in event.invites.all()], [self.friend.id])
+
+    def test_invite_username_is_case_insensitive(self):
+        args = {**self.args, 'invite_usernames': ['BoB']}
+        token = self.call_tool(self.raw, 'create_event', args)['structuredContent']['confirmation_token']
+        self.call_tool(self.raw, 'create_event', {**args, 'confirmation_token': token})
+        self.assertEqual(Event.objects.get(creator=self.user).invites.count(), 1)
+
+    def test_unresolvable_invitee_is_an_error_not_a_silent_drop(self):
+        """get_shared_free_slots drops unmatched names on purpose; here that
+        would be invisible — the user confirms an event believing someone was
+        invited and nothing ever reaches them. Both failures still share one
+        message, so the tool stays useless as an account-existence oracle."""
+        make_user('carol')  # a real account, but not alice's friend
+        errors = []
+        for name in ('nobody-by-this-name', 'carol'):
+            result = self.call_tool(self.raw, 'create_event',
+                                    {**self.args, 'invite_usernames': [name]})
+            self.assertTrue(result.get('isError'), name)
+            errors.append(json.dumps(result).replace(name, 'X'))
+        self.assertEqual(errors[0], errors[1])
+        self.assertEqual(Event.objects.count(), 0)
+
+    def test_blocked_friend_cannot_be_invited(self):
+        UserBlock.objects.create(blocker=self.user, blocked=self.friend)
         result = self.call_tool(self.raw, 'create_event',
                                 {**self.args, 'invite_usernames': ['bob']})
         self.assertTrue(result.get('isError'))
         self.assertEqual(Event.objects.count(), 0)
+
+    def test_token_is_bound_to_the_invite_list(self):
+        """Preview a solo event, commit one with guests — the token must not
+        carry over, or the user confirmed something they were never shown."""
+        token = self.call_tool(self.raw, 'create_event',
+                               self.args)['structuredContent']['confirmation_token']
+        result = self.call_tool(self.raw, 'create_event',
+                                {**self.args, 'invite_usernames': ['bob'],
+                                 'confirmation_token': token})
+        self.assertTrue(result.get('isError'))
+        self.assertEqual(EventInvite.objects.count(), 0)
+
+    def test_token_survives_a_case_variant_of_the_same_invitee(self):
+        """The token binds resolved ids, not raw strings, so 'bob' and 'BOB'
+        are one commitment rather than two different payloads."""
+        args = {**self.args, 'invite_usernames': ['bob']}
+        token = self.call_tool(self.raw, 'create_event', args)['structuredContent']['confirmation_token']
+        payload = self.call_tool(self.raw, 'create_event',
+                                 {**args, 'invite_usernames': ['BOB'],
+                                  'confirmation_token': token})['structuredContent']
+        self.assertEqual(payload['status'], 'created')
+
+    def test_chat_room_is_opt_in(self):
+        args = {**self.args, 'create_chat': True}
+        token = self.call_tool(self.raw, 'create_event', args)['structuredContent']['confirmation_token']
+        self.call_tool(self.raw, 'create_event', {**args, 'confirmation_token': token})
+        event = Event.objects.get(creator=self.user)
+        self.assertIsNotNone(event.chat_room)
+        self.assertTrue(event.chat_room.members.filter(user=self.user, is_admin=True).exists())
+
+    def test_invitee_conflict_is_surfaced_but_does_not_block(self):
+        """The host can't skip a class on an invitee's behalf — the invitee
+        makes that call on accepting — so this is shown, not enforced."""
+        make_course(self.friend, course_id='BIO201', start=time(18, 0), end=time(19, 0))
+        args = {**self.args, 'date': (date.today() + timedelta(days=3)).isoformat(),
+                'invite_usernames': ['bob']}
+        preview = self.call_tool(self.raw, 'create_event', args)['structuredContent']
+        self.assertTrue(preview['preview']['invitee_conflicts'])
+        self.assertNotIn('conflicts', preview['preview'])
+        payload = self.call_tool(
+            self.raw, 'create_event',
+            {**args, 'confirmation_token': preview['confirmation_token']})['structuredContent']
+        self.assertEqual(payload['status'], 'created')
 
     def test_chat_post_attempt_is_refused(self):
         result = self.call_tool(self.raw, 'create_event',

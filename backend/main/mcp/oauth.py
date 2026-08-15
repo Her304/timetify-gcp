@@ -40,6 +40,7 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 from ..models import OAuthAccessToken, OAuthAuthorizationCode, OAuthClient
+from ..utils import canonical_username
 from . import scopes as scope_defs
 
 logger = logging.getLogger(__name__)
@@ -284,8 +285,13 @@ def authorize(request):
     # flow exists for.
     if not request.user.is_authenticated:
         if request.method == 'POST' and src.get('action') == 'login':
+            # Canonicalise first: Django's ModelBackend authenticates via
+            # get_by_natural_key, an exact match that is case-sensitive on
+            # Postgres. Without this, credentials that sign in fine on the app
+            # (CustomTokenObtainPairSerializer does the same normalisation) are
+            # rejected here purely on capitalisation.
             user = authenticate(request,
-                                username=src.get('username', ''),
+                                username=canonical_username(src.get('username', '')),
                                 password=src.get('password', ''))
             if user is None or not user.is_active:
                 return render(request, 'oauth/login.html',

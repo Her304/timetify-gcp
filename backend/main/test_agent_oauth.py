@@ -175,6 +175,18 @@ class AuthorizeTests(OAuthTestCase):
         self.assertEqual(resp.status_code, 401)
         self.assertEqual(OAuthAuthorizationCode.objects.count(), 0)
 
+    def test_username_case_does_not_affect_sign_in(self):
+        """This page authenticates directly, while the app's login canonicalises
+        first — so without the same normalisation, credentials that work in the
+        app are rejected here purely on capitalisation."""
+        _, challenge = pkce_pair()
+        resp = self.client.post('/oauth/authorize', {
+            **self.authorize_params(challenge), 'action': 'login',
+            'username': self.user.username.upper(), 'password': self.password,
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'did not work')
+
     def test_consent_screen_lists_requested_scopes(self):
         _, challenge = pkce_pair()
         resp = self.client.post('/oauth/authorize', {
