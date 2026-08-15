@@ -109,9 +109,9 @@ No tool takes a user identifier — cross-user access isn't a permission check t
 | `get_today_schedule` | Reuses `availability._DAY_ABBR` weekday matching **through `availability.norm_day`** — see below; **excludes `CourseSkip`** rows (`get_busy_blocks` doesn't, so this filter lives in the tool). Optional `timezone` arg — see below. |
 | `get_free_busy` | Mirrors `AvailabilityMeView`. Intervals only, never event titles. |
 | `get_unread_count` | Mirrors `UnreadCountView` incl. `_blocked_user_ids`. Count only — no rooms, senders or previews. |
-| `get_shared_free_slots` | Mirrors `SharedGapsView`. Takes **usernames**, resolved via `_visible_friend_ids`. |
+| `get_shared_free_slots` | Mirrors `SharedGapsView`. Takes **usernames**, resolved via `_visible_friend_ids` and `utils.users_by_username`. |
 | `create_class` | Two-step. Narrow `AgentCourseCreateSerializer`, not `CourseSerializer`. |
-| `create_event` | Two-step. Invites/chat/public all forced off. |
+| `create_event` | Two-step. Optional `invite_usernames` (friends only) and `create_chat` (default off). Public/join-requests still forced off; `source_chat_room_id` still refused. |
 
 **`rep_date` has no single stored format, so never match it by hand.** The add-course UI (`add.jsx` joins `selectedDays`) and the syllabus parser write **full day names** — `"Monday,Wednesday"` — and that is the shape of the overwhelming majority of rows. The agent bridge's `AgentCourseCreateSerializer` writes **abbreviations** — `"MON,WED"`. Everything that compares a weekday token must go through **`availability.norm_day`** (`.strip().upper()[:3]`) or `availability.parse_rep_days`; `views._norm_day` is an alias of it.
 
@@ -125,7 +125,13 @@ Both conflict paths now pick the earliest shared day via `availability.sort_days
 
 **Timezone:** `TIME_ZONE="UTC"` and `availability.py` treats course times as UTC wall-clock. Invisible in-app, but a tool called "today's schedule" makes it visible (8pm in UTC-5 is already tomorrow UTC). Tools accept an optional IANA `timezone`; default is UTC for parity with the app. There is **no timezone field on `CustomUser`**, so the server cannot infer one — the client has to send it. The date-bearing responses echo the resolved zone back as `timezone`, because a UTC-defaulted reply naming tomorrow is otherwise indistinguishable from a correct one.
 
-**Friend lookup is deliberately non-committal:** unknown usernames and non-friends are both silently dropped and the response never distinguishes them. Otherwise the tool is a username-existence oracle and a friendship-status probe. Tested.
+**Friend lookup is deliberately non-committal — on reads.** In `get_shared_free_slots`, unknown usernames and non-friends are both silently dropped and the response never distinguishes them. Otherwise the tool is a username-existence oracle and a friendship-status probe. Tested.
+
+**That silence does not transfer to `create_event` invites**, where a dropped name is invisible at every later step: the user confirms an event believing someone was invited and nothing ever reaches them. `_resolve_invitees` therefore rejects the whole call and names what failed — while still giving "no such account" and "not your friend" one shared message, so the oracle stays closed. A read that quietly returns less is recoverable; a write that quietly does less is not.
+
+**Usernames are matched case-insensitively everywhere** — `utils.canonical_username` for one name, `utils.users_by_username` for many (there is no `__iin`, so it OR-chains `iexact`; note its empty-input guard, since an empty `Q()` matches every row). Sign-up enforces case-insensitive uniqueness, so `JaeHyun` and `jaehyun` cannot both exist and a case-sensitive lookup buys nothing. This is not hypothetical: `get_shared_free_slots` matched with a bare `username__in`, so a lowercased name silently matched nobody, and — because unmatched names are dropped by design — the tool returned **the caller's own free time labelled as shared**, with nothing in the payload to signal it. The same gap existed in `mcp/oauth.py`, which called `authenticate()` on raw input while the app's own `CustomTokenObtainPairSerializer` canonicalised first, so identical credentials worked in the app and failed on the agent sign-in page. Both now route through the shared helpers.
+
+**The `create_event` confirmation token binds resolved invitee ids, not the raw username strings.** Binding the strings would make `["JaeHyun"]` and `["jaehyun"]` different payloads and break a valid token; leaving invites out of the hash entirely would let a preview of a solo event be committed with guests attached. Both are tested.
 
 ## Writes are two-step
 
