@@ -19,4 +19,4 @@ Index. Full detail for each topic lives in `CLAUDE/<file>.md` — read the linke
 
 # Security / Work Style
 
-Use `logger = logging.getLogger(__name__)`, never `print()`. `start_local.md` is gitignored, never include anyinfo that belongs to gitignore files . Work style: show thinking before acting, plan before changes (wait for go-ahead), explain *why* not *what*.
+Use `logger = logging.getLogger(__name__)`, never `print()`. `start_local.md` is gitignored, never include anyinfo that belongs to gitignore files . Test scripts (`test_*.py`) and one-off PoC/exploit scripts (`poc_*.py`) are gitignored too — they are local-only, so write them freely but never commit them, and never assume one exists in a fresh clone or in CI. Work style: show thinking before acting, plan before changes (wait for go-ahead), explain *why* not *what*.
