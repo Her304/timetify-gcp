@@ -19,6 +19,16 @@ google-cloud-storage supports a third option: pass `service_account_email` plus
 No key material anywhere, and the permission is grantable to exactly one
 identity. That is what this backend does.
 
+The subtlety, learned the hard way in production: the access token handed to
+signBlob must be scoped for `cloud-platform`. Reusing the storage client's own
+credentials looks natural and fails with
+
+    403 ACCESS_TOKEN_SCOPE_INSUFFICIENT ... IAMCredentials.SignBlob
+
+because google-cloud-storage scopes those to `devstorage.read_write`. The IAM
+binding being correct makes this especially confusing to diagnose. Hence the
+separate, explicitly scoped credentials in `_get_signing_credentials`.
+
 Deploy requirement: the runtime service account needs
 `roles/iam.serviceAccountTokenCreator` ON ITSELF.
 
@@ -41,13 +51,37 @@ from storages.backends.gcloud import GoogleCloudStorage, clean_name
 logger = logging.getLogger(__name__)
 
 
+# Signing through IAM needs a token scoped for iamcredentials.googleapis.com.
+# The storage client's own credentials are NOT usable: google-cloud-storage
+# scopes them to devstorage.read_write, and signBlob rejects such a token with
+# 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT even when the IAM binding is correct.
+_SIGNING_SCOPES = ['https://www.googleapis.com/auth/cloud-platform']
+
+
 class SignedGoogleCloudStorage(GoogleCloudStorage):
     """GoogleCloudStorage that can sign without a local private key."""
 
-    # Cached across calls: resolving the service-account email hits the metadata
-    # server, and refreshing credentials is not free either.
-    _signer_email = None
-    _signer_checked = False
+    # Credentials are cached on the class, not fetched per URL: a single feed
+    # render can ask for dozens of URLs, and each uncached refresh is a round
+    # trip to the metadata server. google-auth tracks expiry, so `valid` tells
+    # us when a refresh is actually due.
+    _signing_credentials = None
+
+    @classmethod
+    def _get_signing_credentials(cls):
+        """Cloud-platform-scoped credentials, refreshed only when stale."""
+        from google.auth.transport.requests import Request
+
+        if cls._signing_credentials is None:
+            import google.auth
+
+            creds, _ = google.auth.default(scopes=_SIGNING_SCOPES)
+            cls._signing_credentials = creds
+
+        creds = cls._signing_credentials
+        if not creds.valid:
+            creds.refresh(Request())
+        return creds
 
     def _iam_signing_kwargs(self):
         """`service_account_email` + `access_token` for IAM-based signing.
@@ -56,46 +90,33 @@ class SignedGoogleCloudStorage(GoogleCloudStorage):
         with a key file — google-cloud-storage signs those directly), or when
         no service-account identity can be determined.
         """
-        credentials = self.client._credentials
-
-        # A credential exposing `signer_email` AND a real private key can sign
-        # locally; handing it IAM parameters would be redundant.
-        if hasattr(credentials, 'signer') and getattr(credentials, '_private_key', None):
+        # A credential exposing a real private key can sign locally; handing it
+        # IAM parameters would be redundant. Checked against the storage
+        # client's credentials because that is what would do the signing.
+        client_credentials = self.client._credentials
+        if getattr(client_credentials, '_private_key', None):
             return {}
 
-        if not self._signer_checked:
-            type(self)._signer_checked = True
-            email = getattr(credentials, 'service_account_email', None)
-            # Compute-engine credentials expose the email but only populate it
-            # after a refresh against the metadata server.
-            if email in (None, 'default'):
-                try:
-                    from google.auth.transport.requests import Request
-
-                    credentials.refresh(Request())
-                    email = getattr(credentials, 'service_account_email', None)
-                except Exception:
-                    logger.exception("gcs.signer_email_lookup_failed")
-                    email = None
-            type(self)._signer_email = None if email == 'default' else email
-
-        if not self._signer_email:
+        try:
+            creds = self._get_signing_credentials()
+        except Exception:
+            logger.exception("gcs.signing_credentials_failed")
             return {}
 
-        token = getattr(credentials, 'token', None)
-        if not token:
-            try:
-                from google.auth.transport.requests import Request
-
-                credentials.refresh(Request())
-                token = getattr(credentials, 'token', None)
-            except Exception:
-                logger.exception("gcs.token_refresh_failed")
-                return {}
-
-        if not token:
+        email = getattr(creds, 'service_account_email', None)
+        # Compute-engine credentials report the literal string 'default' until
+        # refreshed against the metadata server.
+        if email in (None, 'default'):
+            logger.error(
+                "gcs.signer_email_unavailable — credentials of type %s expose no "
+                "service_account_email, so IAM signing cannot be attempted.",
+                type(creds).__name__,
+            )
             return {}
-        return {'service_account_email': self._signer_email, 'access_token': token}
+
+        if not creds.token:
+            return {}
+        return {'service_account_email': email, 'access_token': creds.token}
 
     def url(self, name, parameters=None):
         """Signed URL for the blob, falling back to the public URL on failure.
