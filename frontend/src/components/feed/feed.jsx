@@ -380,10 +380,11 @@ export const Feed = ({
           friendsList={friendsList}
           currentUser={currentUser}
           presetAudience={snapTargetFriend ? { friend: snapTargetFriend } : null}
+          // No reload here — see snap.jsx: it would abort the onUploaded
+          // feed refetch that fires immediately before this.
           onClose={() => {
             setCaptureCourse(null);
             setSnapTargetFriend(null);
-            window.location.reload();
           }}
           onUploaded={() => onSnapsChanged && onSnapsChanged()}
         />
