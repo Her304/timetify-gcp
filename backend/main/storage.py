@@ -37,10 +37,13 @@ Deploy requirement: the runtime service account needs
         --role="roles/iam.serviceAccountTokenCreator"
 
 If signing is unavailable, `url()` falls back to the unsigned public URL rather
-than raising, so a misconfigured deploy degrades to the old behaviour (working
-but public) instead of an outage. That fallback is logged at ERROR — if it
-appears in production, the bucket is still effectively world-readable and the
-IAM binding above is missing.
+than raising. Do not read that as a safety net: it only produces a *working*
+URL while the bucket is still world-readable, and the whole point of this
+backend is that it is not. Once the bucket is private the fallback 403s, so a
+signing regression surfaces as every avatar, snap and syllabus breaking at
+once. Either way `gcs.signing_failed` at ERROR means the same thing — media is
+being served unsigned — and the cause is whatever the logged exception says,
+not necessarily the IAM binding above.
 """
 
 import logging
@@ -152,10 +155,19 @@ class SignedGoogleCloudStorage(GoogleCloudStorage):
             # Never let a signing problem turn into a broken page — but make it
             # extremely visible, because the fallback URL is only reachable
             # while the bucket is still public.
+            # Read the exception before acting on this. The first production
+            # occurrence was diagnosed as a missing IAM binding for hours
+            # because an earlier version of this message asserted that cause;
+            # the binding was correct and the token scope was wrong.
             logger.error(
-                "gcs.signing_failed name=%s — serving UNSIGNED public URL. "
-                "Grant roles/iam.serviceAccountTokenCreator to the runtime "
-                "service account on itself.",
+                "gcs.signing_failed name=%s — serving UNSIGNED media URL, "
+                "which only resolves while the bucket is public. Cause is in "
+                "the traceback: ACCESS_TOKEN_SCOPE_INSUFFICIENT means the "
+                "signing credentials are not cloud-platform scoped; "
+                "PERMISSION_DENIED on signBlob means the runtime service "
+                "account lacks roles/iam.serviceAccountTokenCreator on "
+                "itself; 'you need a private key' means no IAM signing "
+                "parameters were passed at all.",
                 name, exc_info=True,
             )
             return blob.public_url

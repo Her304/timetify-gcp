@@ -29,7 +29,7 @@ export const FAQ_SECTIONS = [
       {
         q: "how do i add my classes?",
         a: "select the “+” button and choose “add class”. you may either upload your syllabus document — timetify's AI will read it for you, extracting the course name, meeting days and times, term weeks, examinations, and assignments — or select “type manually” to enter a class by hand. once the artificial intelligence has finished, you will reach a review step where every class and its recurring assignments can be checked and adjusted before anything is added to your schedule.",
-        shot: { src: "https://storage.googleapis.com/timetify-prod-media/help/syllabus-upload.mp4", name: "syllabus-upload.mp4", video: true },
+        shot: { src: "/help/syllabus-upload.mp4", name: "syllabus-upload.mp4", video: true },
       },
       {
         q: "what if the artificial intelligence makes a mistake?",
@@ -70,7 +70,7 @@ export const FAQ_SECTIONS = [
       {
         q: "can i create an event straight from a chat?",
         a: "yes. type “/” in any chat to open the command menu and select “event”. the first step asks for a name and date; the second shows the times when everyone in the chat is free — tap a suggested slot to fill in the start and end times, adjust them if you wish, and add a location. once you confirm, an event card is posted directly into the chat, allowing everyone in the room to accept or decline.",
-        shot: { src: "https://storage.googleapis.com/timetify-prod-media/help/event-from-chat.mp4", name: "event-from-chat.mp4", video: true },
+        shot: { src: "/help/event-from-chat.mp4", name: "event-from-chat.mp4", video: true },
       },
       {
         q: "how does confirming attendance work?",
