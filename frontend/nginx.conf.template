@@ -99,6 +99,23 @@ server {
         try_files $uri =404;
     }
 
+    # Help-page demo videos, served from the bundle rather than the media
+    # bucket. They used to be public objects in that bucket, but it is private
+    # now: signed URLs are per-user and expiring, which is right for user media
+    # and wrong for a static asset the logged-out help page has to render.
+    #
+    # Matched on extension instead of `^~ /help/` so that SPA routes under
+    # /help/ still reach the route matcher below. It must be declared before
+    # that matcher — regex locations win in source order — because that one
+    # sets `expires -1`, which would re-download a ~12 MB video on every visit.
+    location ~ ^/help/.+\.(mp4|webm|png|jpe?g|gif|svg|webp)$ {
+        # Single Cache-Control, and nosniff repeated, for the same reasons as
+        # /assets/ above.
+        add_header Cache-Control "public, max-age=2592000" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
     # ── Sitemap ───────────────────────────────────────────────────────────
     # Proxied to Django rather than baked into the bundle so a newly published
     # blog post is crawlable without a frontend redeploy. Must be served from
