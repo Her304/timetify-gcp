@@ -41,20 +41,61 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
+    # ── Security headers ──────────────────────────────────────────────────
+    # HSTS: the canonical-host redirect above already forces https, but that is
+    # a per-request server decision — HSTS makes the BROWSER refuse plaintext
+    # for a year without asking, which closes the first-request window.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    # Nothing here is ever meant to be framed; blocks clickjacking of the
+    # authenticated UI. frame-ancestors in the CSP below is the modern
+    # equivalent, this covers browsers that only honour the legacy header.
+    add_header X-Frame-Options "DENY" always;
+    # No feature in the app uses these; denying by default means a future
+    # third-party script can't quietly start asking for them.
+    add_header Permissions-Policy "camera=(self), microphone=(), geolocation=(), interest-cohort=()" always;
+
+    # Content-Security-Policy. Tokens live in localStorage, so an XSS here is an
+    # account takeover (see the security review) — this is the layer that stops
+    # injected script from executing or exfiltrating in the first place.
+    #
+    # Each source is load-bearing; removing one breaks a real feature:
+    #   script-src  pagead2.googlesyndication.com → AdSenseLoader.jsx
+    #   style-src   'unsafe-inline'  → React style={{...}} attributes, used
+    #               throughout (Star/Blob decorations); cannot be removed
+    #               without rewriting those to classes.
+    #               fonts.googleapis.com → Material Symbols stylesheet
+    #   font-src    fonts.gstatic.com → the font files that stylesheet pulls
+    #   img-src     storage.googleapis.com → user media (signed URLs)
+    #               ${BACKEND_HOST} → avatars via build_absolute_uri
+    #   connect-src ${BACKEND_HOST} → the REST API
+    #               *.ingest.us.sentry.io → error reporting
+    # object-src/base-uri are locked down because they have no legitimate use
+    # here and are classic injection footholds.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://pagead2.googlesyndication.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://storage.googleapis.com https://${BACKEND_HOST} https://pagead2.googlesyndication.com; media-src 'self' blob: https://storage.googleapis.com https://${BACKEND_HOST}; connect-src 'self' https://${BACKEND_HOST} https://*.ingest.us.sentry.io; frame-src https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'" always;
+
     # ── Hashed build assets ───────────────────────────────────────────────
     # ^~ so this beats the regex route matcher below. Filenames are content
     # hashed by Vite, so they can be cached indefinitely.
     location ^~ /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable" always;
+        # No `expires` directive here: it emits its own Cache-Control, which
+        # alongside the add_header below produced two conflicting Cache-Control
+        # headers on every asset response. max-age is carried in the add_header
+        # instead so exactly one is sent.
+        #
+        # add_header also costs this location the inherited server-level
+        # headers, so nosniff is repeated explicitly. CSP is not repeated: it
+        # governs documents, and nothing served here is one.
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
         try_files $uri =404;
     }
 
     # Self-hosted fonts. Filenames are stable rather than content-hashed, so
     # they get a long-but-revalidatable cache instead of `immutable`.
     location ^~ /fonts/ {
-        expires 30d;
-        add_header Cache-Control "public" always;
+        # Single Cache-Control, for the same reason as /assets/ above.
+        add_header Cache-Control "public, max-age=2592000" always;
+        add_header X-Content-Type-Options "nosniff" always;
         try_files $uri =404;
     }
 
@@ -119,8 +160,13 @@ server {
     # ── HTML documents ────────────────────────────────────────────────────
     # Never cached: prerendered heads change on every deploy, and a stale
     # index.html would pin visitors to deleted asset hashes.
+    # `expires -1` rather than `add_header Cache-Control` on every HTML location
+    # below. A location that declares ANY add_header stops inheriting the
+    # server-level ones, which would silently drop the CSP and HSTS headers from
+    # exactly the document responses that need them. `expires` sets
+    # Cache-Control directly and leaves inheritance intact.
     location = / {
-        add_header Cache-Control "no-cache" always;
+        expires -1;
         try_files /index.html =404;
     }
 
@@ -129,7 +175,7 @@ server {
     # /index.html is the fallback for routes with no prerendered variant,
     # such as /chat/<id>.
     location ~ ^/(about|blog|help|privacy|terms|community|login|register|feed|profile|add-event|Add|class|chat|invite|reset-password)(/.*)?$ {
-        add_header Cache-Control "no-cache" always;
+        expires -1;
         try_files $uri $uri/index.html /index.html;
     }
 
@@ -143,6 +189,6 @@ server {
     error_page 404 /404.html;
     location = /404.html {
         internal;
-        add_header Cache-Control "no-cache" always;
+        expires -1;
     }
 }

@@ -3,6 +3,7 @@ from datetime import time
 
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.db.models.functions import Lower
 from django.utils.text import slugify
 from django.utils import timezone
 
@@ -35,6 +36,27 @@ class CustomUser(AbstractUser):
     invite_code = models.CharField(max_length=22, unique=True, null=True, blank=True, db_index=True)
 
     REQUIRED_FIELDS = ['email', 'university', 'major', 'grad_year']
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            # AbstractUser's own username constraint is case-SENSITIVE, so
+            # "Admin" and "admin" would otherwise coexist while login resolves
+            # both to whichever was created first (see canonical_username()).
+            # Same reasoning for email, where two spellings are one real mailbox.
+            # RegisterSerializer validates these in Python too; the constraint is
+            # what closes the concurrent-signup race and covers non-serializer
+            # paths like createsuperuser.
+            models.UniqueConstraint(
+                Lower('username'),
+                name='customuser_username_ci_unique',
+                violation_error_message='that username is already taken.',
+            ),
+            models.UniqueConstraint(
+                Lower('email'),
+                name='customuser_email_ci_unique',
+                violation_error_message='an account with this email already exists.',
+            ),
+        ]
 
     def __str__(self):
         return self.username

@@ -132,8 +132,18 @@ export default function PeopleSearch({
   const [results, setResults] = useState([]);
   const q = value.trim();
 
+  // Mirrors SearchFriend.MIN_QUERY_LENGTH on the backend, which rejects shorter
+  // queries because a one-character `icontains` matches enough of the directory
+  // to enumerate it. Checking here too means we don't spend a rate-limited
+  // request on a query the server is going to refuse anyway.
+  const MIN_QUERY_LENGTH = 3;
+
   useEffect(() => {
-    if (!q) return;
+    if (q.length < MIN_QUERY_LENGTH) {
+      // Clear stale hits from a longer previous query as the user backspaces.
+      setResults([]);
+      return;
+    }
     let cancelled = false;
     const t = setTimeout(() => {
       searchfriends(q).then((data) => {
