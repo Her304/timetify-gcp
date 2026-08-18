@@ -35,6 +35,11 @@ from django.core.validators import validate_email
 from django.shortcuts import render
 from main.utils import canonical_username, send_email
 from main.account_email import send_welcome_email, send_password_reset_email, send_email_change_verification
+from main.throttling import (
+    LoginIPThrottle, LoginUsernameThrottle, RegisterThrottle,
+    PasswordResetIPThrottle, PasswordResetEmailThrottle,
+    RegistrationCheckThrottle, UserSearchThrottle,
+)
 
 # Salt + lifetime for the signed email-change token. The token itself carries
 # {uid, email}, so no DB token row is needed — signing.loads() with this salt
@@ -208,6 +213,8 @@ def get_user(request):
 
 class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [RegisterThrottle]
+
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -234,6 +241,9 @@ class RegistrationAvailabilityView(APIView):
     (username__iexact) and normal email semantics. Never authoritative — the
     RegisterView serializer still enforces uniqueness on final submit."""
     permission_classes = [permissions.AllowAny]
+    # Deliberately an existence oracle for sign-up UX — throttled so it can't be
+    # used to enumerate the directory in bulk. See main/throttling.py.
+    throttle_classes = [RegistrationCheckThrottle]
 
     def post(self, request):
         errors = {}
@@ -259,17 +269,28 @@ class PasswordResetRequestView(APIView):
     confirm page (build_password_reset_link) instead of a Django view, so the
     backend's Cloud Run hostname never shows up in the browser."""
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [PasswordResetIPThrottle, PasswordResetEmailThrottle]
+
+    # Returned whether or not the address is registered. Anything that varies
+    # with account existence — status code, body, or wording — is an
+    # enumeration oracle, and this endpoint needs no authentication to query.
+    GENERIC_RESPONSE = {
+        'detail': 'If that email is registered, a password reset link has been sent.'
+    }
 
     def post(self, request):
         email = (request.data.get('email') or '').strip()
-        user = User.objects.filter(email=email).first()
-        if not user:
-            return Response(
-                {'email': ["There is no user registered with this email address."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        send_password_reset_email(user)
-        return Response({'detail': 'Password reset email sent.'})
+        # iexact, not exact: addresses are one mailbox regardless of case, and a
+        # case-sensitive lookup would silently fail to find the account for
+        # anyone who typed their address with different capitalisation.
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            send_password_reset_email(user)
+        else:
+            # Logged rather than returned — operators still need to see reset
+            # attempts for unknown addresses, the requester must not.
+            logger.info("password_reset.unknown_email")
+        return Response(self.GENERIC_RESPONSE)
 
 
 class PasswordResetConfirmView(APIView):
@@ -377,6 +398,15 @@ def verify_email_change(request, token):
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    # SimpleJWT's default is "No active account found with the given
+    # credentials", which distinguishes an unknown username from a wrong
+    # password and hands an enumerator a free account-existence oracle.
+    # Overriding the class attribute covers every failure path in the parent
+    # serializer, so no branch can leak the distinction.
+    default_error_messages = {
+        'no_active_account': 'Incorrect username or password.'
+    }
+
     def validate(self, attrs):
         # Username should not be case sensitive
         username = attrs.get("username")
@@ -390,6 +420,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class LoginView(TokenObtainPairView):
     permission_classes = [permissions.AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
+    # Two axes on purpose: per-IP stops one host walking a password list, and
+    # per-username stops a distributed attempt on one account. See main/throttling.py.
+    throttle_classes = [LoginIPThrottle, LoginUsernameThrottle]
 
 class CourseListCreateView(generics.ListCreateAPIView):
     serializer_class = CourseSerializer
@@ -1126,10 +1159,19 @@ class SearchFriend(generics.ListAPIView):
     # output, which is how the bug existed in the first place.
     serializer_class = PublicUserSerializer
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [UserSearchThrottle]
+
+    # A one-character `icontains` matches a large fraction of the directory, so
+    # a-z plus 0-9 is enough to walk the entire user table. Three characters
+    # keeps the feature usable for finding someone you know while making
+    # bulk scraping require far more queries than the throttle allows.
+    MIN_QUERY_LENGTH = 3
+    # Even a specific query shouldn't return the world.
+    MAX_RESULTS = 20
 
     def get_queryset(self):
-        query = self.request.query_params.get('q', '')
-        if query:
+        query = self.request.query_params.get('q', '').strip()
+        if len(query) >= self.MIN_QUERY_LENGTH:
             existing_friends = Friend.objects.filter(
                 Q(user=self.request.user) | Q(friend=self.request.user)
             ).values_list('user', 'friend')
@@ -1141,9 +1183,15 @@ class SearchFriend(generics.ListAPIView):
 
             # Search by username only — searching by email substring would
             # leak every user's email address to any authenticated attacker.
+            # Staff excluded so the directory can't be used to locate the admin
+            # account as a brute-force target.
             return User.objects.filter(
                 username__icontains=query
-            ).exclude(id__in=friend_ids).exclude(id=self.request.user.id)
+            ).exclude(
+                id__in=friend_ids
+            ).exclude(
+                id=self.request.user.id
+            ).exclude(is_staff=True).exclude(is_superuser=True)[:self.MAX_RESULTS]
         return User.objects.none()
 
 class TestEmailView(APIView):

@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -22,6 +23,35 @@ _SIG_JPEG = b"\xff\xd8\xff"
 _SIG_PNG = b"\x89PNG\r\n\x1a\n"
 _SIG_RIFF = b"RIFF"
 _SIG_WEBP = b"WEBP"
+
+
+def validate_owned_course(serializer, value):
+    """Reject a Course FK that the requesting user does not own.
+
+    DRF resolves a FK field by primary key alone — it confirms the row exists
+    and stops there. Every view below already scopes its *queryset* by
+    `course__user=request.user`, but that only governs which objects can be
+    read or fetched for update; it says nothing about the value being written
+    INTO the FK. Without this check an attacker can POST a Week/Exam/Assignment
+    carrying a victim's course id, or PATCH one they own to re-point it at a
+    victim's course, and the row lands in the victim's timetable.
+
+    Returns the value unchanged when it is None (the field is nullable on
+    Course.parent_course) or genuinely owned.
+    """
+    if value is None:
+        return value
+    request = serializer.context.get('request')
+    user = getattr(request, 'user', None)
+    # No authenticated context means we cannot prove ownership — fail closed
+    # rather than waving the reference through.
+    if not (user and user.is_authenticated):
+        raise serializers.ValidationError("Authentication required to set this course.")
+    if not Course.objects.filter(pk=value.pk, user=user).exists():
+        # Deliberately the same message for "not yours" and "doesn't exist" so
+        # the error can't be used to probe which course ids are real.
+        raise serializers.ValidationError("That course does not exist.")
+    return value
 
 
 def validate_profile_picture_file(value):
@@ -256,6 +286,42 @@ class RegisterSerializer(serializers.ModelSerializer):
     def validate_profile_picture(self, value):
         return validate_profile_picture_file(value)
 
+    def validate_username(self, value):
+        """Case-insensitive uniqueness at sign-up.
+
+        Django's own constraint on AbstractUser.username is case-SENSITIVE, so
+        without this "Admin" and "admin" both register happily. Login then
+        resolves either spelling through canonical_username()/username__iexact,
+        which returns the lowest-pk match — so whoever registered the variant
+        first silently receives the other's login attempts. UserSerializer has
+        enforced this on profile edits all along; sign-up was the gap.
+        """
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError("username can't be blank.")
+        # Reuse AbstractUser's format rules (allowed chars / length), matching
+        # UserSerializer so the two entry points can't drift apart.
+        for validator in User._meta.get_field('username').validators:
+            validator(value)
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("that username is already taken.")
+        return value
+
+    def validate_email(self, value):
+        """Case-insensitive uniqueness for the same reason as username.
+
+        The model's unique=True gives DRF a case-sensitive UniqueValidator, so
+        Admin@x.com and admin@x.com are two accounts as far as the DB is
+        concerned while being one mailbox in reality — which would let an
+        attacker sit on the reset flow for an address they don't control.
+        """
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError("email can't be blank.")
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("an account with this email already exists.")
+        return value
+
     def validate_accepted_terms(self, value):
         if value is not True:
             raise serializers.ValidationError(
@@ -299,17 +365,26 @@ class WeekSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id', 'user']
 
+    def validate_course(self, value):
+        return validate_owned_course(self, value)
+
 class ExamSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exam
         fields = '__all__'
         read_only_fields = ['id', 'user']
 
+    def validate_course(self, value):
+        return validate_owned_course(self, value)
+
 class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = '__all__'
         read_only_fields = ['id', 'user']
+
+    def validate_course(self, value):
+        return validate_owned_course(self, value)
 
 class CourseSerializer(serializers.ModelSerializer):
     weeks = WeekSerializer(many=True, read_only=True)
@@ -321,7 +396,22 @@ class CourseSerializer(serializers.ModelSerializer):
         model = Course
         fields = '__all__'
         read_only_fields = ['id', 'user']
-    
+
+    def validate_parent_course(self, value):
+        """Same ownership rule as the Week/Exam/Assignment `course` FK.
+
+        `parent_course` is self-referential, so an unvalidated write lets an
+        attacker graft their own course into a victim's parent/child tree,
+        where CourseSerializer.get_child_courses renders it as the victim's
+        own content.
+        """
+        value = validate_owned_course(self, value)
+        # A course parented to itself is a cycle the child_courses walk would
+        # happily recurse into; reject it here rather than at render time.
+        if value is not None and self.instance is not None and value.pk == self.instance.pk:
+            raise serializers.ValidationError("A course cannot be its own parent.")
+        return value
+
     def get_child_courses(self, obj):
         return [
             {
@@ -902,6 +992,23 @@ class EventCreateSerializer(serializers.ModelSerializer):
             'invite_user_ids', 'create_chat',
         ]
         read_only_fields = ['id']
+
+    # How far back an event may be dated. Not zero: a user creating an event at
+    # 00:30 for "yesterday evening", or one whose device clock/timezone is a few
+    # hours off, is doing something legitimate. A week is generous enough to
+    # cover both while still rejecting the year-2020 dates the scheduling views
+    # were never designed to render.
+    MAX_BACKDATE_DAYS = 7
+
+    def validate_date(self, value):
+        from django.utils import timezone as _tz
+
+        earliest = _tz.localdate() - timedelta(days=self.MAX_BACKDATE_DAYS)
+        if value < earliest:
+            raise serializers.ValidationError(
+                f"Event date cannot be more than {self.MAX_BACKDATE_DAYS} days in the past."
+            )
+        return value
 
     def validate(self, attrs):
         if attrs['end_time'] <= attrs['start_time']:

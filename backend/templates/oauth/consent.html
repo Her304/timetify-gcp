@@ -14,6 +14,24 @@
       </p>
     </div>
 
+    {% comment %} Any client can self-register under RFC 7591 and pick its own
+       name, so the heading above is a claim, not an identity. The destination
+       host is the part that cannot be forged — it is where the authorization
+       code will actually be sent — so it is shown at equal weight and the name
+       is explicitly labelled unverified. {% endcomment %}
+    <div class="panel" style="margin-bottom:1.25rem">
+      <div class="eyebrow eyebrow--faint">check this before allowing</div>
+      <p class="lower" style="margin:0 0 .5rem">
+        this app is <span class="strong">not verified by timetify</span> — it
+        chose its own name.
+      </p>
+      <p class="lower" style="margin:0">
+        approving sends your access to
+        <span class="strong">{{ redirect_host }}</span>. if you don't recognise
+        that, press cancel.
+      </p>
+    </div>
+
     <div class="panel" style="margin-bottom:1.25rem">
       <div class="eyebrow eyebrow--faint">it will be able to</div>
       <ul class="scopes">

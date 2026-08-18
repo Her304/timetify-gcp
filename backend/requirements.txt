@@ -1,4 +1,8 @@
-Django==6.0.2
+# Security note: the four pins below were raised after the August 2026
+# penetration test. Each was flagged by pip-audit; all are patch/minor bumps
+# within the same major, so no API changes are expected. Re-run
+# `pip-audit -r backend/requirements.txt` after changing any of them.
+Django==6.0.7          # 6.0.2 carried 26 advisories (PYSEC-2026-48..2449)
 django-cors-headers==4.9.0
 djangorestframework==3.17.1
 djangorestframework-simplejwt>=5.3.1
@@ -6,13 +10,13 @@ openai>=1.40.0
 pdfplumber==0.11.9
 python-docx==1.2.0
 pydantic>=2.0.0
-python-dotenv==1.0.1
+python-dotenv==1.2.2   # PYSEC-2026-2270
 django-anymail[resend]==12.0
-gunicorn==21.2.0
+gunicorn==22.0.0       # PYSEC-2026-1433/1434 (request smuggling)
 whitenoise==6.6.0
 psycopg2-binary==2.9.9
 dj-database-url==2.1.0
-pg8000==1.31.2
+pg8000==1.31.5         # PYSEC-2026-1766
 google-auth
 google-cloud-secret-manager
 django-storages[google]==1.14.4

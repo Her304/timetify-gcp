@@ -269,8 +269,21 @@ def authorize(request):
 
     granted = scope_defs.clean(requested) or list(scope_defs.DEFAULT)
 
+    # Registration is open (RFC 7591 dynamic client registration), so
+    # `client.name` is a string the client chose for itself — nothing stops
+    # someone registering "Timetify Official App". The consent screen therefore
+    # cannot present the name as identity. Surfacing the redirect host gives the
+    # user the one fact an attacker cannot fake: where their authorization code
+    # is actually going. Approving a client called "Timetify Official" that
+    # sends the code to evil.example is then visibly wrong.
+    try:
+        redirect_host = urlparse(redirect_uri).netloc or redirect_uri
+    except ValueError:
+        redirect_host = redirect_uri
+
     ctx = {
         'client': client,
+        'redirect_host': redirect_host,
         'scope_rows': [{'id': s, 'label': scope_defs.DESCRIPTIONS.get(s, s),
                         'is_write': s in scope_defs.WRITE_SCOPES} for s in granted],
         'params': {

@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 import io
+from datetime import timedelta
 import google.auth
 from google.cloud import secretmanager
 from pathlib import Path
@@ -236,17 +237,41 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # Storage: GCS for user media whenever GS_BUCKET_NAME is set, in every environment.
 # Cloud Run filesystem is ephemeral, so prod must have GS_BUCKET_NAME configured.
 # Local dev sets it too (with ADC creds) so uploads/reads share the one bucket and
-# never diverge between disk and GCS. Bucket has allUsers:objectViewer at IAM level,
-# so we disable per-object ACLs and emit public unsigned URLs.
+# never diverge between disk and GCS.
+#
+# URLs are SIGNED and short-lived. Previously the bucket carried
+# allUsers:objectViewer and this emitted unsigned public URLs, which meant every
+# authorization rule the app enforces in views — snap audience lists, friendship,
+# blocks, the 24h expiry — stopped applying the moment anyone had the URL, and
+# roles/storage.objectViewer on allUsers also grants storage.objects.list, so the
+# whole bucket could be enumerated anonymously. Signing moves the check to the
+# storage layer where it cannot be bypassed.
+#
+# Requires, in addition to this setting:
+#   1. the public IAM binding removed:
+#        gsutil iam ch -d allUsers:objectViewer gs://$GS_BUCKET_NAME
+#   2. the runtime service account able to sign via the IAM API — see the
+#      deploy note in main/storage.py.
 GS_BUCKET_NAME = os.environ.get("GS_BUCKET_NAME", "").strip()
+# Balances two failure modes. Too short and a signed URL dies while the page
+# that holds it is still open — the shared Avatar degrades to initials on error,
+# but a snap would simply not load. Too long and a leaked URL stays useful.
+#
+# Two hours comfortably outlives a session's worth of already-rendered URLs
+# (every API response mints fresh ones, and the feed polls), while bounding a
+# leak to hours instead of the previous forever. Note this is the lifetime of a
+# URL once issued, NOT of access: the API stops issuing URLs for a snap the
+# moment it expires, so ephemerality is restored to within this window.
+GS_URL_EXPIRY_SECONDS = int(os.environ.get("GS_URL_EXPIRY_SECONDS", "7200"))  # 2 hours
 if GS_BUCKET_NAME:
     STORAGES = {
         "default": {
-            "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+            "BACKEND": "main.storage.SignedGoogleCloudStorage",
             "OPTIONS": {
                 "bucket_name": GS_BUCKET_NAME,
                 "default_acl": None,
-                "querystring_auth": False,
+                "querystring_auth": True,
+                "expiration": timedelta(seconds=GS_URL_EXPIRY_SECONDS),
                 "file_overwrite": False,
             },
         },
@@ -295,7 +320,52 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Per-endpoint limits. The classes live in main/throttling.py and are
+    # attached to individual views via throttle_classes; nothing is throttled by
+    # default, because the app is chatty (feed polling, unread counts) and a
+    # blanket limit would fire on ordinary use. See main/throttling.py for why
+    # login carries both an IP and a username limit.
+    'DEFAULT_THROTTLE_RATES': {
+        # Login: 10/min from one address absorbs a fat-fingered password and a
+        # page refresh; 5/min against one account stops the same account being
+        # walked through a password list from a botnet.
+        'login_ip': os.environ.get('THROTTLE_LOGIN_IP', '10/min'),
+        'login_username': os.environ.get('THROTTLE_LOGIN_USERNAME', '5/min'),
+        'register': os.environ.get('THROTTLE_REGISTER', '5/hour'),
+        'password_reset_ip': os.environ.get('THROTTLE_PASSWORD_RESET_IP', '5/hour'),
+        'password_reset_email': os.environ.get('THROTTLE_PASSWORD_RESET_EMAIL', '3/hour'),
+        'registration_check': os.environ.get('THROTTLE_REGISTRATION_CHECK', '20/min'),
+        'user_search': os.environ.get('THROTTLE_USER_SEARCH', '30/min'),
+    },
 }
+
+# How many proxies in front of Django write X-Forwarded-For. Only the rightmost
+# TRUSTED_PROXY_COUNT entries are ours; everything left of them is caller-
+# supplied and must never be used as a throttle key. Cloud Run's frontend
+# appends exactly one, hence the default — raise it if a load balancer or the
+# nginx service is later put in front of /api/.
+TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "1"))
+
+# Throttle counters live in the cache, so a per-process cache (Django's default
+# LocMemCache) would give every Cloud Run instance its own budget and reset the
+# lot on each cold start. Redis when it's available, otherwise the database:
+# Cloud SQL already exists, and the throttled endpoints are low-volume enough
+# that a row write per attempt is cheap. Table created by migration 0035.
+_REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+if _REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+            "LOCATION": "main_cache_table",
+        }
+    }
 
 
 # Email Configuration (Resend via Anymail)
