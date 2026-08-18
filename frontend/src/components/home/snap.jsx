@@ -270,10 +270,12 @@ export const Snap = ({
           course={captureCourse}
           friendsList={friendsList}
           currentUser={currentUser}
-          onClose={() => {
-            setCaptureCourse(null);
-            window.location.reload();
-          }}
+          // Must NOT reload: the modal fires onUploaded (a feed refetch) and
+          // then closes, so a reload here navigates away mid-flight and aborts
+          // that request. Unmounting is enough — the camera, recorder and
+          // timers are released by the modal's own cleanup, and the refetch
+          // re-renders the tiles via snapsByCourse.
+          onClose={() => setCaptureCourse(null)}
           onUploaded={() => onSnapsChanged && onSnapsChanged()}
         />
       )}
