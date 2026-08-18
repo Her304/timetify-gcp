@@ -315,6 +315,41 @@ class EventDateValidationTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
 
+class SignedStorageTests(APITestCase):
+    """Report B finding 1 — media served from a public bucket via unsigned URLs.
+
+    Guards the scope constant specifically. The first production deploy of this
+    fix failed with 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT because the signing
+    token was taken from the storage client, which google-cloud-storage scopes
+    to devstorage.read_write. The IAM binding was correct the whole time, which
+    made it a slow diagnosis; narrowing this scope again would silently return
+    the app to serving unsigned public URLs.
+    """
+
+    def test_signing_scope_is_cloud_platform(self):
+        from main.storage import _SIGNING_SCOPES
+
+        self.assertIn('https://www.googleapis.com/auth/cloud-platform', _SIGNING_SCOPES)
+        self.assertFalse(
+            any('devstorage' in s for s in _SIGNING_SCOPES),
+            "devstorage scopes cannot call iamcredentials.signBlob",
+        )
+
+    def test_signing_credentials_are_not_the_storage_clients(self):
+        """The whole point of the fix: signing must not reuse the storage
+        client's narrowly-scoped credentials."""
+        import inspect
+
+        from main.storage import SignedGoogleCloudStorage
+
+        src = inspect.getsource(SignedGoogleCloudStorage._iam_signing_kwargs)
+        self.assertNotIn(
+            "access_token': self.client._credentials.token", src,
+            "signing token must come from _get_signing_credentials(), not the "
+            "storage client",
+        )
+
+
 class ModerationPromptInjectionTests(APITestCase):
     """Report B finding 2 — reporter-controlled text steered the moderator."""
 
