@@ -395,8 +395,9 @@ const App = () => {
         body: JSON.stringify({ courses: coursesData }),
       });
       const data = await response.json();
-      // No reload — the Add page's "ur all set" screen handles navigation.
-      if (response.ok) return { success: true };
+      // No reload — the Add page's "ur all set" screen handles navigation. The
+      // payload carries the new course pks, which its calendar export needs.
+      if (response.ok) return { success: true, data };
       setCourseErrors(data);
       // Surface the failure payload so callers (e.g. the Add page) can route to
       // a dedicated screen for structured errors like {error: "overlap"}.

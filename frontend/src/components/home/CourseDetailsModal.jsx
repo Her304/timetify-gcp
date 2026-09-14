@@ -33,6 +33,10 @@ const fmtDate = (iso) => {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 };
 
+// An exam/assignment's date line: TBA when there's none yet, flagged when it's
+// only an estimate the student accepted.
+const itemWhen = (iso, isEstimate) => (iso ? `${fmtDate(iso)}${isEstimate ? " · est." : ""}` : "date tba");
+
 const ownerInitial = (name) => (name?.[0] || "?").toLowerCase();
 
 // ─── Master row in the left list (cluster mode) ─────────────────────
@@ -87,14 +91,14 @@ const DetailsPanel = ({ entry, fetchedCourse, currentUser, picByUsername = {} })
     return d;
   }, []);
 
-  const upcomingExams = (fetchedCourse?.exams || [])
-    .filter((e) => new Date(e.exam_date) >= todayStart)
-    .sort((a, b) => new Date(a.exam_date) - new Date(b.exam_date))
-    .slice(0, 4);
-  const upcomingAssignments = (fetchedCourse?.assignments || [])
-    .filter((a) => new Date(a.assignment_due) >= todayStart)
-    .sort((a, b) => new Date(a.assignment_due) - new Date(b.assignment_due))
-    .slice(0, 4);
+  // Dated items soonest first, then the TBA ones (no date yet).
+  const upcoming = (items, key) => [
+    ...items.filter((x) => x[key] && new Date(x[key]) >= todayStart)
+      .sort((a, b) => new Date(a[key]) - new Date(b[key])),
+    ...items.filter((x) => !x[key]),
+  ].slice(0, 4);
+  const upcomingExams = upcoming(fetchedCourse?.exams || [], "exam_date");
+  const upcomingAssignments = upcoming(fetchedCourse?.assignments || [], "assignment_due");
   const currentWeek = (() => {
     const sorted = [...(fetchedCourse?.weeks || [])].sort(
       (a, b) => new Date(a.week_date) - new Date(b.week_date)
@@ -204,7 +208,7 @@ const DetailsPanel = ({ entry, fetchedCourse, currentUser, picByUsername = {} })
                     className="text-[10px] text-ink-60 mt-0.5"
                     style={{ fontFamily: FF.mono }}
                   >
-                    {fmtDate(e.exam_date)}
+                    {itemWhen(e.exam_date, e.date_is_estimate)}
                   </p>
                 </div>
               </div>
@@ -231,7 +235,7 @@ const DetailsPanel = ({ entry, fetchedCourse, currentUser, picByUsername = {} })
                     className="text-[10px] text-ink-60 mt-0.5"
                     style={{ fontFamily: FF.mono }}
                   >
-                    {fmtDate(a.assignment_due)}
+                    {itemWhen(a.assignment_due, a.date_is_estimate)}
                   </p>
                 </div>
               </div>
