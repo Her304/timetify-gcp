@@ -109,7 +109,11 @@ class Week(models.Model):
 class Exam(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='exams')
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='exams')
-    exam_date = models.DateTimeField()
+    # Null = date TBA (e.g. a final before the registrar posts the schedule).
+    # date_is_estimate = the student accepted our suggested date, so it shows
+    # in the app but is kept out of the calendar export.
+    exam_date = models.DateTimeField(null=True, blank=True)
+    date_is_estimate = models.BooleanField(default=False)
     exam_topic = models.CharField(max_length=200)
     exam_details = models.TextField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
@@ -121,7 +125,9 @@ class Exam(models.Model):
 class Assignment(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='assignments')
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='assignments')
-    assignment_due = models.DateTimeField()
+    # Same TBA / estimate semantics as Exam.exam_date.
+    assignment_due = models.DateTimeField(null=True, blank=True)
+    date_is_estimate = models.BooleanField(default=False)
     assignment_topic = models.CharField(max_length=200)
     assignment_detail = models.TextField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)

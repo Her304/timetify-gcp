@@ -567,6 +567,7 @@ export const WeekView = ({ allClasses = [], events = [], scheduleSkips = { cours
             upNext={upNext}
           />
           <RemindersCard myCourses={myCourses} />
+          <ExamDateNudgeCard myCourses={myCourses} />
         </div>
       </div>
 
@@ -794,6 +795,7 @@ const RemindersCard = ({ myCourses = [] }) => {
             courseId: c.course_id,
             topic: e.exam_topic,
             date: e.exam_date,
+            estimate: e.date_is_estimate,
           });
         }
       });
@@ -804,6 +806,7 @@ const RemindersCard = ({ myCourses = [] }) => {
             courseId: c.course_id,
             topic: a.assignment_topic,
             date: a.assignment_due,
+            estimate: a.date_is_estimate,
           });
         }
       });
@@ -850,13 +853,106 @@ const RemindersCard = ({ myCourses = [] }) => {
                   className="text-[10px] text-ink-60 mt-0.5 uppercase"
                   style={{ fontFamily: FF.mono, letterSpacing: 0.8 }}
                 >
-                  {it.courseId}
+                  {it.courseId}{it.estimate && " · est. date"}
                 </p>
               </div>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+// ─── Exam dates still TBA as the term winds down ──
+// Final-exam schedules are posted late in term, so an exam that's still TBA
+// (or only an accepted estimate) gets a nudge from about a month before its
+// class ends — and, if snoozed, once more at two weeks. Snoozes are a
+// per-browser convenience, so localStorage (which can throw) is enough.
+const NUDGE_START_DAYS = 28;
+const NUDGE_AGAIN_DAYS = 14;
+const NUDGE_END_DAYS_AFTER = 21; // exam periods run past the last class
+const nudgeKey = (examId) => `timetify:exam-date-nudge:${examId}`;
+// Days-before-end at which this exam's nudge shows (again).
+const readNudgeFrom = (examId) => {
+  try {
+    const v = window.localStorage.getItem(nudgeKey(examId));
+    return v == null ? NUDGE_START_DAYS : Number(v);
+  } catch {
+    return NUDGE_START_DAYS;
+  }
+};
+
+const ExamDateNudgeCard = ({ myCourses = [] }) => {
+  const [snoozed, setSnoozed] = useState({}); // examId → next show-from, this session
+  const items = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const out = [];
+    myCourses.forEach((c) => {
+      if (!c.end_date) return;
+      const daysLeft = Math.round((new Date(`${c.end_date}T00:00:00`) - today) / 86400000);
+      if (daysLeft > NUDGE_START_DAYS || daysLeft < -NUDGE_END_DAYS_AFTER) return;
+      (c.exams || []).forEach((e) => {
+        if (e.is_completed) return;
+        const tba = !e.exam_date;
+        if (!tba && !(e.date_is_estimate && new Date(e.exam_date) >= today)) return;
+        if (daysLeft > (snoozed[e.id] ?? readNudgeFrom(e.id))) return;
+        out.push({
+          id: e.id,
+          daysLeft,
+          courseId: c.course_id,
+          code: c.parent_course_id || c.course_id,
+          topic: e.exam_topic,
+          estimate: tba ? null : e.exam_date.slice(0, 10),
+        });
+      });
+    });
+    return out;
+  }, [myCourses, snoozed]);
+
+  if (items.length === 0) return null;
+
+  const snooze = (it) => {
+    // First snooze waits for the two-week mark; after that, stop asking.
+    const next = it.daysLeft > NUDGE_AGAIN_DAYS ? NUDGE_AGAIN_DAYS : -Infinity;
+    try {
+      window.localStorage.setItem(nudgeKey(it.id), String(next));
+    } catch {
+      // storage blocked — the snooze lasts for this visit only
+    }
+    setSnoozed((s) => ({ ...s, [it.id]: next }));
+  };
+
+  return (
+    <div className="bg-white rounded-3xl p-5" style={{ border: `1px solid ${T.lilac}` }}>
+      <MonoLabel>exam dates still tba</MonoLabel>
+      <p className="mt-1.5 text-sm text-ink-60 leading-relaxed lowercase">
+        exam schedules usually come out around now. got ur dates? add them so they show on ur schedule.
+      </p>
+      <div className="mt-3 flex flex-col gap-2">
+        {items.map((it) => (
+          <div key={it.id} className="bg-cream rounded-xl px-3 py-2 border border-ink-8">
+            <p className="text-sm lowercase truncate" style={{ fontFamily: FF.serif, letterSpacing: -0.2 }}>
+              {it.topic}
+            </p>
+            <p className="text-[10px] text-ink-60 mt-0.5 uppercase" style={{ fontFamily: FF.mono, letterSpacing: 0.8 }}>
+              {it.courseId} · {it.estimate ? `est. ${it.estimate}` : "date tba"}
+            </p>
+            <div className="flex items-center gap-3 mt-2">
+              <a
+                href={`/class/${encodeURIComponent(it.code)}?edit=1`}
+                className="text-xs font-semibold text-coral hover:text-coral-dark lowercase"
+              >
+                add the date →
+              </a>
+              <button type="button" onClick={() => snooze(it)} className="text-xs text-ink-60 hover:text-ink lowercase">
+                {it.daysLeft > NUDGE_AGAIN_DAYS ? "remind me later" : "don't remind me"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

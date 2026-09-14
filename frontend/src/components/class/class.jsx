@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
 import { T, FF, MonoLabel, Icon, PillBtn } from "@/components/shared/brand";
 
@@ -36,6 +36,31 @@ const EditorSectionHead = ({ label, onAdd }) => (
   </div>
 );
 
+// Display date of a saved exam/assignment: TBA when there's none yet, and
+// flagged when it's only an estimate the student accepted.
+const itemDateText = (iso, isEstimate) =>
+  !iso ? "date tba" : `${new Date(iso).toLocaleDateString()}${isEstimate ? " (est.)" : ""}`;
+
+// Editor date field for an exam/assignment. Blank = date TBA (e.g. a final
+// before the schedule is posted); an estimate stays flagged until the student
+// changes the date or confirms it.
+const ItemDateField = ({ label, value, isEstimate, onChange, onConfirm }) => (
+  <div className="space-y-1">
+    <span className={fieldLabelCls} style={{ fontFamily: FF.mono }}>{label}</span>
+    <div className="flex items-center gap-2 flex-wrap">
+      <input type="date" aria-label={label} className={`${nestedInputCls} sm:w-52`} value={value} onChange={(ev) => onChange(ev.target.value)} />
+      {!value ? (
+        <span className="text-[11px] text-ink-60 lowercase" style={{ fontFamily: FF.mono }}>blank = date tba</span>
+      ) : isEstimate ? (
+        <>
+          <span className="text-[10px] font-semibold lowercase rounded-full px-2 py-0.5" style={{ fontFamily: FF.mono, background: T.lilac, color: T.ink }}>estimate</span>
+          <button type="button" onClick={onConfirm} className="text-[11px] text-ink-60 hover:text-ink underline lowercase">it&apos;s the real date</button>
+        </>
+      ) : null}
+    </div>
+  </div>
+);
+
 // Inline editor for a saved course: core fields + add/edit/delete of weeks,
 // exams and assignments. Kept at module scope so it isn't re-created each render.
 const CourseEditor = ({ draft, setDraft, onSave, onCancel, saving, error, onDelete, dropping }) => {
@@ -44,6 +69,12 @@ const CourseEditor = ({ draft, setDraft, onSave, onCancel, saving, error, onDele
   const setItem = (kind, i, f, v) => setDraft((d) => {
     const arr = [...d[kind]];
     arr[i] = { ...arr[i], [f]: v };
+    return { ...d, [kind]: arr };
+  });
+  // Typing a date makes it the real one — an estimate stops being one.
+  const setDate = (kind, i, f, v) => setDraft((d) => {
+    const arr = [...d[kind]];
+    arr[i] = { ...arr[i], [f]: v, date_is_estimate: false };
     return { ...d, [kind]: arr };
   });
   const removeItem = (kind, i) => setDraft((d) => ({ ...d, [kind]: d[kind].filter((_, idx) => idx !== i) }));
@@ -126,10 +157,9 @@ const CourseEditor = ({ draft, setDraft, onSave, onCancel, saving, error, onDele
               <input className={`${nestedInputCls} flex-1`} placeholder="exam title" value={e.exam_topic} onChange={(ev) => setItem("exams", i, "exam_topic", ev.target.value)} />
               <RemoveItemBtn onClick={() => removeItem("exams", i)} label="remove exam" />
             </div>
-            <label className="block space-y-1">
-              <span className={fieldLabelCls} style={{ fontFamily: FF.mono }}>date</span>
-              <input type="date" className={`${nestedInputCls} sm:w-52`} value={e.exam_date} onChange={(ev) => setItem("exams", i, "exam_date", ev.target.value)} />
-            </label>
+            <ItemDateField label="date" value={e.exam_date} isEstimate={e.date_is_estimate}
+              onChange={(v) => setDate("exams", i, "exam_date", v)}
+              onConfirm={() => setItem("exams", i, "date_is_estimate", false)} />
             <input className={nestedInputCls} placeholder="details (optional)" value={e.exam_details || ""} onChange={(ev) => setItem("exams", i, "exam_details", ev.target.value)} />
           </div>
         ))}
@@ -145,10 +175,9 @@ const CourseEditor = ({ draft, setDraft, onSave, onCancel, saving, error, onDele
               <input className={`${nestedInputCls} flex-1`} placeholder="assignment title" value={a.assignment_topic} onChange={(ev) => setItem("assignments", i, "assignment_topic", ev.target.value)} />
               <RemoveItemBtn onClick={() => removeItem("assignments", i)} label="remove assignment" />
             </div>
-            <label className="block space-y-1">
-              <span className={fieldLabelCls} style={{ fontFamily: FF.mono }}>due</span>
-              <input type="date" className={`${nestedInputCls} sm:w-52`} value={a.assignment_due} onChange={(ev) => setItem("assignments", i, "assignment_due", ev.target.value)} />
-            </label>
+            <ItemDateField label="due" value={a.assignment_due} isEstimate={a.date_is_estimate}
+              onChange={(v) => setDate("assignments", i, "assignment_due", v)}
+              onConfirm={() => setItem("assignments", i, "date_is_estimate", false)} />
             <input className={nestedInputCls} placeholder="details (optional)" value={a.assignment_detail || ""} onChange={(ev) => setItem("assignments", i, "assignment_detail", ev.target.value)} />
           </div>
         ))}
@@ -243,8 +272,8 @@ export const ClassDetails = ({ Class_details = [] }) => {
       start_date: c.start_date || "",
       end_date: c.end_date || "",
       weeks: (c.weeks || []).map((w) => ({ id: w.id, week_number: w.week_number, week_topic: w.week_topic || "", week_date: (w.week_date || "").slice(0, 10) })),
-      exams: (c.exams || []).map((e) => ({ id: e.id, exam_topic: e.exam_topic || "", exam_date: (e.exam_date || "").slice(0, 10), exam_details: e.exam_details || "" })),
-      assignments: (c.assignments || []).map((a) => ({ id: a.id, assignment_topic: a.assignment_topic || "", assignment_due: (a.assignment_due || "").slice(0, 10), assignment_detail: a.assignment_detail || "" })),
+      exams: (c.exams || []).map((e) => ({ id: e.id, exam_topic: e.exam_topic || "", exam_date: (e.exam_date || "").slice(0, 10), date_is_estimate: !!e.date_is_estimate, exam_details: e.exam_details || "" })),
+      assignments: (c.assignments || []).map((a) => ({ id: a.id, assignment_topic: a.assignment_topic || "", assignment_due: (a.assignment_due || "").slice(0, 10), date_is_estimate: !!a.date_is_estimate, assignment_detail: a.assignment_detail || "" })),
     });
     setSaveError(null);
     setEditing(true);
@@ -283,13 +312,14 @@ export const ClassDetails = ({ Class_details = [] }) => {
     const d = draft;
     const bad =
       d.weeks.some((w) => !w.week_topic.trim() || !w.week_date) ||
-      d.exams.some((e) => !e.exam_topic.trim() || !e.exam_date) ||
-      d.assignments.some((a) => !a.assignment_topic.trim() || !a.assignment_due);
-    if (bad) { setSaveError("every week, exam and assignment needs a title and a date."); return; }
+      d.exams.some((e) => !e.exam_topic.trim()) ||
+      d.assignments.some((a) => !a.assignment_topic.trim());
+    if (bad) { setSaveError("every week needs a title and a date; every exam and assignment needs a title."); return; }
     setSaving(true);
     setSaveError(null);
     const base = import.meta.env.VITE_API_URL;
-    const toDT = (s) => `${s}T00:00:00Z`;
+    // A blank exam/assignment date is saved as TBA (null), not rejected.
+    const toDT = (s) => (s ? `${s}T00:00:00Z` : null);
     try {
       await req(`${base}/api/courses/${d.id}/`, "PATCH", {
         course_name: d.course_name,
@@ -312,8 +342,8 @@ export const ClassDetails = ({ Class_details = [] }) => {
         }
       };
       await sync("weeks", fetchedCourse.weeks, d.weeks, (w) => ({ course: d.id, week_number: Number(w.week_number) || 1, week_topic: w.week_topic, week_date: w.week_date }));
-      await sync("exams", fetchedCourse.exams, d.exams, (e) => ({ course: d.id, exam_topic: e.exam_topic, exam_date: toDT(e.exam_date), exam_details: e.exam_details || "" }));
-      await sync("assignments", fetchedCourse.assignments, d.assignments, (a) => ({ course: d.id, assignment_topic: a.assignment_topic, assignment_due: toDT(a.assignment_due), assignment_detail: a.assignment_detail || "" }));
+      await sync("exams", fetchedCourse.exams, d.exams, (e) => ({ course: d.id, exam_topic: e.exam_topic, exam_date: toDT(e.exam_date), date_is_estimate: !!(e.exam_date && e.date_is_estimate), exam_details: e.exam_details || "" }));
+      await sync("assignments", fetchedCourse.assignments, d.assignments, (a) => ({ course: d.id, assignment_topic: a.assignment_topic, assignment_due: toDT(a.assignment_due), date_is_estimate: !!(a.assignment_due && a.date_is_estimate), assignment_detail: a.assignment_detail || "" }));
       window.location.reload();
     } catch (err) {
       console.error("Failed to save course edits", err);
@@ -348,6 +378,15 @@ export const ClassDetails = ({ Class_details = [] }) => {
     fetchCourseDetails();
   }, [courseName]);
 
+  // "/class/:code?edit=1" (the home page's exam-date nudge) opens the editor
+  // once the course has loaded, then drops the param so a reload doesn't.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("edit") !== "1" || !fetchedCourse || editing) return;
+    startEdit();
+    setSearchParams({}, { replace: true });
+  }, [searchParams, fetchedCourse]); // eslint-disable-line react-hooks/exhaustive-deps
+
   let ongoingWeek = null;
   let upcomingWeeks = [];
   let pastWeeks = [];
@@ -377,7 +416,12 @@ export const ClassDetails = ({ Class_details = [] }) => {
     const activeWeekEnd = new Date(activeWeekStart);
     activeWeekEnd.setDate(activeWeekEnd.getDate() + 7);
 
+    // TBA items (no date yet) go at the end of the future lists — new Date(null)
+    // is 1970, which would file them under "past".
+    const tbaExams = [];
+    const tbaAssignments = [];
     (fetchedCourse.exams || []).forEach((e) => {
+      if (!e.exam_date) { tbaExams.push(e); return; }
       const d = new Date(e.exam_date);
       if (d < todayStart) pastExams.push(e);
       else if (d <= activeWeekEnd) upcomingExamsThisWeek.push(e);
@@ -385,11 +429,14 @@ export const ClassDetails = ({ Class_details = [] }) => {
     });
 
     (fetchedCourse.assignments || []).forEach((a) => {
+      if (!a.assignment_due) { tbaAssignments.push(a); return; }
       const d = new Date(a.assignment_due);
       if (d < todayStart) pastAssignments.push(a);
       else if (d <= activeWeekEnd) upcomingAssignmentsThisWeek.push(a);
       else futureAssignments.push(a);
     });
+    futureExams.push(...tbaExams);
+    futureAssignments.push(...tbaAssignments);
   }
 
   const scheduleLines = displayClasses.length > 0
@@ -494,7 +541,8 @@ export const ClassDetails = ({ Class_details = [] }) => {
                               </span>
                               <div>
                                 <p className="text-sm font-semibold text-ink">{e.exam_topic}</p>
-                                <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>exam · {new Date(e.exam_date).toLocaleDateString()}</p>
+                                <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>exam · {itemDateText(e.exam_date, e.date_is_estimate)}</p>
+                                {e.exam_details && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{e.exam_details}</p>}
                               </div>
                             </div>
                           ))}
@@ -505,7 +553,8 @@ export const ClassDetails = ({ Class_details = [] }) => {
                               </span>
                               <div>
                                 <p className="text-sm font-semibold text-ink">{a.assignment_topic}</p>
-                                <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>due {new Date(a.assignment_due).toLocaleDateString()}</p>
+                                <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>due {itemDateText(a.assignment_due, a.date_is_estimate)}</p>
+                                {a.assignment_detail && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{a.assignment_detail}</p>}
                               </div>
                             </div>
                           ))}
@@ -524,8 +573,11 @@ export const ClassDetails = ({ Class_details = [] }) => {
                         <div className="space-y-2">
                           {futureAssignments.map((a, idx) => (
                             <div key={idx} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8">
-                              <p className="text-sm font-medium text-ink">{a.assignment_topic}</p>
-                              <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{new Date(a.assignment_due).toLocaleDateString()}</p>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-ink">{a.assignment_topic}</p>
+                                {a.assignment_detail && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{a.assignment_detail}</p>}
+                              </div>
+                              <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{itemDateText(a.assignment_due, a.date_is_estimate)}</p>
                             </div>
                           ))}
                         </div>
@@ -539,8 +591,11 @@ export const ClassDetails = ({ Class_details = [] }) => {
                         <div className="space-y-2">
                           {futureExams.map((e, idx) => (
                             <div key={idx} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8">
-                              <p className="text-sm font-medium text-ink">{e.exam_topic}</p>
-                              <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{new Date(e.exam_date).toLocaleDateString()}</p>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-ink">{e.exam_topic}</p>
+                                {e.exam_details && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{e.exam_details}</p>}
+                              </div>
+                              <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{itemDateText(e.exam_date, e.date_is_estimate)}</p>
                             </div>
                           ))}
                         </div>
@@ -584,13 +639,19 @@ export const ClassDetails = ({ Class_details = [] }) => {
                         <div className="space-y-2">
                           {pastExams.map((e, idx) => (
                             <div key={`pe-${idx}`} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8 opacity-70">
-                              <p className="text-sm text-ink-60">{e.exam_topic}</p>
+                              <div className="min-w-0">
+                                <p className="text-sm text-ink-60">{e.exam_topic}</p>
+                                {e.exam_details && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{e.exam_details}</p>}
+                              </div>
                               <span className="text-xs text-ink-40" style={{ fontFamily: FF.mono }}>past</span>
                             </div>
                           ))}
                           {pastAssignments.map((a, idx) => (
                             <div key={`pa-${idx}`} className="bg-cream rounded-xl p-3 flex justify-between items-center border border-ink-8 opacity-70">
-                              <p className="text-sm text-ink-60">{a.assignment_topic}</p>
+                              <div className="min-w-0">
+                                <p className="text-sm text-ink-60">{a.assignment_topic}</p>
+                                {a.assignment_detail && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{a.assignment_detail}</p>}
+                              </div>
                               <span className="text-xs text-ink-40" style={{ fontFamily: FF.mono }}>past</span>
                             </div>
                           ))}
