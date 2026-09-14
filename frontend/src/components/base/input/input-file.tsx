@@ -13,13 +13,20 @@ export interface InputFileProps {
 export const InputFile = ({ hint, isLoading, onChange, className }: InputFileProps) => {
     return (
         <div className={cx("group flex w-full flex-col items-center gap-1.5", className)}>
-            <span
-                className="material-symbols-outlined text-ink-40"
-                style={{ fontSize: 48, fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 48" }}
+            <svg
                 aria-hidden="true"
+                className="text-ink-40"
+                width="48"
+                height="48"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
             >
-                arrow_upload_ready
-            </span>
+                <path d="M12 16V3m0 0L7 8m5-5 5 5M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
+            </svg>
 
             <div className="mt-2 flex justify-center text-sm leading-6 text-ink-60">
                 <label className="relative cursor-pointer rounded-md font-semibold text-ink hover:text-ink-80 focus-within:outline-none focus-within:ring-2 focus-within:ring-coral focus-within:ring-offset-2">

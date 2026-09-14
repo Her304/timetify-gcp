@@ -1,5 +1,8 @@
 import os
 import logging
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 import pdfplumber
 from docx import Document
 from openai import OpenAI
@@ -27,12 +30,19 @@ class ExtractedExam(BaseModel):
     exam_date: Optional[_Date] = None
     exam_topic: str
     exam_details: Optional[str] = None
+    # Only when exam_date is null: a labelled best guess the student can accept
+    # on the review page (saved as an estimate, never exported). Kept apart from
+    # exam_date so a guess can't pass for a stated date.
+    suggested_date: Optional[_Date] = None
+    suggestion_basis: Optional[str] = None
 
 
 class ExtractedAssignment(BaseModel):
     assignment_due: Optional[_Date] = None
     assignment_topic: str
     assignment_detail: Optional[str] = None
+    suggested_date: Optional[_Date] = None  # same rules as ExtractedExam
+    suggestion_basis: Optional[str] = None
     # "weekly" if the assignment repeats every week instead of having a single
     # due date; recurrence_weekday is the full English weekday it's due/held.
     recurrence: Optional[str] = None
@@ -133,6 +143,7 @@ def extract_text(file_path: str) -> str:
     raise ValueError(f"Unsupported file extension: {ext}")
 
 SYSTEM_PROMPT = "You extract structured course information from a university syllabus."
+SPUR_CHAT_COMPLETIONS_URL = "https://ai.spuric.com/v1/chat/completions"
 
 EXTRACTION_PROMPT = """
 ## 1. TERM ANCHOR — DO THIS FIRST
@@ -166,6 +177,26 @@ Examples:
 DO NOT invent classrooms (the instructor's office number is NOT the classroom),
 class times, lecture days, or dates. An honest null is far better than a
 confident wrong answer.
+
+## 2b. SUGGESTED DATES — A LABELLED GUESS, ONLY WHEN THE DATE IS NULL
+
+When you leave exam_date or assignment_due null, you MAY set suggested_date to
+your best estimate and suggestion_basis to the reason — but only when the
+document gives something concrete to estimate from. The student sees it
+labelled as a guess and chooses whether to use it. Examples:
+  - "due before the related lab" and that lab is on 2026-09-25
+        → suggested_date = 2026-09-24, suggestion_basis = "day before the 2026-09-25 lab"
+  - "final exam scheduled by registrar between Dec 9 - Dec 20"
+        → suggested_date = 2026-12-09, suggestion_basis = "first day of the exam window"
+  - a final exam with no date or window, when the last day of classes is known
+        → suggested_date = the first weekday after it,
+          suggestion_basis = "exam period usually starts after classes end"
+Rules:
+  - NEVER put a guess in exam_date / assignment_due — those hold stated dates only.
+  - If the real date is filled, leave suggested_date and suggestion_basis null.
+  - No basis in the document → leave both null. Do not guess from nothing.
+  - suggestion_basis: at most 8 words, lowercase.
+  - Weekly recurring assignments (section 4b) never get a suggested_date.
 
 ## 3. DATES — ISO ONLY
 
@@ -264,6 +295,83 @@ Do NOT invent deadlines with no basis in the document — only resolve ones the
 document actually references.""".strip()
 
 
+def _parse_spur_json(content: str) -> ExtractedCoursesResponse:
+    """Validate a JSON response from the OpenAI-compatible Spur endpoint."""
+    content = (content or "").strip()
+    if content.startswith("```"):
+        content = content.split("\n", 1)[-1]
+        if content.endswith("```"):
+            content = content[:-3]
+    try:
+        return ExtractedCoursesResponse.model_validate_json(content)
+    except Exception as exc:
+        raise ValueError("Spur returned output that does not match the course schema.") from exc
+
+
+def _process_with_spur(extraction_prompt: str, file_path: str) -> dict:
+    """Use Spur's chat-completions endpoint for table-aware text extraction.
+
+    Spur exposes chat completions, not the OpenAI Files API, so PDFs are first
+    converted to prose plus pipe-delimited tables by ``extract_text``.  The
+    full text is sent because course outlines routinely place date tables near
+    the end of the document.
+    """
+    api_key = os.getenv("SPUR_API_KEY")
+    if not api_key:
+        raise ValueError("SPUR_API_KEY is required when COURSE_PARSER_PROVIDER=spur.")
+
+    text = extract_text(file_path)
+    if not text.strip():
+        raise ValueError("Could not extract any text from the file.")
+
+    schema = json.dumps(ExtractedCoursesResponse.model_json_schema(), separators=(",", ":"))
+    user_prompt = (
+        extraction_prompt
+        + "\n\nReturn exactly one JSON object matching this JSON Schema."
+        + " Do not use Markdown fences or add explanation.\n"
+        + schema
+        + "\n\n## Syllabus content:\n"
+        + text
+    )
+    payload = {
+        "model": os.getenv("SPUR_COURSE_PARSER_MODEL", "spur-glm-5-2"),
+        # GLM emits extensive reasoning unless bounded.  This leaves ample room
+        # for a 12-week outline while keeping upload requests predictable.
+        "max_tokens": int(os.getenv("SPUR_COURSE_PARSER_MAX_TOKENS", "6000")),
+        # Schedule extraction is a constrained transcription task. Disabling
+        # chain-of-thought keeps GLM's response latency and billed output low.
+        "reasoning_effort": os.getenv("SPUR_COURSE_PARSER_REASONING_EFFORT", "none"),
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {"type": "json_object"},
+    }
+    request = Request(
+        SPUR_CHAT_COMPLETIONS_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=180) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise ValueError(f"Spur course parsing failed ({exc.code}): {detail}") from exc
+    except URLError as exc:
+        raise ValueError("Could not reach the Spur course-parsing service.") from exc
+
+    try:
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("Spur returned no completion for the course outline.") from exc
+    return _parse_spur_json(content).model_dump(mode="json")
+
+
 def process_course_outline(file_path: str, model: str = "gpt-5-mini", user_context: dict = None) -> dict:
     # Reload env so the API key survives `manage.py runserver` autoreloads.
     _load_env()
@@ -272,6 +380,12 @@ def process_course_outline(file_path: str, model: str = "gpt-5-mini", user_conte
     extraction_prompt = EXTRACTION_PROMPT
     if user_context and user_context.get("start_date"):
         extraction_prompt = EXTRACTION_PROMPT + "\n\n" + _refine_section(user_context)
+
+    provider = os.getenv("COURSE_PARSER_PROVIDER", "openai").lower()
+    if provider == "spur":
+        return _process_with_spur(extraction_prompt, file_path)
+    if provider != "openai":
+        raise ValueError("COURSE_PARSER_PROVIDER must be 'openai' or 'spur'.")
 
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".pdf":

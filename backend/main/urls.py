@@ -56,6 +56,12 @@ urlpatterns = [
     path('api/report-error/', views.ErrorReportView.as_view(), name='report-error'),
     path('api/courses/analyze/', views.CourseAnalyzeView.as_view(), name='course-analyze'),
     path('api/courses/finalize/', views.CourseFinalizeView.as_view(), name='course-finalize'),
+    # One-time .ics export. The link endpoint (JWT) mints a short-lived signed
+    # URL; the .ics route is then opened as a plain navigation — iOS only offers
+    # "Add to Calendar" for a real response, and a navigation can't carry the
+    # JWT header — so the signed token is that route's only credential.
+    path('api/courses/calendar-link/', views.CourseCalendarLinkView.as_view(), name='course-calendar-link'),
+    path('api/courses/calendar/<str:token>.ics', views.course_calendar_export, name='course-calendar-export'),
     path('api/snaps/', views.SnapUploadView.as_view(), name='snap-upload'),
     path('api/snaps/feed/', views.SnapFeedView.as_view(), name='snap-feed'),
     path('api/snaps/<int:pk>/view/', views.SnapViewView.as_view(), name='snap-view'),
