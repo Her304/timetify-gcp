@@ -33,6 +33,9 @@ from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.shortcuts import render
+from django.http import HttpResponse
+from django.urls import reverse
+from django.views.decorators.http import require_GET
 from main.utils import canonical_username, send_email
 from main.account_email import send_welcome_email, send_password_reset_email, send_email_change_verification
 from main.throttling import (
@@ -54,6 +57,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main.pdf import process_course_outline
 from main.availability import norm_day, parse_rep_days, day_label, sort_days
+from main.calendar_export import build_ics, export_filename, resolve_tz
 
 def convert_date(date_str):
     """Convert date from 'Jan 13 2026' to '2026-01-13'"""
@@ -709,6 +713,15 @@ def _weekly_occurrences(start_str, end_str, weekday, max_count=40):
     return out
 
 
+def _is_estimate(item, date):
+    """Whether a finalize exam/assignment row carries an accepted estimate.
+
+    Only a real JSON true counts (a stray "false" string is truthy), and a
+    TBA item has no date to be an estimate of.
+    """
+    return bool(date) and item.get('date_is_estimate') is True
+
+
 def _find_overlap_day(days_a, sa, ea, days_b, sb, eb):
     """The first shared day these two slots collide on, as a display name.
 
@@ -842,6 +855,7 @@ class CourseFinalizeView(APIView):
                             parent_course=main_course,
                             is_lab=course_data.get('is_lab', False)
                         )
+                        created_courses.append(current_course)
                     
                     # Create details for THIS course (whether main or secondary)
                     course_start_date = convert_date(course_data.get('start_date')) or start_date_str
@@ -859,17 +873,21 @@ class CourseFinalizeView(APIView):
                                 week_topic=w.get("week_topic", "")
                             )
 
-                    # Create exams for THIS course
+                    # Create exams for THIS course. No date = TBA (null), never a
+                    # stand-in date: a TBA final used to land on day 1 of term.
                     for e_item in course_data.get("exams", []):
-                        exam_date = convert_date(e_item.get('exam_date')) or course_start_date
-                        if exam_date:
-                            Exam.objects.create(
-                                user=request.user,
-                                course=current_course,
-                                exam_date=f"{exam_date}T00:00:00Z",
-                                exam_topic=e_item.get("exam_topic", ""),
-                                exam_details=e_item.get("exam_details", "")
-                            )
+                        exam_date = convert_date(e_item.get('exam_date'))
+                        topic = e_item.get("exam_topic") or ""
+                        if not exam_date and not topic.strip():
+                            continue  # a blank row the student added and left
+                        Exam.objects.create(
+                            user=request.user,
+                            course=current_course,
+                            exam_date=f"{exam_date}T00:00:00Z" if exam_date else None,
+                            date_is_estimate=_is_estimate(e_item, exam_date),
+                            exam_topic=topic,
+                            exam_details=e_item.get("exam_details", "")
+                        )
 
                     # Create assignments for THIS course. A weekly recurring
                     # assignment (e.g. homework due each Sunday) has no single
@@ -894,20 +912,151 @@ class CourseFinalizeView(APIView):
                                     assignment_detail=detail,
                                 )
                         else:
-                            due_date = convert_date(a_item.get('assignment_due')) or course_start_date
-                            if due_date:
-                                Assignment.objects.create(
-                                    user=request.user,
-                                    course=current_course,
-                                    assignment_due=f"{due_date}T00:00:00Z",
-                                    assignment_topic=topic,
-                                    assignment_detail=detail,
-                                )
+                            due_date = convert_date(a_item.get('assignment_due'))
+                            if not due_date and not str(topic).strip():
+                                continue
+                            Assignment.objects.create(
+                                user=request.user,
+                                course=current_course,
+                                assignment_due=f"{due_date}T00:00:00Z" if due_date else None,
+                                date_is_estimate=_is_estimate(a_item, due_date),
+                                assignment_topic=topic,
+                                assignment_detail=detail,
+                            )
 
-            return Response({"success": True}, status=status.HTTP_201_CREATED)
+            # The pks let the "ur all set" screen export exactly these classes
+            # to a calendar (CourseCalendarLinkView).
+            return Response(
+                {"success": True, "course_pks": [c.pk for c in created_courses]},
+                status=status.HTTP_201_CREATED,
+            )
         except Exception:
             logger.exception("Error finalizing course")
             return Response({"error": "Failed to finalize course"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+CALENDAR_LINK_SALT = 'calendar-export'
+# Long enough to cover a slow phone between tap and download; short because
+# the link ends up in browser history and access logs.
+CALENDAR_LINK_MAX_AGE = 10 * 60  # seconds
+CALENDAR_EXPORT_KINDS = {"classes": "c", "exams": "e", "assignments": "a"}
+CALENDAR_REMINDER_MINUTES = {0, 10, 15, 30, 60, 24 * 60, 7 * 24 * 60, 14 * 24 * 60}
+
+
+class CourseCalendarLinkView(APIView):
+    """Mint a short-lived link to an .ics of some of the caller's courses.
+
+    Body: {course_pks: [int], tz, include, reminders}. `include` chooses which
+    kinds of course events go in the file; `reminders` holds a valid number of
+    minutes before each kind. The link's signed payload is the download's only
+    credential — see course_calendar_export for why it can't use the JWT.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        pks = request.data.get('course_pks')
+        if (not isinstance(pks, list) or not 0 < len(pks) <= 50
+                or not all(isinstance(pk, int) and not isinstance(pk, bool) for pk in pks)):
+            return Response({"error": "course_pks must be a list of course ids"}, status=status.HTTP_400_BAD_REQUEST)
+        owned = sorted(Course.objects.filter(user=request.user, pk__in=pks).values_list('pk', flat=True))
+        if len(owned) != len(set(pks)):
+            # Same answer for someone else's course as for a missing one.
+            return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        include = request.data.get('include')
+        if include is None:  # Keeps exports made by the existing Add page whole.
+            include = {kind: True for kind in CALENDAR_EXPORT_KINDS}
+        if (not isinstance(include, dict)
+                or any(not isinstance(include.get(kind), bool) for kind in CALENDAR_EXPORT_KINDS)):
+            return Response({"error": "include must select classes, exams and assignments"}, status=status.HTTP_400_BAD_REQUEST)
+        included = "".join(code for kind, code in CALENDAR_EXPORT_KINDS.items() if include[kind])
+        if not included:
+            return Response({"error": "select at least one calendar item type"}, status=status.HTTP_400_BAD_REQUEST)
+
+        reminders = request.data.get('reminders') or {}
+        if not isinstance(reminders, dict):
+            return Response({"error": "reminders must be an object"}, status=status.HTTP_400_BAD_REQUEST)
+        reminder_values = {}
+        for kind in CALENDAR_EXPORT_KINDS:
+            minutes = reminders.get(kind, 0)
+            if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes not in CALENDAR_REMINDER_MINUTES:
+                return Response({"error": "invalid reminder interval"}, status=status.HTTP_400_BAD_REQUEST)
+            reminder_values[kind] = minutes
+
+        tz = resolve_tz(request.data.get('tz'))
+        token = signing.dumps(
+            {'u': request.user.pk, 'c': owned, 'tz': tz.key if tz else '', 'i': included, 'r': reminder_values},
+            salt=CALENDAR_LINK_SALT,
+        )
+        return Response({
+            'url': reverse('course-calendar-export', args=[token]),
+            'expires_in': CALENDAR_LINK_MAX_AGE,
+        })
+
+
+def _plain_text(message, status_code):
+    return HttpResponse(message, status=status_code, content_type='text/plain; charset=utf-8')
+
+
+@require_GET
+def course_calendar_export(request, token):
+    """Serve the .ics behind a link minted by CourseCalendarLinkView.
+
+    The frontend navigates here instead of fetching: iOS only offers "Add to
+    Calendar" for a real response (not an in-page blob), and desktop browsers
+    download text/calendar without leaving the page. A navigation can't send
+    the JWT header, so the signed, expiring token is the credential. A plain
+    Django view, not DRF — there's no JWT to check, and a person reads any
+    error, so errors are plain text.
+    """
+    try:
+        payload = signing.loads(token, salt=CALENDAR_LINK_SALT, max_age=CALENDAR_LINK_MAX_AGE)
+    except signing.SignatureExpired:
+        return _plain_text("this calendar link has expired. go back to timetify and tap the calendar button again.", 410)
+    except signing.BadSignature:
+        return _plain_text("calendar link not found.", 404)
+
+    courses = list(
+        Course.objects.filter(user_id=payload['u'], pk__in=payload['c'])
+        .select_related('parent_course').order_by('pk')
+    )
+    if not courses:  # dropped since the link was made
+        return _plain_text("calendar link not found.", 404)
+
+    included = set(payload.get('i', 'cea'))
+    skip_dates = {}
+    if 'c' in included:
+        for skip in CourseSkip.objects.filter(course__in=courses):
+            skip_dates.setdefault(skip.course_id, []).append(skip.date)
+
+    # Only CourseCalendarLinkView can mint this signed payload. The defensive
+    # checks still make legacy links (which lack reminder settings) harmless.
+    stored_reminders = payload.get('r', {})
+    reminders = {
+        kind: stored_reminders.get(kind, 0)
+        if stored_reminders.get(kind, 0) in CALENDAR_REMINDER_MINUTES else 0
+        for kind in CALENDAR_EXPORT_KINDS
+    }
+
+    # Links inside the events point at the site by the same rule as
+    # build_password_reset_link — never the Cloud Run hostname.
+    site_url = settings.FRONTEND_URL.rstrip('/') if settings.DEBUG else f"https://{settings.CANONICAL_DOMAIN}"
+    ics = build_ics(
+        courses if 'c' in included else [],
+        Exam.objects.filter(course__in=courses).select_related('course').order_by('exam_date', 'pk') if 'e' in included else [],
+        Assignment.objects.filter(course__in=courses).select_related('course').order_by('assignment_due', 'pk') if 'a' in included else [],
+        skip_dates=skip_dates,
+        tz=resolve_tz(payload.get('tz')),
+        site_url=site_url,
+        uid_domain=settings.CANONICAL_DOMAIN,
+        reminders=reminders,
+    )
+    response = HttpResponse(ics, content_type='text/calendar; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{export_filename(courses[0].course_id)}"'
+    # Personal schedule behind a bearer URL: keep it out of every cache.
+    response['Cache-Control'] = 'no-store'
+    return response
+
 
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CourseSerializer

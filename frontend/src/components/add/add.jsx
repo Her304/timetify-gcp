@@ -3,6 +3,7 @@ import { InputFile } from "@/components/base/input/input-file";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { T, FF, MonoLabel, PillBtn, Icon, Star, Blob } from "@/components/shared/brand";
 import { NavIcon } from "@/components/application/app-navigation/nav-icons";
+import CalendarExport from "@/components/add/CalendarExport";
 
 const AnalyzingAd = () => {
     useEffect(() => {
@@ -87,15 +88,16 @@ const fillBlanks = (target, src, keys) => {
 };
 
 // Merge two item lists: for each existing item, find its match in the AI list
-// (by isMatch) and fill blank fillKeys from it; then append unmatched AI items.
-const mergeList = (existingArr, aiArr, isMatch, fillKeys) => {
+// (by isMatch) and fill blank fillKeys from it (then `after`, for rules
+// fillBlanks can't express); then append unmatched AI items.
+const mergeList = (existingArr, aiArr, isMatch, fillKeys, after = (m) => m) => {
     const ai = aiArr || [];
     const used = new Set();
     const out = (existingArr || []).map((item) => {
         const idx = ai.findIndex((a, i) => !used.has(i) && isMatch(a, item));
         if (idx === -1) return item;
         used.add(idx);
-        return fillBlanks(item, ai[idx], fillKeys);
+        return after(fillBlanks(item, ai[idx], fillKeys), ai[idx]);
     });
     ai.forEach((a, i) => { if (!used.has(i)) out.push(a); });
     return out;
@@ -119,16 +121,61 @@ const mergeRefinedCourses = (existing, refined) => {
         merged.exams = mergeList(
             cur.exams, match.exams,
             (a, b) => _norm(a.exam_topic) === _norm(b.exam_topic),
-            ["exam_date", "exam_details"],
+            ["exam_date", "exam_details", "suggested_date", "suggestion_basis"],
+            preferRealDate("exams"),
         );
         merged.assignments = mergeList(
             cur.assignments, match.assignments,
             (a, b) => _norm(a.assignment_topic) === _norm(b.assignment_topic),
-            ["assignment_due", "assignment_detail", "recurrence", "recurrence_weekday"],
+            ["assignment_due", "assignment_detail", "recurrence", "recurrence_weekday", "suggested_date", "suggestion_basis"],
+            preferRealDate("assignments"),
         );
         return merged;
     });
 };
+
+// --- Exams/assignments the outline gives no date for ----------------------
+// These don't block saving. The review page asks "do u have the date?":
+// yes → the student types it (a real date); no → we offer the AI's
+// suggested_date, saved as an estimate (shown in-app, kept out of the
+// calendar export); still no → saved as date TBA (null). `date_mode` is
+// review-page state for where the student is in that question; finalize only
+// reads the date + date_is_estimate.
+const DATE_KEY = { exams: "exam_date", assignments: "assignment_due" };
+const hasText = (v) => v != null && String(v).trim() !== "";
+const isWeekly = (item) => _norm(item.recurrence) === "weekly";
+
+// "confirmed" / "estimate" — has a date; "tba" — answered no all the way;
+// "exact" — said yes, date not typed yet; "suggest" — said no, now deciding
+// on our guess; "ask" — not answered.
+const dateState = (type, item) => {
+    if (hasText(item[DATE_KEY[type]])) return item.date_is_estimate ? "estimate" : "confirmed";
+    return item.date_mode || "ask";
+};
+
+// Undated and not settled yet — what the bulk bar acts on. Weekly
+// assignments are dated by their weekday instead.
+const isUndecided = (type, item) =>
+    !(type === "assignments" && isWeekly(item)) && ["ask", "suggest", "exact"].includes(dateState(type, item));
+
+const withGuess = (type, item) =>
+    ({ ...item, [DATE_KEY[type]]: item.suggested_date, date_is_estimate: true, date_mode: "estimate" });
+
+// "no, i don't have it": our guess if there is one, else straight to TBA.
+const declineExact = (item) => ({ ...item, date_mode: hasText(item.suggested_date) ? "suggest" : "tba" });
+
+// A refine that finds a real date replaces an accepted estimate; a date the
+// student typed is never touched (fillBlanks already skips it).
+const preferRealDate = (type) => (merged, src) =>
+    merged.date_is_estimate && hasText(src[DATE_KEY[type]])
+        ? { ...merged, [DATE_KEY[type]]: src[DATE_KEY[type]], date_is_estimate: false, date_mode: "exact" }
+        : merged;
+
+// Exams/assignments the calendar export will leave out (TBA or estimated).
+const countNotExported = (courses) => courses.reduce((n, c) =>
+    n + (c.exams || []).filter((e) => !hasText(e.exam_date) || e.date_is_estimate).length
+      + (c.assignments || []).filter((a) => !isWeekly(a) && (!hasText(a.assignment_due) || a.date_is_estimate)).length,
+    0);
 
 export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors = {} }) {
     const [formData, setFormData] = useState({
@@ -158,6 +205,12 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     // Populated when finalize returns 400 {error: "overlap", ...}; drives the
     // dedicated conflict screen so the user doesn't have to hunt for a banner.
     const [overlapInfo, setOverlapInfo] = useState(null);
+    // pks of the classes the last finalize created — what the success screen's
+    // calendar export covers.
+    const [savedCoursePks, setSavedCoursePks] = useState([]);
+    // How many of the saved exams/assignments are TBA or estimated — the
+    // calendar export leaves those out and says so.
+    const [savedNotExported, setSavedNotExported] = useState(0);
 
     const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -309,6 +362,8 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         setViewState("analyzing");
         const result = await finalizeCourse(analysisResult.courses);
         if (result && result.success) {
+            setSavedCoursePks(result.data?.course_pks || []);
+            setSavedNotExported(countNotExported(analysisResult.courses));
             setIsSuccess(true);
         } else if (result && result.data && result.data.error === "overlap") {
             setOverlapInfo(result.data);
@@ -328,6 +383,8 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         setSelectedDays([]);
         setOverlapInfo(null);
         setReparseError(null);
+        setSavedCoursePks([]);
+        setSavedNotExported(0);
         setFormData({
             course_name: "",
             course_id: "",
@@ -352,6 +409,33 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         setAnalysisResult(newResult);
     };
 
+    // Merge a patch into one exam/assignment — the date question's answers
+    // set the date, date_is_estimate and date_mode together.
+    const patchItem = (courseIndex, type, itemIndex, patch) => {
+        const newResult = { ...analysisResult };
+        const list = newResult.courses[courseIndex][type];
+        list[itemIndex] = { ...list[itemIndex], ...patch };
+        setAnalysisResult(newResult);
+    };
+
+    // Bulk bar: settle every undated item at once — take each suggestion there
+    // is (items without one stay as they are), or mark them all TBA.
+    const handleBulkDates = (useGuesses) => {
+        const settle = (type) => (item) => {
+            if (!isUndecided(type, item)) return item;
+            if (!useGuesses) return { ...item, date_mode: "tba" };
+            return hasText(item.suggested_date) ? withGuess(type, item) : item;
+        };
+        setAnalysisResult({
+            ...analysisResult,
+            courses: analysisResult.courses.map((c) => ({
+                ...c,
+                exams: (c.exams || []).map(settle("exams")),
+                assignments: (c.assignments || []).map(settle("assignments")),
+            })),
+        });
+    };
+
     const handleRemoveItem = (courseIndex, type, itemIndex) => {
         const newResult = { ...analysisResult };
         newResult.courses[courseIndex][type].splice(itemIndex, 1);
@@ -362,9 +446,11 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         const newResult = { ...analysisResult };
         const newItem = type === 'weeks'
             ? { week_number: newResult.courses[courseIndex].weeks.length + 1, week_topic: "" }
+            // A student-added item wasn't missing from the outline, so skip the
+            // question and show the date field (left blank, it saves as TBA).
             : type === 'exams'
-            ? { exam_topic: "", exam_date: "" }
-            : { assignment_topic: "", assignment_detail: "", assignment_due: "" };
+            ? { exam_topic: "", exam_date: "", date_mode: "exact" }
+            : { assignment_topic: "", assignment_detail: "", assignment_due: "", date_mode: "exact" };
         newResult.courses[courseIndex][type].push(newItem);
         setAnalysisResult(newResult);
     };
@@ -451,6 +537,14 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                         <p className="mt-4 text-base text-ink-60 max-w-sm leading-relaxed">
                             ur schedule&apos;s been updated. head over to see it, or add another class.
                         </p>
+
+                        {fromUpload && savedCoursePks.length > 0 && (
+                            <CalendarExport
+                                coursePks={savedCoursePks}
+                                notExported={savedNotExported}
+                                description="ur classes, exams + due dates from this outline, in the calendar u already use."
+                            />
+                        )}
 
                         <div className="flex flex-col sm:flex-row gap-3 w-full mt-8">
                             <PillBtn
@@ -666,7 +760,110 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
             if (!c.end_date || !String(c.end_date).trim()) out.push("end_date");
             return out;
         });
-        const anyMissing = missingFieldsByCourse.some((m) => m.length > 0);
+        const anyMissingFields = missingFieldsByCourse.some((m) => m.length > 0);
+        // Undated exams/assignments don't block saving (see dateState) — only a
+        // weekly assignment with no weekday does, since finalize can't expand
+        // it into weekly deadlines without one.
+        const weekdayName = (v) => days.find((d) => _norm(d) === _norm(v)) || "";
+        const weekdayMissing = (a) => !weekdayName(a.recurrence_weekday);
+        const anyMissingWeekday = analysisResult.courses.some((c) =>
+            (c.assignments || []).some((a) => isWeekly(a) && weekdayMissing(a)));
+        const anyMissing = anyMissingFields || anyMissingWeekday;
+        const undated = analysisResult.courses.flatMap((c) => [
+            ...(c.exams || []).filter((e) => isUndecided("exams", e)),
+            ...(c.assignments || []).filter((a) => isUndecided("assignments", a)),
+        ]);
+        const guessable = undated.filter((it) => hasText(it.suggested_date)).length;
+
+        const chip = (text, bg) => (
+            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold lowercase" style={{ fontFamily: FF.mono, background: bg, color: T.ink, letterSpacing: 0.4 }}>
+                {text}
+            </span>
+        );
+        const linkBtn = "text-ink-60 hover:text-ink underline lowercase";
+        // The date line of an exam / one-off assignment: `lead` is its label
+        // (calendar icon / "due:"), `extra` the "repeats weekly?" toggle.
+        const renderItemDate = (cIdx, type, idx, item, lead, extra) => {
+            const key = DATE_KEY[type];
+            const state = dateState(type, item);
+            const set = (patch) => patchItem(cIdx, type, idx, patch);
+            const mono = { fontFamily: FF.mono };
+            const row = (children) => (
+                <div className="flex gap-2 text-xs items-center flex-wrap">{lead}{children}</div>
+            );
+            const date = <span style={mono} className="text-ink">{item[key]}</span>;
+            const estChip = chip("est.", T.lilac);
+            const tbaChip = chip("date tba", T.ink08);
+            const guess = hasText(item.suggested_date);
+
+            if (!isEdit) {
+                if (state === "confirmed") return row(date);
+                if (state === "estimate") return row(<>{date}{estChip}</>);
+                return row(<>
+                    {tbaChip}
+                    {state !== "tba" && (
+                        <span className="text-ink-60 lowercase" style={mono}>
+                            not in the outline · {guess ? <>we have a guess, click <b>edit</b> to see it</> : <>click <b>edit</b> if u know it</>}
+                        </span>
+                    )}
+                </>);
+            }
+            if (state === "confirmed" || state === "exact") return row(<>
+                <input type="date" className="border border-ink-15 rounded-full px-2 py-0.5 bg-white" value={item[key] || ""}
+                    onChange={(e) => set({ [key]: e.target.value, date_is_estimate: false, date_mode: "exact" })} />
+                {state === "exact" && (
+                    <button onClick={() => set(declineExact(item))} className={linkBtn}>don&apos;t know it yet</button>
+                )}
+                {extra}
+            </>);
+            if (state === "estimate") return row(<>
+                {date}{estChip}
+                <button onClick={() => set({ [key]: "", date_is_estimate: false, date_mode: "exact" })} className={linkBtn}>i have the exact date</button>
+                <button onClick={() => set({ [key]: "", date_is_estimate: false, date_mode: "tba" })} className={linkBtn}>leave it tba</button>
+                {extra}
+            </>);
+            if (state === "tba") return row(<>
+                {tbaChip}
+                <button onClick={() => set({ date_mode: "exact" })} className={linkBtn}>add a date</button>
+                {guess && (
+                    <button onClick={() => set(withGuess(type, item))} className={linkBtn}>use our guess ({item.suggested_date})</button>
+                )}
+                {extra}
+            </>);
+            // "ask" / "suggest": the question itself.
+            const secondary = { border: `1px solid ${T.ink15}` };
+            return (
+                <div className="rounded-xl bg-white p-3 space-y-2" style={{ border: `1px solid ${T.lilac}` }}>
+                    {state === "ask" ? (
+                        <p className="text-xs text-ink">the outline doesn&apos;t give a date for this. do u have it?</p>
+                    ) : (
+                        <>
+                            <p className="text-xs text-ink">
+                                our best guess: <b style={mono}>{item.suggested_date}</b>
+                                {hasText(item.suggestion_basis) && <span className="text-ink-60"> ({item.suggestion_basis})</span>}. use it?
+                            </p>
+                            <p className="text-[10px] text-ink-60 lowercase" style={mono}>
+                                it&apos;ll show as an estimate and stay out of ur calendar export.
+                            </p>
+                        </>
+                    )}
+                    <div className="flex gap-2 items-center flex-wrap">
+                        {state === "ask" ? (
+                            <>
+                                <PillBtn onClick={() => set({ date_mode: "exact" })} bg={T.ink} fg={T.cream} size="sm">yes, i have it</PillBtn>
+                                <PillBtn onClick={() => set(declineExact(item))} bg="#fff" fg={T.ink} size="sm" style={secondary}>no</PillBtn>
+                            </>
+                        ) : (
+                            <>
+                                <PillBtn onClick={() => set(withGuess(type, item))} bg={T.ink} fg={T.cream} size="sm">use this date</PillBtn>
+                                <PillBtn onClick={() => set({ date_mode: "tba" })} bg="#fff" fg={T.ink} size="sm" style={secondary}>no, leave it tba</PillBtn>
+                            </>
+                        )}
+                        {extra}
+                    </div>
+                </div>
+            );
+        };
         const canReparse = !!selectedFile && (reparseRemaining === null || reparseRemaining > 0);
         return (
             <div className="max-w-4xl mx-auto w-full space-y-8 pb-24">
@@ -721,12 +918,42 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                 <p className="text-xs font-semibold text-coral-dark lowercase mb-1" style={{ fontFamily: FF.mono, letterSpacing: 0.4 }}>
                                     ai couldn't find everything
                                 </p>
-                                <p className="text-xs text-ink leading-relaxed">
-                                    Some required fields are missing (highlighted below). Click <b>edit</b> on the
-                                    affected class to fill them in, or use <b>ask ai to reparse</b> to try again.
-                                    For multi-day classes, list each day separated by commas, e.g.{" "}
-                                    <span style={{ fontFamily: FF.mono }}>Tuesday,Thursday</span>.
+                                {anyMissingFields && (
+                                    <p className="text-xs text-ink leading-relaxed">
+                                        Some required fields are missing (highlighted below). Click <b>edit</b> on the
+                                        affected class to fill them in, or use <b>ask ai to reparse</b> to try again.
+                                        For multi-day classes, list each day separated by commas, e.g.{" "}
+                                        <span style={{ fontFamily: FF.mono }}>Tuesday,Thursday</span>.
+                                    </p>
+                                )}
+                                {anyMissingWeekday && (
+                                    <p className={`text-xs text-ink leading-relaxed ${anyMissingFields ? "mt-1.5" : ""}`}>
+                                        A weekly assignment is missing the day it&apos;s due (highlighted below). Click
+                                        <b> edit</b> and pick the day, or make it a one-off.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                        {undated.length > 0 && (
+                            <div className="mt-3 p-3 rounded-2xl bg-white" style={{ border: `1px solid ${T.lilac}` }}>
+                                <p className="text-xs font-semibold text-ink lowercase mb-1" style={{ fontFamily: FF.mono, letterSpacing: 0.4 }}>
+                                    {undated.length} date{undated.length === 1 ? "" : "s"} not in the outline
                                 </p>
+                                <p className="text-xs text-ink leading-relaxed">
+                                    No problem. Anything you don&apos;t answer is saved as <b>date tba</b>, and you can add
+                                    the date later from the class page. {isEdit ? "Answer each one below" : <>Click <b>edit</b> to answer each one</>},
+                                    use <b>refine with my dates</b> for week-based deadlines, or settle them all at once:
+                                </p>
+                                <div className="flex gap-2 flex-wrap mt-2">
+                                    {guessable > 0 && (
+                                        <PillBtn onClick={() => handleBulkDates(true)} bg={T.ink} fg={T.cream} size="sm">
+                                            use our {guessable} suggested date{guessable === 1 ? "" : "s"}
+                                        </PillBtn>
+                                    )}
+                                    <PillBtn onClick={() => handleBulkDates(false)} bg="#fff" fg={T.ink} size="sm" style={{ border: `1px solid ${T.ink15}` }}>
+                                        leave {undated.length === 1 ? "it" : "them all"} tba
+                                    </PillBtn>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -893,7 +1120,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                 <div key={eIdx} className="bg-cream p-3 rounded-xl border border-ink-8 group">
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
-                                                            <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral bg-transparent" value={exam.exam_topic} onChange={(e) => handleUpdateItem(cIdx, 'exams', eIdx, 'exam_topic', e.target.value)} />
+                                                            <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral bg-transparent" value={exam.exam_topic} placeholder="exam title" onChange={(e) => handleUpdateItem(cIdx, 'exams', eIdx, 'exam_topic', e.target.value)} />
                                                         ) : (
                                                             <span className="font-semibold text-sm text-ink">{exam.exam_topic}</span>
                                                         )}
@@ -903,14 +1130,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                             </button>
                                                         )}
                                                     </div>
-                                                    <div className="flex gap-2 text-xs text-ink-60 items-center">
-                                                        <Icon name="calendar" size={12} color={T.ink60}/>
-                                                        {isEdit ? (
-                                                            <input type="date" className="border border-ink-15 rounded-full px-2 py-0.5 bg-white" value={exam.exam_date} onChange={(e) => handleUpdateItem(cIdx, 'exams', eIdx, 'exam_date', e.target.value)} />
-                                                        ) : (
-                                                            <span style={{ fontFamily: FF.mono }}>{exam.exam_date}</span>
-                                                        )}
-                                                    </div>
+                                                    {renderItemDate(cIdx, "exams", eIdx, exam, <Icon name="calendar" size={12} color={T.ink60}/>)}
                                                 </div>
                                             ))}
                                             {isEdit && course.exams.length === 0 && (
@@ -937,7 +1157,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                 <div key={aIdx} className="bg-cream p-3 rounded-xl border border-ink-8 group">
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
-                                                            <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral w-full bg-transparent" value={assignment.assignment_topic} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_topic', e.target.value)} />
+                                                            <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral w-full bg-transparent" value={assignment.assignment_topic} placeholder="assignment title" onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_topic', e.target.value)} />
                                                         ) : (
                                                             <span className="font-semibold text-sm text-ink">{assignment.assignment_topic}</span>
                                                         )}
@@ -961,27 +1181,33 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                             {isEdit ? (
                                                                 <>
                                                                     <span className="text-ink-60">on</span>
-                                                                    <input className="w-28 px-2 py-0.5 border border-ink-15 rounded-full bg-white" placeholder="Sunday" value={assignment.recurrence_weekday || ""} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence_weekday', e.target.value)} />
+                                                                    {/* A select, not free text: finalize only expands full
+                                                                        weekday names, so a typo like "Sun" would silently
+                                                                        become a single deadline on day 1. */}
+                                                                    <select className={`px-2 py-0.5 border rounded-full bg-white lowercase ${weekdayMissing(assignment) ? "border-coral" : "border-ink-15"}`} value={weekdayName(assignment.recurrence_weekday)} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence_weekday', e.target.value)}>
+                                                                        <option value="">pick a day</option>
+                                                                        {days.map((d) => <option key={d} value={d}>{d.toLowerCase()}</option>)}
+                                                                    </select>
                                                                     <button onClick={() => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence', "")} className="text-ink-60 hover:text-ink underline lowercase">make one-off</button>
                                                                 </>
+                                                            ) : weekdayMissing(assignment) ? (
+                                                                <span className="text-coral-dark lowercase italic" style={{ fontFamily: FF.mono }}>
+                                                                    missing day — click <b>edit</b> to add
+                                                                </span>
                                                             ) : (
                                                                 <span className="text-ink-60 lowercase" style={{ fontFamily: FF.mono }}>
-                                                                    {assignment.recurrence_weekday ? `every ${assignment.recurrence_weekday.toLowerCase()}` : "every week"} · one deadline per week
+                                                                    every {weekdayName(assignment.recurrence_weekday).toLowerCase()} · one deadline per week
                                                                 </span>
                                                             )}
                                                         </div>
                                                     ) : (
-                                                        <div className="flex gap-2 text-xs items-center flex-wrap">
-                                                            <span className="font-semibold text-coral-dark">due:</span>
-                                                            {isEdit ? (
-                                                                <>
-                                                                    <input type="date" className="border border-ink-15 rounded-full px-2 py-0.5 bg-white" value={assignment.assignment_due || ""} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_due', e.target.value)} />
-                                                                    <button onClick={() => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence', "weekly")} className="text-ink-60 hover:text-ink underline lowercase">repeats weekly?</button>
-                                                                </>
-                                                            ) : (
-                                                                <span style={{ fontFamily: FF.mono }} className="text-ink">{assignment.assignment_due}</span>
-                                                            )}
-                                                        </div>
+                                                        renderItemDate(
+                                                            cIdx, "assignments", aIdx, assignment,
+                                                            <span className="font-semibold text-coral-dark">due:</span>,
+                                                            isEdit && (
+                                                                <button onClick={() => handleUpdateItem(cIdx, 'assignments', aIdx, 'recurrence', "weekly")} className={linkBtn}>repeats weekly?</button>
+                                                            ),
+                                                        )
                                                     )}
                                                 </div>
                                             ))}

@@ -33,7 +33,7 @@ export const FAQ_SECTIONS = [
       },
       {
         q: "what if the artificial intelligence makes a mistake?",
-        a: "before anything is saved, you will see a review screen on which every field can be edited. if a date is missing because the syllabus referred only to, for example, “week three”, enter your term start and end dates and select “refine with my dates”; the artificial intelligence will then resolve the missing dates. you are permitted three re-analyses per day.",
+        a: "before anything is saved, you will see a review screen on which every field can be edited. if a date is missing because the syllabus referred only to, for example, “week three”, enter your term start and end dates and select “refine with my dates”; the artificial intelligence will then resolve the missing dates. you are permitted three re-analyses per day. where the syllabus gives no date at all — a final examination not yet scheduled by the registrar, for instance — you will be asked whether you know it; if you do not, timetify may offer an estimated date, which you may accept or decline. either way, the item is saved (as “date tba” or as an estimate), and neither kind is included in the calendar export. as the end of term approaches, timetify will remind you to add any examination dates that are still outstanding.",
       },
       {
         q: "can i edit or drop a class later?",

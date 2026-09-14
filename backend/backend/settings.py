@@ -289,6 +289,8 @@ if DEBUG:
     CORS_ALLOWED_ORIGINS += [
         "http://localhost:3000",
         "http://localhost:5173",
+        # Vite selects the next available port when 5173 is in use.
+        "http://localhost:5174",
     ]
 
 CORS_ALLOW_ALL_ORIGINS = False

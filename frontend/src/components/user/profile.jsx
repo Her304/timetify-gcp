@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
 import { T, FF, MonoLabel, ProfileAvatar, PillBtn, Blob, Star, Icon, Toggle } from "@/components/shared/brand";
-import CourseDetailsModal from "@/components/home/CourseDetailsModal";
+import { CourseCalendarExportModal } from "@/components/add/CalendarExport";
 import FriendDetailsModal from "@/components/user/FriendDetailsModal";
 import AgentAccessSection from "@/components/user/AgentAccessSection";
 
@@ -105,8 +105,7 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
   // the user confirms via the link, so we surface a "check your inbox" banner.
   const [emailNotice, setEmailNotice] = useState(null);
   const [courseFilter, setCourseFilter] = useState("all");
-  // Archive: course-details modal + in-flight remove.
-  const [detailCluster, setDetailCluster] = useState(null);
+  const [calendarCourse, setCalendarCourse] = useState(null);
   const [blocks, setBlocks] = useState([]);
   const [blocksLoading, setBlocksLoading] = useState(false);
   const [unblockingId, setUnblockingId] = useState(null);
@@ -566,26 +565,6 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
     if (!d) return "N/A";
     const [y, m, day] = d.split("-");
     return `${m}/${day}/${y}`;
-  };
-
-  // ── Archive: view details / remove a course ───────────────────────────────
-  // Build a single-entry "cluster" in the shape CourseDetailsModal expects. The
-  // modal re-fetches /api/courses/ and matches on course_id to pull the rich
-  // weeks/exams/assignments, so we only need enough for its header banner.
-  const openCourseDetails = (course) => {
-    setDetailCluster([
-      {
-        courseId: course.course_id,
-        baseCourse: course.course_id,
-        courseName: course.course_name,
-        course: course.course_name,
-        dayKey: (course.rep_date || "").split(",")[0] || "",
-        startStr: course.start_time || "",
-        endStr: course.end_time || "",
-        location: course.classroom || "",
-        owners: [],
-      },
-    ]);
   };
 
   const inputClasses = "w-full px-3 py-2 border border-ink-15 bg-white rounded-full text-sm outline-none focus:ring-2 focus:ring-coral/20 focus:border-coral transition-all";
@@ -1305,8 +1284,16 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => openCourseDetails(course)}
-                      className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase"
+                      onClick={() => setCalendarCourse(course)}
+                      className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase whitespace-nowrap"
+                      style={{ background: "#fff", color: T.ink, border: `1px solid ${T.ink15}` }}
+                    >
+                      export calendar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/class/${encodeURIComponent(course.course_id)}`)}
+                      className="px-2.5 py-1.5 rounded-full text-xs font-semibold lowercase whitespace-nowrap"
                       style={{ background: T.ink, color: "#fff" }}
                     >
                       details
@@ -1444,14 +1431,6 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
         </div>
       )}
 
-      {detailCluster && (
-        <CourseDetailsModal
-          cluster={detailCluster}
-          currentUser={currentUser}
-          onClose={() => setDetailCluster(null)}
-        />
-      )}
-
       {detailFriend && (
         <FriendDetailsModal
           friend={detailFriend}
@@ -1459,6 +1438,13 @@ export const Profile = ({ currentUser, setCurrentUser, Class_details = [], onLog
           onClose={() => setDetailFriend(null)}
           onUnfriend={handleUnfriend}
           onBlock={handleBlockFriend}
+        />
+      )}
+
+      {calendarCourse && (
+        <CourseCalendarExportModal
+          course={calendarCourse}
+          onClose={() => setCalendarCourse(null)}
         />
       )}
     </div>

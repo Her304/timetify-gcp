@@ -11,7 +11,7 @@ Index. Full detail for each topic lives in `CLAUDE/<file>.md` — read the linke
 - [Models (non-obvious)](CLAUDE/models.md) — field semantics on CustomUser, Snap, Message, Event, etc.
 - [Availability & Study Coordination](CLAUDE/availability-study-coordination.md) — free/busy computation and endpoints.
 - [Events](CLAUDE/events.md) — event CRUD, RSVP, chat slash-command creation, conflict resolution, skips.
-- [AI course parse](CLAUDE/ai-course-parse.md) — PDF/docx parsing, reparse/refine-with-dates, recurring assignments, editing saved courses, add-page layout.
+- [AI course parse](CLAUDE/ai-course-parse.md) — PDF/docx parsing, reparse/refine-with-dates, recurring assignments, editing saved courses, add-page layout, calendar (.ics) export.
 - [Static Pages / Content Voice](CLAUDE/static-pages.md) — about/help/community/terms/privacy voice differences, help-page FAQ structure and screenshot slots.
 - [SEO](CLAUDE/seo.md) — shared seo/config.js, build-time prerendered heads, Django sitemap, nginx canonical-host/404 rules, font + code-splitting constraints.
 - [AI-Agent Bridge (MCP)](CLAUDE/agent-mcp.md) — `/mcp/v1/` server, agent access tokens, scopes, two-step confirm on write tools.
