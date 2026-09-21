@@ -1,0 +1,12 @@
+# Keeps the Cloud Run image small: Dockerfile does `COPY backend/ .`, so
+# anything here that is on disk would otherwise ship inside the container.
+.venv/
+venv/
+__pycache__/
+*.pyc
+cloud-sql-proxy
+.env
+.env.*
+media/
+db.sqlite3
+*.sqlite3

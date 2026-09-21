@@ -1,33 +1,48 @@
 # .gitignore
-*.sqlite3
+# Python virtualenvs — never commit these; a committed venv once cost
+# this repo ~18,000 junk files (removed from history with git-filter-repo).
+.venv/
+venv/
+**/.venv/
+**/venv/
+
+# Bytecode and caches
 __pycache__/
 *.pyc
+
+# OS / editor noise
+.DS_Store
+.claude
+
+# Local Cloud SQL Auth Proxy binary (machine-specific, ~32MB)
+cloud-sql-proxy
+
+# Local-only notes and scripts (see CLAUDE.md). Deliberately root-scoped:
+# backend/main/tests/ holds the COMMITTED test suite — don't ignore that.
+/start_local.md
+/sortie.md
+/new_plan.md
+/test.md
+/migrate.md
+/legal_attention.md
+/swift.md
+/security.md
+/club.md
+/test_*.py
+/poc_*.py
+
+# Local data & generated output
+*.sqlite3
+db.sqlite3
+backend/media/
+
+# Frontend build artifacts
 frontend/.vite/
 frontend/node_modules/
+frontend/dist/
+
+# Secrets
 .env
 .env.*
 .env.local
 !frontend/.env.production
-venv/
-.DS_Store
-db.sqlite3
-
-backend/.venv/
-.venv/
-node_modules/
-.DS_Store
-start_local.md
-backend/media/
-new_plan.md
-test.md
-migrate.md
-legal_attention.md
-swift.md
-security.md
-.claude
-sortie.md
-# Test scripts and one-off PoC/exploit scripts stay local — see CLAUDE.md.
-test_*.py
-poc_*.py
-docs
-club.md

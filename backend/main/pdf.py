@@ -373,10 +373,6 @@ def _process_with_spur(extraction_prompt: str, file_path: str) -> dict:
 
 
 def process_course_outline(file_path: str, model: str = "gpt-5-mini", user_context: dict = None) -> dict:
-    # Reload env so the API key survives `manage.py runserver` autoreloads.
-    _load_env()
-    client = OpenAI()
-
     extraction_prompt = EXTRACTION_PROMPT
     if user_context and user_context.get("start_date"):
         extraction_prompt = EXTRACTION_PROMPT + "\n\n" + _refine_section(user_context)
@@ -386,6 +382,10 @@ def process_course_outline(file_path: str, model: str = "gpt-5-mini", user_conte
         return _process_with_spur(extraction_prompt, file_path)
     if provider != "openai":
         raise ValueError("COURSE_PARSER_PROVIDER must be 'openai' or 'spur'.")
+
+    # Constructed only on the OpenAI path: a spur-configured deployment
+    # must not need an OpenAI key to exist (OpenAI() raises without one).
+    client = OpenAI()
 
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".pdf":
