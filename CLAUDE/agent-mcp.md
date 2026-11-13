@@ -83,7 +83,7 @@ Timetify is **not in any connector registry**, and does not need to be — regis
 
 ## Local dev writes to the production database
 
-`.env` sets `DB_PORT=5433`, which is the Cloud SQL Auth Proxy (`./cloud-sql-proxy --port 5433 timetify-prod:us-central1:timetify-gcp-v2`), so **`manage.py runserver` on a laptop reads and writes production data.** The Homebrew Postgres on `5432` is not used by the app. Consequences worth internalising before running anything:
+`.env` sets `DB_PORT=5433`, which is the Cloud SQL Auth Proxy (`./cloud-sql-proxy --port 5433 timetify-prod:us-central1:timetify-gcp-v2`), so **`manage.py runserver` on a laptop reads and writes production data.** Since the Neon cutover (see [Deploy / Infra](deploy-infra.md)) that proxy reaches the *retired* Cloud SQL copy instead; a `DATABASE_URL` in `.env` takes precedence and puts the laptop back on production (Neon) — everything below applies to it equally. The Homebrew Postgres on `5432` is not used by the app. Consequences worth internalising before running anything:
 
 - A token minted against `127.0.0.1:8000` is **live on the public endpoint immediately** — dev tokens are production credentials, and leaking one is a real leak.
 - `manage.py migrate` from a laptop migrates production. `0032` / `0033` were applied this way; they must be applied **before** the backend deploy or every `/api/agent-tokens/` request 500s on `relation "main_agentaccesstoken" does not exist`.

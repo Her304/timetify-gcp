@@ -44,7 +44,7 @@ from django.utils import timezone
 from .models import (
     Report, AiReport, Appeal, SimilarityCheck,
     FunctionRestriction, UserBlock,
-    Snap, Message,
+    Snap, Message, BackendLog,
 )
 from .moderation_email import (
     email_v1_to_reporter, email_v1_to_reported,
@@ -695,6 +695,24 @@ def deactivate_expired_restrictions() -> int:
     return expired.update(is_active=False)
 
 
+BACKEND_LOG_RETENTION_DAYS = 30
+
+
+def purge_backend_logs() -> int:
+    """Delete `BackendLog` rows older than `BACKEND_LOG_RETENTION_DAYS`.
+
+    `DatabaseLogHandler` writes every INFO+ record from the `main` logger into
+    Postgres and nothing else ever removes them, so without this the table is
+    the one that grows without bound — and on Neon's free plan, crossing the
+    per-project storage cap blocks *all* writes, not just log writes. The same
+    lines also go to the console handler (Cloud Run logs), so older history is
+    not lost by trimming the database copy.
+    """
+    cutoff = timezone.now() - timedelta(days=BACKEND_LOG_RETENTION_DAYS)
+    deleted, _ = BackendLog.objects.filter(timestamp__lt=cutoff).delete()
+    return deleted
+
+
 def run_moderation_tick() -> dict:
     """One cron pass. Picks up actionable reports in batches, runs each
     through the appropriate handler, swallows per-report exceptions so a
@@ -702,7 +720,7 @@ def run_moderation_tick() -> dict:
     summary = {
         'pending': 0, 'appeal_pending': 0, 'third_loop': 0,
         'snap_media_purged': 0, 'restrictions_expired': 0,
-        'oauth_rows_purged': 0,
+        'oauth_rows_purged': 0, 'backend_logs_purged': 0,
         'errors': 0,
     }
 
@@ -747,6 +765,12 @@ def run_moderation_tick() -> dict:
         summary['oauth_rows_purged'] = purge_expired()
     except Exception:
         logger.exception("moderation: oauth purge failed")
+        summary['errors'] += 1
+
+    try:
+        summary['backend_logs_purged'] = purge_backend_logs()
+    except Exception:
+        logger.exception("moderation: backend log purge failed")
         summary['errors'] += 1
 
     return summary

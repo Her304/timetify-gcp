@@ -1,6 +1,17 @@
 # Deploy / Infra
 
-GCS media when `GS_BUCKET_NAME` set; local `MEDIA_ROOT` otherwise. Cloud Run FS is ephemeral. Dockerfile: `migrate --noinput && exec gunicorn` (`exec` so signals reach gunicorn). `CONN_MAX_AGE=0`, gunicorn `--threads 2`. Moderation cron: Cloud Scheduler `*/10 * * * *` → `POST /api/admin/run-moderation/` with `X-Moderation-Secret`.
+GCS media when `GS_BUCKET_NAME` set; local `MEDIA_ROOT` otherwise. Cloud Run FS is ephemeral. Dockerfile: `migrate --noinput && exec gunicorn` (`exec` so signals reach gunicorn). `CONN_MAX_AGE=0`, gunicorn `--threads 2`. Moderation cron: Cloud Scheduler job `timetify` (`*/30 * * * *`, America/Toronto) → `POST /api/admin/run-moderation/` with `X-Moderation-Secret`. The tick also does housekeeping: snap-media purge, restriction expiry, OAuth row purge, and `BackendLog` rows older than 30 days.
+
+## Database: Neon, not Cloud SQL
+
+Production Postgres is **Neon** (project `timetify`, AWS `us-east-2`, Postgres 18, Free plan), cut over from Cloud SQL `timetify-prod:us-central1:timetify-gcp-v2` in Nov 2026. `settings.py` checks `DATABASE_URL` **first** — it wins over `INSTANCE_CONNECTION_NAME` and the `DB_*` vars — so a missing/renamed `DATABASE_URL` secret silently falls back to Cloud SQL rather than failing. The Cloud Run service reads it from Secret Manager secret `DATABASE_URL` (the **pooled** `-pooler` host; `ssl_require=True`, `CONN_MAX_AGE=0` because the pooler is PgBouncer transaction mode). Use the **direct** (non-pooler) host for `pg_dump`/`pg_restore` and ad-hoc admin work.
+
+Free-plan limits drive two choices that look arbitrary otherwise:
+
+- **The cron is every 30 min, not 10.** Neon suspends compute after 5 idle min, and the plan has 100 CU-hours/project/month; going over **suspends the database until the next month** (site down). A 10-min cron alone kept compute awake ~50% of the time (~90 CU-hours). Shortening the interval again re-creates that — check usage in the Neon console first.
+- **Compute is pinned at 0.25 CU (min = max).** Autoscaling up to 2 CU would burn the CU-hour budget 8× faster during a spike.
+
+Storage is not the constraint (1 GB/project; the DB was 15 MB at cutover, `main_backendlog` the largest table — hence its 30-day retention). Over the storage cap, Neon **blocks writes**; nothing is deleted.
 
 **Two Cloud Run services.** Backend (`timetify-web-…`) is Django/gunicorn; frontend (`timetify-gcp-frontend-…`) is nginx serving the Vite build. `VITE_API_URL` comes from the tracked `frontend/.env.production`, not a build arg.
 

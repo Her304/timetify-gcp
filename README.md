@@ -31,7 +31,7 @@ https://github.com/Her304/timetify-gcp/raw/main/frontend/public/help/event-from-
 - **Security-hardened authentication**: JWT with default-deny permissions, anti-enumeration login and password reset, spoof-resistant rate limiting keyed on proxy-verified client IPs, case-insensitive identity with database-level unique constraints
 - **Post-pentest hardening**: dependency pins raised after an August 2026 penetration test; private GCS media bucket with IAM-signed expiring URLs; Django admin moved off `/admin/`
 - **A real OAuth 2.1 authorization server** (PKCE, S256 only, dynamic client registration, RFC 8414/9728 discovery) powering the MCP endpoint — hand-rolled on plain Django/WSGI, no SDK
-- **Two-service Cloud Run deployment**: nginx serving a prerendered Vite build + gunicorn/Django behind it, Cloud SQL Postgres, Cloud Scheduler moderation cron, Sentry on both sides
+- **Two-service Cloud Run deployment**: nginx serving a prerendered Vite build + gunicorn/Django behind it, Neon Postgres, Cloud Scheduler moderation cron, Sentry on both sides
 
 ## Architecture
 
@@ -43,12 +43,12 @@ flowchart LR
     subgraph gcp[Google Cloud]
         FE["Cloud Run: nginx<br/>static Vite build<br/>+ prerendered SEO heads"]
         BE["Cloud Run: Django 6 + DRF<br/>gunicorn, 2 workers / 2 threads"]
-        DB[("Cloud SQL<br/>PostgreSQL")]
+        CRON["Cloud Scheduler<br/>every 30 min"]
         GCS[("GCS media<br/>private bucket,<br/>signed expiring URLs")]
-        CRON["Cloud Scheduler<br/>every 10 min"]
         AI["OpenAI API<br/>gpt-5-mini<br/>structured output"]
         MAIL["Resend<br/>via Anymail"]
     end
+    DB[("Neon<br/>PostgreSQL 18")]
     AGENT["MCP client<br/>Claude / ChatGPT / scripts"]
 
     SPA -->|https://timetify.net| FE
@@ -107,7 +107,7 @@ cd backend
 DEBUG=True BACK_SENTRY_DSN= python manage.py test main.tests --settings=backend.test_settings
 ```
 
-38 tests covering: the parser's validation boundary (range/TBD rejection, nulls vs labelled guesses, recurring items, provider failure paths), authentication (registration, case-insensitive login, JWT access control, cross-user isolation), the anti-enumeration password-reset flow, and throttling (limits firing, X-Forwarded-For spoof resistance). The suite runs offline against in-memory SQLite — no API keys, no Postgres, no email.
+39 tests covering: the parser's validation boundary (range/TBD rejection, nulls vs labelled guesses, recurring items, provider failure paths), authentication (registration, case-insensitive login, JWT access control, cross-user isolation), the anti-enumeration password-reset flow, and throttling (limits firing, X-Forwarded-For spoof resistance). The suite runs offline against in-memory SQLite — no API keys, no Postgres, no email.
 
 CI (`.github/workflows/ci.yml`) runs the backend suite and a frontend production build on every push and PR.
 
@@ -129,7 +129,7 @@ OPENAI_API_KEY=sk-...        # only needed for syllabus parsing
 Resend_API_KEY=re_...
 ```
 
-The app expects a PostgreSQL on `127.0.0.1:5432` (override with `DB_*` env vars, or `INSTANCE_CONNECTION_NAME` for Cloud SQL). Then:
+The app expects a PostgreSQL on `127.0.0.1:5432` (override with `DB_*` env vars, or a `DATABASE_URL` connection string — production uses one pointing at Neon). Then:
 
 ```bash
 python manage.py migrate
@@ -150,7 +150,7 @@ npm run dev      # http://localhost:5173
 - **Group chats**: direct messages only today; group chats and study spaces are on the roadmap.
 - **Test coverage is backend-core only**: the MCP/OAuth layer and the whole frontend are not yet covered by automated tests, and the frontend linter currently reports ~24 pre-existing errors. Both are next up.
 - **Single-region, single-language**: deployed in `us-central1`, English-only documents and UI.
-- **Moderation is heuristic + cron**: the pipeline runs every 10 minutes via Cloud Scheduler, not in real time.
+- **Moderation is heuristic + cron**: the pipeline runs every 30 minutes via Cloud Scheduler, not in real time.
 
 ## License
 

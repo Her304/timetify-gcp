@@ -167,8 +167,23 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-if os.environ.get("INSTANCE_CONNECTION_NAME"):
-    host = f"/cloudsql/{os.environ.get('INSTANCE_CONNECTION_NAME')}"
+if os.environ.get("DATABASE_URL"):
+    # Neon (or any hosted Postgres). Checked first so the Cloud SQL -> Neon
+    # cutover is an env-var change on the Cloud Run service, not a code deploy.
+    # Neon refuses non-TLS connections, so ssl_require guarantees
+    # sslmode=require even if the URL omits it. CONN_MAX_AGE=0 pairs with
+    # Neon's pooled (PgBouncer, transaction-mode) endpoint: persistent Django
+    # connections would hold pooler slots open and keep the compute from
+    # scaling to zero.
+    DATABASES = {
+        "default": dj_database_url.parse(
+            os.environ["DATABASE_URL"],
+            conn_max_age=0,
+            ssl_require=True,
+        )
+    }
+elif os.environ.get("INSTANCE_CONNECTION_NAME"):
+    host =f"/cloudsql/{os.environ.get('INSTANCE_CONNECTION_NAME')}"
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
