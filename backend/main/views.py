@@ -3063,7 +3063,13 @@ class AdminRunModerationView(APIView):
     """POST /api/admin/run-moderation/ — Cloud Scheduler trigger.
        Authenticates via the `X-Moderation-Secret` header against
        settings.MODERATION_RUN_SECRET. The endpoint runs the same code as the
-       `run_moderation` management command so it can be invoked either way."""
+       `run_moderation` management command so it can be invoked either way.
+
+       `authentication_classes = []` is load-bearing: the Scheduler job attaches
+       a Google OIDC token as `Authorization: Bearer …`, and the default
+       JWTAuthentication rejects any Bearer it didn't mint with a 401 *before*
+       permissions or this view run. The secret header is the only auth here."""
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):

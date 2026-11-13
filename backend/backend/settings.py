@@ -395,6 +395,10 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "onboarding@resend.dev
 MODERATION_FROM_EMAIL = os.environ.get("MODERATION_FROM_EMAIL") or DEFAULT_FROM_EMAIL
 WELCOME_FROM_EMAIL = os.environ.get("WELCOME_FROM_EMAIL") or "hello@timetify.net"
 MODERATION_ADMIN_EMAIL = os.environ.get("MODERATION_ADMIN_EMAIL")
+# Shared secret Cloud Scheduler sends as X-Moderation-Secret. AdminRunModerationView
+# reads it from settings, not the environment — without this line the endpoint
+# answers 503 moderation_disabled no matter what the Cloud Run env holds.
+MODERATION_RUN_SECRET = os.environ.get("MODERATION_RUN_SECRET")
 PASSWORD_RESET_TIMEOUT = 86400
 
 CSRF_TRUSTED_ORIGINS = [
