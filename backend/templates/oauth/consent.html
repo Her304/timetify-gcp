@@ -5,6 +5,29 @@
 {% block content %}
 <div class="page">
   <div class="card">
+    {% if first_party %}
+    {% comment %} Timetify's own LMS sync extension, recognised by its exact
+       chromiumapp.org redirect (mcp/oauth.py `_first_party`), not by the name
+       it registered with. Nothing to warn about, so the copy just says what
+       happens. {% endcomment %}
+    <div class="center" style="margin-bottom:1.75rem">
+      <div class="eyebrow">timetify sync</div>
+      <h1 class="title lower">connect ur lms to timetify?</h1>
+      <p class="muted lower">
+        signed in as <span class="strong">{{ request.user.username }}</span>
+      </p>
+    </div>
+    <div class="panel" style="margin-bottom:1.25rem">
+      <ul class="scopes">
+        <li><span class="scope-dot"></span><span class="scope-label">sends ur courses, outlines + due dates from mylearningspace</span></li>
+        <li><span class="scope-dot"></span><span class="scope-label">nothing's saved until u review it on timetify</span></li>
+        <li><span class="scope-dot"></span><span class="scope-label">can't see ur grades, messages or friends</span></li>
+      </ul>
+    </div>
+    <p class="fine lower" style="margin-bottom:1.25rem">
+      u only do this once. disconnect any time in settings → connected apps.
+    </p>
+    {% else %}
 
     <div class="center" style="margin-bottom:1.75rem">
       <div class="eyebrow">authorize</div>
@@ -52,6 +75,7 @@
       creates has to be confirmed first. you can disconnect it any time from
       settings.
     </p>
+    {% endif %}
 
     <div class="btn-row">
       <form method="post">
@@ -60,7 +84,7 @@
         <input type="hidden" name="{{ key }}" value="{{ value }}">
         {% endfor %}
         <input type="hidden" name="action" value="deny">
-        <button type="submit" class="btn btn--ghost">cancel</button>
+        <button type="submit" class="btn btn--ghost">{% if first_party %}not now{% else %}cancel{% endif %}</button>
       </form>
 
       <form method="post">
@@ -69,7 +93,7 @@
         <input type="hidden" name="{{ key }}" value="{{ value }}">
         {% endfor %}
         <input type="hidden" name="action" value="approve">
-        <button type="submit" class="btn btn--primary">allow</button>
+        <button type="submit" class="btn btn--primary">{% if first_party %}connect{% else %}allow{% endif %}</button>
       </form>
     </div>
   </div>

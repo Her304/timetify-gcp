@@ -1,6 +1,8 @@
 # AI course parse (`backend/main/pdf.py`)
 
-- Provider is configured by `COURSE_PARSER_PROVIDER`: production uses Spur `spur-glm-5-2` (table-aware text extraction, with reasoning disabled); set it to `openai` to use `gpt-5-mini` and native OpenAI PDF Files. `.docx` uses pdfplumber/python-docx extraction.
+- Provider is configured by `COURSE_PARSER_PROVIDER`: production uses Spur `spur-glm-5-3` (table-aware text extraction); set it to `openai` to use `gpt-5-mini` and native OpenAI PDF Files. `.docx` uses python-docx, walked in document order so **tables are included** (`Document.paragraphs` alone skips them, and Word syllabi keep schedules + due dates in tables).
+- **Spur reasoning must be `"low"`, not `"none"`.** Spur's GLM doesn't recognise `"none"` (or `thinking: disabled` / `enable_thinking: false`) and reasons at full effort; on a real outline that spent the whole `max_tokens` budget and returned empty content, so every upload failed. `max_tokens` (12000) covers reasoning + answer. Empty content now raises a clear error and logs `spur.empty_completion`.
+- Model choice (2026-11-16 bake-off, 6 synthetic outlines × 2–3 runs, prod request settings): `spur-glm-5-3` and `spur-deepseek-v4` both 106/108 checks; `spur-glm-5-2` 98/108 + one invalid answer, and no longer in Spur's model list. Both new models sometimes collapse multiple lab sections into none; GLM-5.3 once put a computed "week 7" date into the real `exam_date` field (DeepSeek's miss left a date null). Chose GLM-5.3 (cheaper, ~$0.002/outline).
 - Schema returns `None` for unstated fields — never fabricate. Dates are `datetime.date`.
 - **Reparse cap** = 3 / 24 h / user. Set `is_reparse=true` on `/api/courses/analyze/`; first free. Response carries `reparse_remaining`.
 - **Add page** (`components/add/add.jsx`): overlap finalize returns `{error:"overlap", a, b, day}` → dedicated conflict screen.

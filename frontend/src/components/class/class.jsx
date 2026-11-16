@@ -3,6 +3,18 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { authenticatedFetch } from "../../utils/api";
 import { T, FF, MonoLabel, Icon, PillBtn } from "@/components/shared/brand";
 
+
+// "open in myls ↗" on deadlines that came from the LMS sync. lms_url is set
+// only server-side (main/lms.py item_url, read-only in the API); the https
+// check is belt and braces before it becomes an href.
+const MylsLink = ({ url }) =>
+  url && /^https:\/\//.test(url) ? (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+       className="inline-block text-xs text-ink-60 hover:text-ink underline lowercase mt-1">
+      open in myls ↗
+    </a>
+  ) : null;
+
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const editInputCls = "w-full px-3 py-2 text-sm rounded-xl border border-ink-15 bg-cream focus:outline-none focus:border-coral";
@@ -543,6 +555,7 @@ export const ClassDetails = ({ Class_details = [] }) => {
                                 <p className="text-sm font-semibold text-ink">{e.exam_topic}</p>
                                 <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>exam · {itemDateText(e.exam_date, e.date_is_estimate)}</p>
                                 {e.exam_details && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{e.exam_details}</p>}
+                                <MylsLink url={e.lms_url}/>
                               </div>
                             </div>
                           ))}
@@ -555,6 +568,7 @@ export const ClassDetails = ({ Class_details = [] }) => {
                                 <p className="text-sm font-semibold text-ink">{a.assignment_topic}</p>
                                 <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>due {itemDateText(a.assignment_due, a.date_is_estimate)}</p>
                                 {a.assignment_detail && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{a.assignment_detail}</p>}
+                                <MylsLink url={a.lms_url}/>
                               </div>
                             </div>
                           ))}
@@ -576,6 +590,7 @@ export const ClassDetails = ({ Class_details = [] }) => {
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-ink">{a.assignment_topic}</p>
                                 {a.assignment_detail && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{a.assignment_detail}</p>}
+                                <MylsLink url={a.lms_url}/>
                               </div>
                               <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{itemDateText(a.assignment_due, a.date_is_estimate)}</p>
                             </div>
@@ -594,6 +609,7 @@ export const ClassDetails = ({ Class_details = [] }) => {
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-ink">{e.exam_topic}</p>
                                 {e.exam_details && <p className="text-xs text-ink-60 mt-1 whitespace-pre-wrap">{e.exam_details}</p>}
+                                <MylsLink url={e.lms_url}/>
                               </div>
                               <p className="text-xs text-ink-60" style={{ fontFamily: FF.mono }}>{itemDateText(e.exam_date, e.date_is_estimate)}</p>
                             </div>

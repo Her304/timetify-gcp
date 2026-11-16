@@ -372,7 +372,9 @@ class ExamSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exam
         fields = '__all__'
-        read_only_fields = ['id', 'user']
+        # The LMS link/id are set only by the LMS sync (main/lms.py); the class
+        # page renders lms_url as a link, so it must never be client-writable.
+        read_only_fields = ['id', 'user', 'lms_external_id', 'lms_url']
 
     def validate_course(self, value):
         return validate_owned_course(self, value)
@@ -381,7 +383,9 @@ class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = '__all__'
-        read_only_fields = ['id', 'user']
+        # The LMS link/id are set only by the LMS sync (main/lms.py); the class
+        # page renders lms_url as a link, so it must never be client-writable.
+        read_only_fields = ['id', 'user', 'lms_external_id', 'lms_url']
 
     def validate_course(self, value):
         return validate_owned_course(self, value)

@@ -13,11 +13,19 @@
 
     <div class="center" style="margin-bottom:1.75rem">
       <div class="eyebrow">timetify</div>
+      {% if first_party %}
+      <h1 class="title lower">connect timetify sync</h1>
+      <p class="muted lower">
+        sign in once so the extension can send ur courses here for u to review.
+        this window closes by itself after.
+      </p>
+      {% else %}
       <h1 class="title lower">sign in to continue</h1>
       <p class="muted lower">
         <span class="strong">{{ client.name|default:"an ai agent" }}</span>
         wants to connect to your timetify account.
       </p>
+      {% endif %}
     </div>
 
     {% if error %}

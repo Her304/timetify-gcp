@@ -16,6 +16,10 @@ UNREAD_READ      = 'unread:read'
 FRIENDS_READ     = 'friends:read'
 SCHEDULE_WRITE   = 'schedule:write'
 EVENTS_WRITE     = 'events:write'
+# Not an MCP tool scope: it lets the LMS sync extension stage an import for
+# the user to review (main/lms.py). No tool in mcp/tools.py is keyed on it, so
+# a token holding only this scope sees an empty tools/list.
+COURSES_IMPORT   = 'courses:import'
 
 VALID = frozenset({
     SCHEDULE_READ,
@@ -24,6 +28,7 @@ VALID = frozenset({
     FRIENDS_READ,
     SCHEDULE_WRITE,
     EVENTS_WRITE,
+    COURSES_IMPORT,
 })
 
 # Offered by default when a user mints a token from Settings. Write scopes are
@@ -31,7 +36,7 @@ VALID = frozenset({
 # be a deliberate act, not a default the user clicks past.
 DEFAULT = (SCHEDULE_READ, AVAILABILITY_READ)
 
-WRITE_SCOPES = frozenset({SCHEDULE_WRITE, EVENTS_WRITE})
+WRITE_SCOPES = frozenset({SCHEDULE_WRITE, EVENTS_WRITE, COURSES_IMPORT})
 
 # Shown next to each checkbox in the Settings card; keep in the app's low-caps
 # voice since these strings render directly.
@@ -42,6 +47,7 @@ DESCRIPTIONS = {
     FRIENDS_READ:      "find free time you share with friends",
     SCHEDULE_WRITE:    "add classes to your timetable",
     EVENTS_WRITE:      "add events to your calendar",
+    COURSES_IMPORT:    "send courses and deadlines from your school's lms for you to review",
 }
 
 

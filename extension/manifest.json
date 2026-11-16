@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Timetify LMS Sync",
+  "version": "0.1.0",
+  "description": "Send your MyLearningSpace (D2L) courses, outlines, due dates and official exam schedule to Timetify to review.",
+  "permissions": [
+    "identity",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://mylearningspace.wlu.ca/*",
+    "https://students.wlu.ca/*",
+    "https://timetify.net/*",
+    "https://timetify-web-931972332433.us-central1.run.app/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://mylearningspace.wlu.ca/d2l/home*"
+      ],
+      "js": [
+        "d2l.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://students.wlu.ca/academics/exams/assets/resources/*",
+        "https://students.wlu.ca/404/*"
+      ],
+      "js": [
+        "exams.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Timetify LMS Sync"
+  }
+}

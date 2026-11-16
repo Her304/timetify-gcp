@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from datetime import time
 
 from django.db import models
@@ -89,6 +90,10 @@ class Course(models.Model):
     has_ai_content = models.BooleanField(default=False)
     parent_course = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='child_courses')
     is_lab = models.BooleanField(default=False)
+    # Set when the course came from an LMS sync (see main/lms.py), e.g.
+    # "d2l:mylearningspace.wlu.ca:652047". Re-syncing matches on it so a
+    # second run updates rather than duplicates. Blank for everything else.
+    lms_external_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     
     def __str__(self):
         return f"{self.course_id} - {self.course_name}"
@@ -117,6 +122,11 @@ class Exam(models.Model):
     exam_topic = models.CharField(max_length=200)
     exam_details = models.TextField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
+    # Same as Course.lms_external_id: the LMS's own id for this deadline.
+    lms_external_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    # Link to the item's own page in the LMS ("open in MyLS"). Built server-side
+    # from the import's host + ids (main/lms.py `item_url`), never taken from a client.
+    lms_url = models.CharField(max_length=500, blank=True, default='')
     
     def __str__(self):
         return f"{self.exam_topic} - {self.course.course_id}"
@@ -131,6 +141,11 @@ class Assignment(models.Model):
     assignment_topic = models.CharField(max_length=200)
     assignment_detail = models.TextField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
+    # Same as Course.lms_external_id: the LMS's own id for this deadline.
+    lms_external_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    # Link to the item's own page in the LMS ("open in MyLS"). Built server-side
+    # from the import's host + ids (main/lms.py `item_url`), never taken from a client.
+    lms_url = models.CharField(max_length=500, blank=True, default='')
     
     def __str__(self):
         return f"{self.assignment_topic} - {self.course.course_id}"
@@ -896,3 +911,41 @@ class AgentPendingWrite(models.Model):
 
     def __str__(self):
         return f"PendingWrite {self.tool} · {self.user.username}"
+
+# ---------------------------------------------------------------------------
+# LMS sync (browser extension). See main/lms.py and CLAUDE/lms-sync.md.
+# ---------------------------------------------------------------------------
+
+class LmsImport(models.Model):
+    """A staged import from a student's LMS, waiting for them to review it.
+
+    The extension writes it (OAuth, `courses:import`); the student reviews and
+    saves it from the SPA (JWT). Nothing lands on their timetable until that
+    second step, the same contract as a PDF upload.
+
+    `payload` is what the extension read from the LMS (courses + dated items).
+    `outlines` maps an LMS course id to the parser's output for that course's
+    outline file, stored JSON-safe (dates as ISO strings).
+    """
+    id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user       = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='lms_imports')
+    client     = models.ForeignKey('OAuthClient', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='lms_imports')
+    source     = models.CharField(max_length=20)
+    host       = models.CharField(max_length=255)
+    payload    = models.JSONField(default=dict)
+    outlines   = models.JSONField(default=dict)
+    # LLM parses spent on this import; summed per user for the daily cap.
+    outline_parses = models.PositiveSmallIntegerField(default=0)
+    # The reconciler's decisions per LMS course id (main/lms_reconcile.py):
+    # which outline items merge into / are superseded by LMS items, and which
+    # LMS items look like placeholders.
+    reconciled = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'created_at'])]
+
+    def __str__(self):
+        return f"LmsImport {self.source}:{self.host} · {self.user.username}"

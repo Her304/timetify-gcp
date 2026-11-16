@@ -561,6 +561,54 @@ def _reparse_count_remaining(user):
     return max(0, REPARSE_DAILY_LIMIT - used)
 
 
+def outline_upload_error(file_obj):
+    """Reject an outline upload that isn't a PDF/DOCX under the size cap, as
+    the Response to send back; None when it's acceptable.
+
+    Shared by the Add page's analyze and the LMS import's outline upload
+    (main/lms.py) so both accept exactly the same files.
+    """
+    if file_obj.size > MAX_UPLOAD_SIZE:
+        return Response(
+            {"error": "File too large. Maximum size is 5 MB."},
+            status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+
+    ext = os.path.splitext(file_obj.name)[1].lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        return Response(
+            {"error": "Unsupported file type. Upload a PDF or DOCX."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if file_obj.content_type and file_obj.content_type not in ALLOWED_UPLOAD_CONTENT_TYPES:
+        return Response(
+            {"error": "Unsupported file type. Upload a PDF or DOCX."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    head = file_obj.read(4)
+    file_obj.seek(0)
+    if ext == ".pdf" and not head.startswith(PDF_MAGIC):
+        return Response({"error": "File is not a valid PDF."}, status=status.HTTP_400_BAD_REQUEST)
+    if ext == ".docx" and not head.startswith(DOCX_MAGIC):
+        return Response({"error": "File is not a valid DOCX."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+def save_outline_to_tmp(file_obj, ext):
+    """Write an accepted upload to a server-named temp file and return its
+    path. The caller deletes it (see `remove_quietly`)."""
+    # Use /tmp for Cloud Run compatibility (guaranteed writable).
+    temp_dir = os.path.join('/tmp', 'course_analysis')
+    os.makedirs(temp_dir, exist_ok=True)
+    # Server-generated filename — never trust the client-supplied name.
+    temp_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}{ext}")
+    with open(temp_path, 'wb+') as destination:
+        for chunk in file_obj.chunks():
+            destination.write(chunk)
+    return temp_path
+
+
 class CourseAnalyzeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -601,44 +649,13 @@ class CourseAnalyzeView(APIView):
                 }
 
         file_obj = request.FILES['course_outline']
-
-        if file_obj.size > MAX_UPLOAD_SIZE:
-            return Response(
-                {"error": "File too large. Maximum size is 5 MB."},
-                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            )
-
+        rejected = outline_upload_error(file_obj)
+        if rejected:
+            return rejected
         ext = os.path.splitext(file_obj.name)[1].lower()
-        if ext not in ALLOWED_UPLOAD_EXTENSIONS:
-            return Response(
-                {"error": "Unsupported file type. Upload a PDF or DOCX."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if file_obj.content_type and file_obj.content_type not in ALLOWED_UPLOAD_CONTENT_TYPES:
-            return Response(
-                {"error": "Unsupported file type. Upload a PDF or DOCX."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
-        head = file_obj.read(4)
-        file_obj.seek(0)
-        if ext == ".pdf" and not head.startswith(PDF_MAGIC):
-            return Response({"error": "File is not a valid PDF."}, status=status.HTTP_400_BAD_REQUEST)
-        if ext == ".docx" and not head.startswith(DOCX_MAGIC):
-            return Response({"error": "File is not a valid DOCX."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Use /tmp for Cloud Run compatibility (guaranteed writable).
-        temp_dir = os.path.join('/tmp', 'course_analysis')
-        os.makedirs(temp_dir, exist_ok=True)
-
-        # Server-generated filename — never trust the client-supplied name.
-        temp_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}{ext}")
-
+        temp_path = save_outline_to_tmp(file_obj, ext)
         try:
-            with open(temp_path, 'wb+') as destination:
-                for chunk in file_obj.chunks():
-                    destination.write(chunk)
-
             result = process_course_outline(temp_path, user_context=user_context)
             # Only log a reparse AFTER a successful analysis. Failed attempts
             # shouldn't burn the user's daily quota.
@@ -736,6 +753,231 @@ def _find_overlap_day(days_a, sa, ea, days_b, sb, eb):
     return None
 
 
+def _course_overlap(user, courses_data):
+    """The first time clash among `courses_data`, or against the user's saved
+    courses, as the `{error: "overlap", ...}` body the Add page's conflict
+    screen renders. None when nothing clashes.
+
+    Shared by finalize and the LMS import's apply step (main/lms.py) so both
+    refuse the same clashes with the same response shape.
+    """
+    # Build the slot view from incoming course data, but remember the full
+    # `cd` so the overlap response can carry the human-readable fields the
+    # frontend's conflict screen renders (course_name, classroom, etc.).
+    def _slot_summary(cd, source):
+        return {
+            'source': source,  # 'incoming' or 'existing'
+            'course_id': cd.get('course_id') or '(unnamed)',
+            'course_name': cd.get('course_name') or '',
+            'classroom': cd.get('classroom') or '',
+            'start_time': cd.get('start_time') or '',
+            'end_time': cd.get('end_time') or '',
+            'rep_date': cd.get('rep_date') or '',
+        }
+
+    incoming_slots = []
+    for cd in courses_data:
+        s = _slot_to_minutes(cd.get('start_time'))
+        e = _slot_to_minutes(cd.get('end_time'))
+        days = _parse_rep_days(cd.get('rep_date'))
+        if s is None or e is None or s >= e or not days:
+            continue
+        incoming_slots.append({
+            'cd': cd, 'days': days, 's': s, 'e': e,
+        })
+
+    for i, a in enumerate(incoming_slots):
+        for b in incoming_slots[i + 1:]:
+            day = _find_overlap_day(a['days'], a['s'], a['e'], b['days'], b['s'], b['e'])
+            if day:
+                a_sum = _slot_summary(a['cd'], 'incoming')
+                b_sum = _slot_summary(b['cd'], 'incoming')
+                return {
+                    'error': 'overlap',
+                    'kind': 'incoming_vs_incoming',
+                    'detail': f"{a_sum['course_id']} and {b_sum['course_id']} overlap on {day}.",
+                    'day': day,
+                    'a': a_sum, 'b': b_sum,
+                }
+
+    for ex in Course.objects.filter(user=user):
+        ex_s = (ex.start_time.hour * 60 + ex.start_time.minute) if ex.start_time else None
+        ex_e = (ex.end_time.hour * 60 + ex.end_time.minute) if ex.end_time else None
+        ex_days = _parse_rep_days(ex.rep_date)
+        if ex_s is None or ex_e is None or ex_s >= ex_e or not ex_days:
+            continue
+        for inc in incoming_slots:
+            day = _find_overlap_day(inc['days'], inc['s'], inc['e'], ex_days, ex_s, ex_e)
+            if day:
+                a_sum = _slot_summary(inc['cd'], 'incoming')
+                b_sum = _slot_summary({
+                    'course_id': ex.course_id,
+                    'course_name': ex.course_name,
+                    'classroom': ex.classroom,
+                    'start_time': ex.start_time.strftime('%H:%M') if ex.start_time else '',
+                    'end_time': ex.end_time.strftime('%H:%M') if ex.end_time else '',
+                    'rep_date': ex.rep_date,
+                }, 'existing')
+                return {
+                    'error': 'overlap',
+                    'kind': 'incoming_vs_existing',
+                    'detail': f"{a_sum['course_id']} overlaps with your existing course {b_sum['course_id']} on {day}.",
+                    'day': day,
+                    'a': a_sum, 'b': b_sum,
+                }
+    return None
+
+
+def _lms_id(item, keep):
+    """The LMS id to store on a new row — only when the caller is the LMS
+    import (`keep`). Finalize is an ordinary upload; an id arriving there is
+    ignored rather than trusted to tie the row to a sync."""
+    if not keep:
+        return ''
+    return str(item.get('lms_external_id') or '')[:100]
+
+
+def _lms_url(item, keep):
+    """The item's LMS link — only from the LMS import, which rebuilds it from
+    its own records before calling here (lms.apply_review)."""
+    if not keep:
+        return ''
+    url = str(item.get('lms_url') or '')
+    return url[:500] if url.startswith('https://') else ''
+
+
+def _create_exams(user, course, items, keep_lms_ids=False):
+    # No date = TBA (null), never a stand-in date: a TBA final used to land on
+    # day 1 of term.
+    for e_item in items or []:
+        exam_date = convert_date(e_item.get('exam_date'))
+        topic = e_item.get("exam_topic") or ""
+        if not exam_date and not topic.strip():
+            continue  # a blank row the student added and left
+        Exam.objects.create(
+            user=user,
+            course=course,
+            exam_date=f"{exam_date}T00:00:00Z" if exam_date else None,
+            date_is_estimate=_is_estimate(e_item, exam_date),
+            exam_topic=topic[:200],
+            exam_details=e_item.get("exam_details", ""),
+            lms_external_id=_lms_id(e_item, keep_lms_ids),
+            lms_url=_lms_url(e_item, keep_lms_ids),
+        )
+
+
+def _create_assignments(user, course, items, course_start_date, course_end_date, keep_lms_ids=False):
+    # A weekly recurring assignment (e.g. homework due each Sunday) has no
+    # single due date, so expand it into one instance per week across the term;
+    # everything else stays a single dated assignment.
+    for a_item in items or []:
+        topic = a_item.get("assignment_topic", "") or ""
+        detail = a_item.get("assignment_detail", "")
+        is_weekly = str(a_item.get("recurrence") or "").strip().lower() == "weekly"
+        occurrences = []
+        if is_weekly:
+            occurrences = _weekly_occurrences(
+                course_start_date, course_end_date, a_item.get("recurrence_weekday")
+            )
+        if occurrences:
+            for occ in occurrences:
+                Assignment.objects.create(
+                    user=user,
+                    course=course,
+                    assignment_due=f"{occ}T00:00:00Z",
+                    assignment_topic=topic[:200],
+                    assignment_detail=detail,
+                )
+        else:
+            due_date = convert_date(a_item.get('assignment_due'))
+            if not due_date and not str(topic).strip():
+                continue
+            Assignment.objects.create(
+                user=user,
+                course=course,
+                assignment_due=f"{due_date}T00:00:00Z" if due_date else None,
+                date_is_estimate=_is_estimate(a_item, due_date),
+                assignment_topic=topic[:200],
+                assignment_detail=detail,
+                lms_external_id=_lms_id(a_item, keep_lms_ids),
+                lms_url=_lms_url(a_item, keep_lms_ids),
+            )
+
+
+def _create_course_tree(user, courses_data, keep_lms_ids=False):
+    """Create one main course, its child sections, and every course's weeks,
+    exams and assignments. Returns the created Course rows, main first.
+
+    The body of finalize, shared with the LMS import's apply step. Callers
+    run the overlap check first and wrap this in a transaction.
+    """
+    created_courses = []
+    # We process main course first to get the parent_course for others
+    main_course_data = next((c for c in courses_data if c.get('is_main')), None)
+    if not main_course_data and courses_data:
+        main_course_data = courses_data[0]  # Fallback
+    if not main_course_data:
+        return created_courses
+
+    main_course = Course.objects.create(
+        user=user,
+        course_id=main_course_data.get('course_id'),
+        course_name=main_course_data.get('course_name'),
+        classroom=main_course_data.get('classroom', 'TBD'),
+        start_time=main_course_data.get('start_time', '09:00'),
+        end_time=main_course_data.get('end_time', '17:00'),
+        start_date=convert_date(main_course_data.get('start_date')),
+        end_date=convert_date(main_course_data.get('end_date')),
+        rep_date=main_course_data.get('rep_date', 'Monday'),
+        is_lab=main_course_data.get('is_lab', False),
+        has_ai_content=True,
+        lms_external_id=_lms_id(main_course_data, keep_lms_ids),
+    )
+    created_courses.append(main_course)
+
+    start_date_str = convert_date(main_course_data.get('start_date'))
+    for course_data in courses_data:
+        if course_data == main_course_data:
+            current_course = main_course
+        else:
+            current_course = Course.objects.create(
+                user=user,
+                course_id=course_data.get('course_id'),
+                course_name=course_data.get('course_name'),
+                classroom=course_data.get('classroom', 'TBD'),
+                start_time=course_data.get('start_time', '09:00'),
+                end_time=course_data.get('end_time', '17:00'),
+                start_date=convert_date(course_data.get('start_date')),
+                end_date=convert_date(course_data.get('end_date')),
+                rep_date=course_data.get('rep_date', 'Monday'),
+                has_ai_content=True,
+                parent_course=main_course,
+                is_lab=course_data.get('is_lab', False)
+            )
+            created_courses.append(current_course)
+
+        # Create details for THIS course (whether main or secondary)
+        course_start_date = convert_date(course_data.get('start_date')) or start_date_str
+        course_end_date = convert_date(course_data.get('end_date')) or convert_date(main_course_data.get('end_date'))
+        if course_start_date:
+            start_datetime = datetime.strptime(course_start_date, '%Y-%m-%d')
+            for w in course_data.get("weeks", []):
+                week_num = w.get("week_number", 1)
+                week_date = start_datetime + timedelta(days=(week_num - 1) * 7)
+                Week.objects.create(
+                    user=user,
+                    course=current_course,
+                    week_number=week_num,
+                    week_date=week_date.strftime('%Y-%m-%d'),
+                    week_topic=w.get("week_topic", "")
+                )
+
+        _create_exams(user, current_course, course_data.get("exams", []), keep_lms_ids)
+        _create_assignments(user, current_course, course_data.get("assignments", []),
+                            course_start_date, course_end_date, keep_lms_ids)
+    return created_courses
+
+
 class CourseFinalizeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -744,186 +986,12 @@ class CourseFinalizeView(APIView):
         if not courses_data:
             return Response({"error": "No course data provided"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Build the slot view from incoming course data, but remember the full
-        # `cd` so the overlap response can carry the human-readable fields the
-        # frontend's conflict screen renders (course_name, classroom, etc.).
-        def _slot_summary(cd, source):
-            return {
-                'source': source,  # 'incoming' or 'existing'
-                'course_id': cd.get('course_id') or '(unnamed)',
-                'course_name': cd.get('course_name') or '',
-                'classroom': cd.get('classroom') or '',
-                'start_time': cd.get('start_time') or '',
-                'end_time': cd.get('end_time') or '',
-                'rep_date': cd.get('rep_date') or '',
-            }
-
-        incoming_slots = []
-        for cd in courses_data:
-            s = _slot_to_minutes(cd.get('start_time'))
-            e = _slot_to_minutes(cd.get('end_time'))
-            days = _parse_rep_days(cd.get('rep_date'))
-            if s is None or e is None or s >= e or not days:
-                continue
-            incoming_slots.append({
-                'cd': cd, 'days': days, 's': s, 'e': e,
-            })
-
-        for i, a in enumerate(incoming_slots):
-            for b in incoming_slots[i + 1:]:
-                day = _find_overlap_day(a['days'], a['s'], a['e'], b['days'], b['s'], b['e'])
-                if day:
-                    a_sum = _slot_summary(a['cd'], 'incoming')
-                    b_sum = _slot_summary(b['cd'], 'incoming')
-                    return Response({
-                        'error': 'overlap',
-                        'kind': 'incoming_vs_incoming',
-                        'detail': f"{a_sum['course_id']} and {b_sum['course_id']} overlap on {day}.",
-                        'day': day,
-                        'a': a_sum, 'b': b_sum,
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-        for ex in Course.objects.filter(user=request.user):
-            ex_s = (ex.start_time.hour * 60 + ex.start_time.minute) if ex.start_time else None
-            ex_e = (ex.end_time.hour * 60 + ex.end_time.minute) if ex.end_time else None
-            ex_days = _parse_rep_days(ex.rep_date)
-            if ex_s is None or ex_e is None or ex_s >= ex_e or not ex_days:
-                continue
-            for inc in incoming_slots:
-                day = _find_overlap_day(inc['days'], inc['s'], inc['e'], ex_days, ex_s, ex_e)
-                if day:
-                    a_sum = _slot_summary(inc['cd'], 'incoming')
-                    b_sum = _slot_summary({
-                        'course_id': ex.course_id,
-                        'course_name': ex.course_name,
-                        'classroom': ex.classroom,
-                        'start_time': ex.start_time.strftime('%H:%M') if ex.start_time else '',
-                        'end_time': ex.end_time.strftime('%H:%M') if ex.end_time else '',
-                        'rep_date': ex.rep_date,
-                    }, 'existing')
-                    return Response({
-                        'error': 'overlap',
-                        'kind': 'incoming_vs_existing',
-                        'detail': f"{a_sum['course_id']} overlaps with your existing course {b_sum['course_id']} on {day}.",
-                        'day': day,
-                        'a': a_sum, 'b': b_sum,
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-        main_course = None
-        created_courses = []
+        clash = _course_overlap(request.user, courses_data)
+        if clash:
+            return Response(clash, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # We process main course first to get the parent_course for others
-            main_course_data = next((c for c in courses_data if c.get('is_main')), None)
-            if not main_course_data and courses_data:
-                main_course_data = courses_data[0] # Fallback
-            
-            if main_course_data:
-                # Create main course
-                main_course = Course.objects.create(
-                    user=request.user,
-                    course_id=main_course_data.get('course_id'),
-                    course_name=main_course_data.get('course_name'),
-                    classroom=main_course_data.get('classroom', 'TBD'),
-                    start_time=main_course_data.get('start_time', '09:00'),
-                    end_time=main_course_data.get('end_time', '17:00'),
-                    start_date=convert_date(main_course_data.get('start_date')),
-                    end_date=convert_date(main_course_data.get('end_date')),
-                    rep_date=main_course_data.get('rep_date', 'Monday'),
-                    is_lab=main_course_data.get('is_lab', False),
-                    has_ai_content=True
-                )
-                created_courses.append(main_course)
-
-                # Create other courses
-                start_date_str = convert_date(main_course_data.get('start_date'))
-                for course_data in courses_data:
-                    if course_data == main_course_data:
-                        current_course = main_course
-                    else:
-                        current_course = Course.objects.create(
-                            user=request.user,
-                            course_id=course_data.get('course_id'),
-                            course_name=course_data.get('course_name'),
-                            classroom=course_data.get('classroom', 'TBD'),
-                            start_time=course_data.get('start_time', '09:00'),
-                            end_time=course_data.get('end_time', '17:00'),
-                            start_date=convert_date(course_data.get('start_date')),
-                            end_date=convert_date(course_data.get('end_date')),
-                            rep_date=course_data.get('rep_date', 'Monday'),
-                            has_ai_content=True,
-                            parent_course=main_course,
-                            is_lab=course_data.get('is_lab', False)
-                        )
-                        created_courses.append(current_course)
-                    
-                    # Create details for THIS course (whether main or secondary)
-                    course_start_date = convert_date(course_data.get('start_date')) or start_date_str
-                    course_end_date = convert_date(course_data.get('end_date')) or convert_date(main_course_data.get('end_date'))
-                    if course_start_date:
-                        start_datetime = datetime.strptime(course_start_date, '%Y-%m-%d')
-                        for w in course_data.get("weeks", []):
-                            week_num = w.get("week_number", 1)
-                            week_date = start_datetime + timedelta(days=(week_num - 1) * 7)
-                            Week.objects.create(
-                                user=request.user,
-                                course=current_course,
-                                week_number=week_num,
-                                week_date=week_date.strftime('%Y-%m-%d'),
-                                week_topic=w.get("week_topic", "")
-                            )
-
-                    # Create exams for THIS course. No date = TBA (null), never a
-                    # stand-in date: a TBA final used to land on day 1 of term.
-                    for e_item in course_data.get("exams", []):
-                        exam_date = convert_date(e_item.get('exam_date'))
-                        topic = e_item.get("exam_topic") or ""
-                        if not exam_date and not topic.strip():
-                            continue  # a blank row the student added and left
-                        Exam.objects.create(
-                            user=request.user,
-                            course=current_course,
-                            exam_date=f"{exam_date}T00:00:00Z" if exam_date else None,
-                            date_is_estimate=_is_estimate(e_item, exam_date),
-                            exam_topic=topic,
-                            exam_details=e_item.get("exam_details", "")
-                        )
-
-                    # Create assignments for THIS course. A weekly recurring
-                    # assignment (e.g. homework due each Sunday) has no single
-                    # due date, so expand it into one instance per week across
-                    # the term; everything else stays a single dated assignment.
-                    for a_item in course_data.get("assignments", []):
-                        topic = a_item.get("assignment_topic", "")
-                        detail = a_item.get("assignment_detail", "")
-                        is_weekly = str(a_item.get("recurrence") or "").strip().lower() == "weekly"
-                        occurrences = []
-                        if is_weekly:
-                            occurrences = _weekly_occurrences(
-                                course_start_date, course_end_date, a_item.get("recurrence_weekday")
-                            )
-                        if occurrences:
-                            for occ in occurrences:
-                                Assignment.objects.create(
-                                    user=request.user,
-                                    course=current_course,
-                                    assignment_due=f"{occ}T00:00:00Z",
-                                    assignment_topic=topic,
-                                    assignment_detail=detail,
-                                )
-                        else:
-                            due_date = convert_date(a_item.get('assignment_due'))
-                            if not due_date and not str(topic).strip():
-                                continue
-                            Assignment.objects.create(
-                                user=request.user,
-                                course=current_course,
-                                assignment_due=f"{due_date}T00:00:00Z" if due_date else None,
-                                date_is_estimate=_is_estimate(a_item, due_date),
-                                assignment_topic=topic,
-                                assignment_detail=detail,
-                            )
-
+            created_courses = _create_course_tree(request.user, courses_data)
             # The pks let the "ur all set" screen export exactly these classes
             # to a calendar (CourseCalendarLinkView).
             return Response(
