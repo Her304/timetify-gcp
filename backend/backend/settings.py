@@ -328,6 +328,13 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 # happened to arrive on (the ugly *.run.app URL vs. the timetify.net alias).
 CANONICAL_DOMAIN = os.environ.get("CANONICAL_DOMAIN", "timetify.net")
 
+# Chrome extension IDs of Timetify's own LMS sync extension (comma-separated):
+# the Web Store ID in production, an unpacked build's ID in dev. Its OAuth
+# redirect is https://<id>.chromiumapp.org/, which only that extension can
+# receive, so a client registering exactly that redirect is ours and gets the
+# first-party consent screen (see mcp/oauth.py `_first_party`).
+LMS_EXTENSION_IDS = [i.strip() for i in os.environ.get("LMS_EXTENSION_IDS", "").split(",") if i.strip()]
+
 AUTH_USER_MODEL = 'main.CustomUser'
 
 REST_FRAMEWORK = {

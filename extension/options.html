@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Timetify LMS Sync</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 24px; color: #1d1b16; background: #fffdf8; max-width: 520px; }
+    h1 { font-size: 20px; }
+    label { display: block; margin: 8px 0; font-size: 14px; }
+    button { margin-top: 16px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(29,27,22,.2); background: #fff; cursor: pointer; }
+    .note { font-size: 12px; color: rgba(29,27,22,.6); }
+  </style>
+</head>
+<body>
+  <h1>timetify lms sync</h1>
+  <p class="note">which timetify to send to. leave this on production unless you're developing timetify.</p>
+  <label><input type="radio" name="server" value="prod"> production (timetify.net)</label>
+  <label><input type="radio" name="server" value="local"> local dev (127.0.0.1:8000 → localhost:5173)</label>
+  <button id="signout" type="button">sign out of timetify</button>
+  <p id="msg" class="note"></p>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -192,3 +192,28 @@ class TextExtractionTests(SimpleTestCase):
             text = extract_text(tmp.name)
         self.assertIn("CS101", text)
         self.assertIn("Tues/Thurs", text)
+
+    def test_docx_tables_are_extracted_in_order(self):
+        # Word syllabi keep the schedule and due dates in tables; reading only
+        # paragraphs used to drop every one of them.
+        doc = Document()
+        doc.sections[0].header.paragraphs[0].text = "CP363 Database I — Fall 2026"
+        doc.add_paragraph("Evaluation")
+        table = doc.add_table(rows=3, cols=3)
+        for r, row in enumerate([("Item", "Weight", "Due"),
+                                 ("Assignment 1", "10%", "Sep 27"),
+                                 ("Midterm", "25%", "Oct 22")]):
+            for c, val in enumerate(row):
+                table.cell(r, c).text = val
+        merged = table.cell(2, 1).merge(table.cell(2, 2))
+        merged.text = "25% — Oct 22"
+        doc.add_paragraph("Late policy follows the table.")
+        with tempfile.NamedTemporaryFile(suffix=".docx") as tmp:
+            doc.save(tmp.name)
+            text = extract_text(tmp.name)
+        self.assertIn("CP363 Database I", text)
+        self.assertIn("| Assignment 1 | 10% | Sep 27 |", text)
+        # merged cell printed once, padded to the header's width
+        self.assertIn("| Midterm | 25% — Oct 22 |  |", text)
+        self.assertLess(text.index("Evaluation"), text.index("[TABLE]"))
+        self.assertLess(text.index("[/TABLE]"), text.index("Late policy"))

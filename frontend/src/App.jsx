@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from "react";
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { HeaderNavApp } from "@/components/application/app-navigation/header-nav-app.jsx";
 import { MobileBottomNav } from "@/components/application/app-navigation/mobile-bottom-nav.jsx";
@@ -408,6 +408,35 @@ const App = () => {
     }
   };
 
+  // LMS sync: the extension stages an import and opens /Add?lms_import=<id>.
+  const loadLmsImport = useCallback(async (id) => {
+    try {
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/lms/imports/${encodeURIComponent(id)}/`);
+      if (!response.ok) return { success: false, status: response.status };
+      return { success: true, data: await response.json() };
+    } catch (err) {
+      return { success: false };
+    }
+  }, []);
+
+  const applyLmsImport = async (id, coursesData) => {
+    try {
+      setCourseErrors({});
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/lms/imports/${encodeURIComponent(id)}/apply/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courses: coursesData }),
+      });
+      const data = await response.json();
+      if (response.ok) return { success: true, data };
+      setCourseErrors(data);
+      return { success: false, data };
+    } catch (err) {
+      setCourseErrors({ non_field_errors: ["An unexpected error occurred while saving."] });
+      return { success: false };
+    }
+  };
+
   const searchFriends = async (query) => {
     try {
       const response = await authenticatedFetch(`${import.meta.env.VITE_API_URL}/api/friends/search/?q=${query}`);
@@ -464,6 +493,8 @@ const App = () => {
       addCourse={addCourse}
       analyzeCourse={analyzeCourse}
       finalizeCourse={finalizeCourse}
+      loadLmsImport={loadLmsImport}
+      applyLmsImport={applyLmsImport}
       registerUser={registerUser}
       registrationErrors={registrationErrors}
       loginUser={loginUser}
@@ -503,6 +534,8 @@ const AppShell = ({
   addCourse,
   analyzeCourse,
   finalizeCourse,
+  loadLmsImport,
+  applyLmsImport,
   registerUser,
   registrationErrors,
   loginUser,
@@ -731,7 +764,7 @@ const AppShell = ({
               path="/Add"
               element={
                 <ProtectedRoute currentUser={currentUser}>
-                  <Add addCourse={addCourse} analyzeCourse={analyzeCourse} finalizeCourse={finalizeCourse} errors={courseErrors} />
+                  <Add addCourse={addCourse} analyzeCourse={analyzeCourse} finalizeCourse={finalizeCourse} loadLmsImport={loadLmsImport} applyLmsImport={applyLmsImport} errors={courseErrors} />
                 </ProtectedRoute>
               }
             />

@@ -173,11 +173,14 @@ const preferRealDate = (type) => (merged, src) =>
 
 // Exams/assignments the calendar export will leave out (TBA or estimated).
 const countNotExported = (courses) => courses.reduce((n, c) =>
-    n + (c.exams || []).filter((e) => !hasText(e.exam_date) || e.date_is_estimate).length
-      + (c.assignments || []).filter((a) => !isWeekly(a) && (!hasText(a.assignment_due) || a.date_is_estimate)).length,
+    n + (c.exams || []).filter((e) => !e.lms_skip && (!hasText(e.exam_date) || e.date_is_estimate)).length
+      + (c.assignments || []).filter((a) => !a.lms_skip && !isWeekly(a) && (!hasText(a.assignment_due) || a.date_is_estimate)).length,
     0);
 
-export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors = {} }) {
+// /Add?lms_import=<id> — opened by the LMS sync extension.
+const lmsImportIdFromUrl = () => new URLSearchParams(window.location.search).get("lms_import");
+
+export default function Add({ addCourse, analyzeCourse, finalizeCourse, loadLmsImport, applyLmsImport, errors = {} }) {
     const [formData, setFormData] = useState({
         course_name: "",
         course_id: "",
@@ -190,8 +193,9 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     });
 
     const [selectedFile, setSelectedFile] = useState(null);
-    const [status, setStatus] = useState("manual");
-    const [viewState, setViewState] = useState("initial");
+    const [status, setStatus] = useState(() => lmsImportIdFromUrl() ? "upload" : "manual");
+    // An LMS import starts on the busy screen while its review payload loads.
+    const [viewState, setViewState] = useState(() => lmsImportIdFromUrl() ? "analyzing" : "initial");
     // What the "analyzing" busy screen is actually doing: AI parse vs. saving to
     // the schedule. Manual add + finalize are saves; analyze/reparse/refine parse.
     const [busyKind, setBusyKind] = useState("parsing");
@@ -211,6 +215,38 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     // How many of the saved exams/assignments are TBA or estimated — the
     // calendar export leaves those out and says so.
     const [savedNotExported, setSavedNotExported] = useState(0);
+    // Set when the page was opened by the LMS sync extension
+    // (/Add?lms_import=<id>): the review shows what it read from the school's
+    // LMS, and saving goes to the import's apply endpoint instead of finalize,
+    // because each LMS course is its own class — finalize would make every
+    // course after the first a section of it. See main/lms.py.
+    const [lmsImport, setLmsImport] = useState(null);
+    const [lmsError, setLmsError] = useState(null);
+
+    useEffect(() => {
+        const id = lmsImportIdFromUrl();
+        if (!id || !loadLmsImport) return;
+        let cancelled = false;
+        loadLmsImport(id).then((res) => {
+            if (cancelled) return;
+            if (res.success && res.data.courses?.length) {
+                setLmsImport({ id: res.data.id, host: res.data.host });
+                setAnalysisResult({ courses: res.data.courses });
+                setViewState("confirming");
+            } else {
+                setLmsError(res.status === 410
+                    ? "that sync link expired. run the sync again from ur lms."
+                    : "couldn't load that sync. run it again from ur lms.");
+                setViewState("initial");
+            }
+        });
+        return () => { cancelled = true; };
+    }, [loadLmsImport]);
+
+    const leaveLmsImport = () => {
+        setLmsImport(null);
+        window.history.replaceState(null, "", window.location.pathname);
+    };
 
     const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -360,7 +396,9 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     const handleFinalize = async () => {
         setBusyKind("saving");
         setViewState("analyzing");
-        const result = await finalizeCourse(analysisResult.courses);
+        const result = lmsImport
+            ? await applyLmsImport(lmsImport.id, analysisResult.courses)
+            : await finalizeCourse(analysisResult.courses);
         if (result && result.success) {
             setSavedCoursePks(result.data?.course_pks || []);
             setSavedNotExported(countNotExported(analysisResult.courses));
@@ -376,6 +414,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
     // From the "ur all set" screen: clear everything and return to the start so
     // the user can add another class in the same mode without a page reload.
     const handleAddAnother = () => {
+        leaveLmsImport();
         setIsSuccess(false);
         setViewState("initial");
         setAnalysisResult(null);
@@ -542,7 +581,9 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                             <CalendarExport
                                 coursePks={savedCoursePks}
                                 notExported={savedNotExported}
-                                description="ur classes, exams + due dates from this outline, in the calendar u already use."
+                                description={lmsImport
+                                    ? "ur classes, exams + due dates from ur lms, in the calendar u already use."
+                                    : "ur classes, exams + due dates from this outline, in the calendar u already use."}
                             />
                         )}
 
@@ -752,6 +793,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         // these prominently so the user can fix them inline OR ask AI to try again.
         const missingFieldsByCourse = analysisResult.courses.map((c) => {
             const out = [];
+            if (c.lms_existing) return out;
             if (!c.rep_date || !String(c.rep_date).trim()) out.push("rep_date");
             if (!c.start_time || !String(c.start_time).trim()) out.push("start_time");
             if (!c.end_time || !String(c.end_time).trim()) out.push("end_time");
@@ -767,11 +809,11 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
         const weekdayName = (v) => days.find((d) => _norm(d) === _norm(v)) || "";
         const weekdayMissing = (a) => !weekdayName(a.recurrence_weekday);
         const anyMissingWeekday = analysisResult.courses.some((c) =>
-            (c.assignments || []).some((a) => isWeekly(a) && weekdayMissing(a)));
+            (c.assignments || []).some((a) => !a.lms_skip && isWeekly(a) && weekdayMissing(a)));
         const anyMissing = anyMissingFields || anyMissingWeekday;
         const undated = analysisResult.courses.flatMap((c) => [
-            ...(c.exams || []).filter((e) => isUndecided("exams", e)),
-            ...(c.assignments || []).filter((a) => isUndecided("assignments", a)),
+            ...(c.exams || []).filter((e) => !e.lms_skip && isUndecided("exams", e)),
+            ...(c.assignments || []).filter((a) => !a.lms_skip && isUndecided("assignments", a)),
         ]);
         const guessable = undated.filter((it) => hasText(it.suggested_date)).length;
 
@@ -781,6 +823,27 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
             </span>
         );
         const linkBtn = "text-ink-60 hover:text-ink underline lowercase";
+        // LMS sync: where an item came from, why the double-check did what it
+        // did, a link to it in MyLS, and skip / add back. Skipped items stay
+        // on the page (nothing from MyLS disappears silently) but aren't saved.
+        const SOURCE_CHIP = { myls: ["myls", T.lime], outline: ["outline", T.ink08], both: ["myls + outline", T.lilac], registrar: ["official schedule", T.coralLt] };
+        const renderLmsMeta = (cIdx, type, idx, item) => {
+            if (!lmsImport || !item.lms_source) return null;
+            const [label, bg] = SOURCE_CHIP[item.lms_source] || SOURCE_CHIP.outline;
+            return (
+                <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
+                    {chip(label, bg)}
+                    {item.lms_note && <span className="text-ink-60 lowercase">{item.lms_note}</span>}
+                    {item.lms_url && /^https:\/\//.test(item.lms_url) && (
+                        <a href={item.lms_url} target="_blank" rel="noopener noreferrer" className={linkBtn}>open in myls ↗</a>
+                    )}
+                    <button onClick={() => patchItem(cIdx, type, idx, { lms_skip: !item.lms_skip })} className={linkBtn}>
+                        {item.lms_skip ? "add back" : "skip"}
+                    </button>
+                </div>
+            );
+        };
+        const skippedCls = (item) => (lmsImport && item.lms_skip ? " opacity-50" : "");
         // The date line of an exam / one-off assignment: `lead` is its label
         // (calendar icon / "due:"), `extra` the "repeats weekly?" toggle.
         const renderItemDate = (cIdx, type, idx, item, lead, extra) => {
@@ -869,7 +932,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
             <div className="max-w-4xl mx-auto w-full space-y-8 pb-24">
                     <StepIndicator step={3}/>
                     <div>
-                        <MonoLabel>step 3 of 4 · we found {analysisResult.courses.length} class{analysisResult.courses.length === 1 ? '' : 'es'}</MonoLabel>
+                        <MonoLabel>step 3 of 4 · {lmsImport ? `from ${lmsImport.host} · ` : "we found "}{analysisResult.courses.length} class{analysisResult.courses.length === 1 ? '' : 'es'}</MonoLabel>
                         <h2 className="text-4xl text-ink leading-none mt-1" style={{ fontFamily: FF.serif, letterSpacing: -1 }}>
                             {isEdit ? "edit anything off" : "look right? edit anything off."}
                         </h2>
@@ -967,6 +1030,19 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         <h3 className="text-2xl text-ink leading-none mt-1 lowercase" style={{ fontFamily: FF.serif, letterSpacing: -0.5 }}>
                                             {course.course_name} {course.is_lab ? "(lab)" : ""}
                                         </h3>
+                                        {lmsImport && course.is_main && (
+                                            <p className="mt-2 text-xs text-ink-60 lowercase" style={{ fontFamily: FF.mono }}>
+                                                {course.lms_kind === "registrar"
+                                                    ? "final exam from the official exam schedule."
+                                                    : course.lms_existing
+                                                    ? "already on ur timetify — only new + moved due dates get saved."
+                                                    : course.lms_outline === "read"
+                                                      ? "from ur course outline + lms due dates."
+                                                      : course.lms_outline === "failed"
+                                                        ? "we couldn't read ur outline this time — add when it meets, or sync again."
+                                                        : "no outline in ur lms — add when it meets."}
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="flex gap-2 items-center">
                                         <PillBtn
@@ -1117,7 +1193,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
                                             {course.exams.map((exam, eIdx) => (
-                                                <div key={eIdx} className="bg-cream p-3 rounded-xl border border-ink-8 group">
+                                                <div key={eIdx} className={"bg-cream p-3 rounded-xl border border-ink-8 group" + skippedCls(exam)}>
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
                                                             <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral bg-transparent" value={exam.exam_topic} placeholder="exam title" onChange={(e) => handleUpdateItem(cIdx, 'exams', eIdx, 'exam_topic', e.target.value)} />
@@ -1130,7 +1206,8 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                             </button>
                                                         )}
                                                     </div>
-                                                    {renderItemDate(cIdx, "exams", eIdx, exam, <Icon name="calendar" size={12} color={T.ink60}/>)}
+                                                    {renderLmsMeta(cIdx, "exams", eIdx, exam)}
+                                                    {!(lmsImport && exam.lms_skip) && renderItemDate(cIdx, "exams", eIdx, exam, <Icon name="calendar" size={12} color={T.ink60}/>)}
                                                 </div>
                                             ))}
                                             {isEdit && course.exams.length === 0 && (
@@ -1154,7 +1231,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
                                             {course.assignments.map((assignment, aIdx) => (
-                                                <div key={aIdx} className="bg-cream p-3 rounded-xl border border-ink-8 group">
+                                                <div key={aIdx} className={"bg-cream p-3 rounded-xl border border-ink-8 group" + skippedCls(assignment)}>
                                                     <div className="flex justify-between items-start mb-2">
                                                         {isEdit ? (
                                                             <input className="font-semibold text-sm border-b border-ink-15 focus:outline-none focus:border-coral w-full bg-transparent" value={assignment.assignment_topic} placeholder="assignment title" onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_topic', e.target.value)} />
@@ -1167,6 +1244,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                                                             </button>
                                                         )}
                                                     </div>
+                                                    {renderLmsMeta(cIdx, "assignments", aIdx, assignment)}
                                                     {isEdit ? (
                                                         <textarea className="w-full text-xs text-ink p-2 border border-ink-15 rounded-xl bg-white mb-2" value={assignment.assignment_detail} onChange={(e) => handleUpdateItem(cIdx, 'assignments', aIdx, 'assignment_detail', e.target.value)} placeholder="assignment details…" />
                                                     ) : (
@@ -1228,7 +1306,7 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                             </p>
                         )}
                         <div className="flex gap-4">
-                            <PillBtn onClick={() => setViewState("initial")} bg="#fff" fg={T.ink60} size="lg" style={{ flex: 1, border: `1px solid ${T.ink15}` }}>
+                            <PillBtn onClick={() => { leaveLmsImport(); setViewState("initial"); }} bg="#fff" fg={T.ink60} size="lg" style={{ flex: 1, border: `1px solid ${T.ink15}` }}>
                                 ← cancel
                             </PillBtn>
                             <PillBtn onClick={handleFinalize} disabled={anyMissing} bg={T.ink} fg={T.cream} size="lg" style={{ flex: 2 }}>
@@ -1250,6 +1328,12 @@ export default function Add({ addCourse, analyzeCourse, finalizeCourse, errors =
                         : <>type in ur class. we&apos;ll slot it in.</>}
                 </h1>
             </div>
+
+            {lmsError && (
+                <p className="text-xs text-coral-dark bg-coral-light/40 border border-coral py-2 px-3 rounded-full font-medium lowercase inline-block">
+                    {lmsError}
+                </p>
+            )}
 
             {status === "upload" && <StepIndicator step={stepFor(viewState)}/>}
 

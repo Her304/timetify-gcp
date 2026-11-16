@@ -222,6 +222,36 @@ def register(request):
 # Authorization + consent
 # ---------------------------------------------------------------------------
 
+def _first_party(redirect_uri):
+    """Whether this authorization is for Timetify's own LMS sync extension.
+
+    Decided by the exact redirect URI, never the client's name: under DCR the
+    name is self-chosen, but https://<extension-id>.chromiumapp.org/ is
+    delivered by Chrome to that extension alone. Unlisted IDs (anyone's
+    unpacked build) get the ordinary third-party screen.
+    """
+    return redirect_uri in {
+        f'https://{ext_id}.chromiumapp.org/' for ext_id in getattr(settings, 'LMS_EXTENSION_IDS', [])
+    }
+
+
+def _already_granted(user, client, granted):
+    """A live grant from an earlier consent already covers these scopes.
+
+    Only used for the first-party extension, so reconnecting after a token
+    expires doesn't re-ask a question the student already answered. Third-party
+    clients always see the consent screen.
+    """
+    from django.db.models import Q
+    now = timezone.now()
+    for scopes in OAuthAccessToken.objects.filter(
+        user=user, client=client, revoked_at__isnull=True,
+    ).filter(Q(refresh_expires_at__gt=now) | Q(expires_at__gt=now)).values_list('scopes', flat=True):
+        if set(granted) <= set(scope_defs.clean(scopes)):
+            return True
+    return False
+
+
 def _authorize_error(request, message):
     return render(request, 'oauth/error.html', {'message': message}, status=400)
 
@@ -281,8 +311,10 @@ def authorize(request):
     except ValueError:
         redirect_host = redirect_uri
 
+    first_party = _first_party(redirect_uri)
     ctx = {
         'client': client,
+        'first_party': first_party,
         'redirect_host': redirect_host,
         'scope_rows': [{'id': s, 'label': scope_defs.DESCRIPTIONS.get(s, s),
                         'is_write': s in scope_defs.WRITE_SCOPES} for s in granted],
@@ -310,10 +342,21 @@ def authorize(request):
                 return render(request, 'oauth/login.html',
                               {**ctx, 'error': 'that username or password did not work.'}, status=401)
             django_login(request, user)
-            return render(request, 'oauth/consent.html', ctx)
-        return render(request, 'oauth/login.html', ctx)
+            if not (first_party and _already_granted(user, client, granted)):
+                return render(request, 'oauth/consent.html', ctx)
+            just_signed_in = True
+        else:
+            return render(request, 'oauth/login.html', ctx)
+    else:
+        just_signed_in = False
 
-    if request.method == 'POST' and src.get('action') == 'approve':
+    approve = request.method == 'POST' and src.get('action') == 'approve'
+    if not approve and first_party and (request.method == 'GET' or just_signed_in) \
+            and _already_granted(request.user, client, granted):
+        # Reconnecting our own extension: the student approved exactly this
+        # before, so the window just signs in (if needed) and closes.
+        approve = True
+    if approve:
         code = secrets.token_urlsafe(32)
         OAuthAuthorizationCode.objects.create(
             code=code, client=client, user=request.user,

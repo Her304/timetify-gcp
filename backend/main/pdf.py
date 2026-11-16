@@ -5,6 +5,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import pdfplumber
 from docx import Document
+from docx.oxml.ns import qn
+from docx.table import Table as _DocxTable
+from docx.text.paragraph import Paragraph as _DocxParagraph
 from openai import OpenAI
 from pydantic import BaseModel
 from typing import List, Optional
@@ -133,13 +136,77 @@ def _extract_pdf_with_tables(file_path: str) -> str:
     return "\n".join(out)
 
 
+def _iter_docx_blocks(parent_elm, parent):
+    """Paragraphs and tables in document order.
+
+    `Document.paragraphs` skips tables entirely, and Word syllabi keep the
+    week-by-week schedule and the assessment due dates in tables — reading
+    paragraphs alone handed the model an outline with every date stripped
+    out. Content controls (w:sdt, common in university templates) wrap
+    blocks, so they're descended into rather than skipped.
+    """
+    for child in parent_elm.iterchildren():
+        if child.tag == qn('w:p'):
+            yield _DocxParagraph(child, parent)
+        elif child.tag == qn('w:tbl'):
+            yield _DocxTable(child, parent)
+        elif child.tag == qn('w:sdt'):
+            content = child.find(qn('w:sdtContent'))
+            if content is not None:
+                yield from _iter_docx_blocks(content, parent)
+
+
+def _docx_cell_text(cell) -> str:
+    parts = [p.text.strip() for p in cell.paragraphs if p.text.strip()]
+    for nested in cell.tables:
+        for row in _docx_table_rows(nested):
+            parts.append(" / ".join(c for c in row if c))
+    return " ".join(parts)
+
+
+def _docx_table_rows(table) -> list:
+    rows = []
+    for row in table.rows:
+        cells, prev = [], None
+        for cell in row.cells:
+            # A horizontally merged cell comes back once per grid column it
+            # spans; print it once so the columns still line up with the header.
+            if cell._tc is prev:
+                continue
+            prev = cell._tc
+            cells.append(_docx_cell_text(cell))
+        rows.append(cells)
+    return rows
+
+
+def _extract_docx(file_path: str) -> str:
+    doc = Document(file_path)
+    out = []
+    # University templates often put the course code and term in the page
+    # header, outside the body.
+    seen = set()
+    for section in doc.sections:
+        for p in section.header.paragraphs:
+            t = p.text.strip()
+            if t and t not in seen:
+                seen.add(t)
+                out.append(t)
+    for block in _iter_docx_blocks(doc.element.body, doc):
+        if isinstance(block, _DocxParagraph):
+            out.append(block.text)
+        else:
+            rendered = _format_table(_docx_table_rows(block))
+            if rendered:
+                out.append("\n[TABLE]\n" + rendered + "\n[/TABLE]\n")
+    return "\n".join(out)
+
+
 def extract_text(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
     if ext == '.pdf':
         return _extract_pdf_with_tables(file_path)
     if ext == '.docx':
-        doc = Document(file_path)
-        return "\n".join(p.text for p in doc.paragraphs)
+        return _extract_docx(file_path)
     raise ValueError(f"Unsupported file extension: {ext}")
 
 SYSTEM_PROMPT = "You extract structured course information from a university syllabus."
@@ -295,6 +362,52 @@ Do NOT invent deadlines with no basis in the document — only resolve ones the
 document actually references.""".strip()
 
 
+LMS_CONTEXT_MAX_ITEMS = 80
+
+
+def _lms_section(lms_context: dict) -> str:
+    """Extra prompt block for an outline that came from the student's LMS sync.
+
+    The LMS's own deadlines (dropbox, quizzes, content, calendar) are what the
+    school enforces; the outline was written before term. Showing them to the
+    model lets it match outline items to LMS items, skip a recurring item the
+    LMS already lists instance by instance, and resolve "week N" deadlines.
+
+    Week-relative dates go to suggested_date, never the real date field: the
+    LMS access window is close to, but not exactly, the first day of classes,
+    so a computed date is an estimate the student accepts on the review page.
+    main/lms.py still applies the LMS dates deterministically after parsing;
+    this block is for the model's reasoning, not the source of those dates.
+    """
+    start = lms_context.get("term_start")
+    end = lms_context.get("term_end")
+    items = list(lms_context.get("items") or [])[:LMS_CONTEXT_MAX_ITEMS]
+    lines = "\n".join(
+        f"- {it.get('date') or 'no date'} · {it.get('kind')} · {str(it.get('title') or '')[:120]}" for it in items
+    ) or "- (none)"
+    window = f"{start} to {end}" if start and end else "unknown"
+    return f"""
+## FROM THE STUDENT'S LMS (MyLearningSpace / D2L) — REFERENCE ONLY
+
+This outline came with the course's records from the school's LMS. The LMS
+course is open {window} (an access window, roughly but not exactly the first
+and last day of classes). These are the LMS's own dated items for this course:
+{lines}
+
+Use them like this:
+- If an outline item is the same thing as an LMS item (e.g. "Quiz 1" and
+  "Quiz 1- Requires Respondus LockDown Browser"), output it once, named as the
+  outline names it, with the LMS date.
+- If the outline describes a repeating item ("weekly quizzes") and the LMS
+  lists its individual dated instances, do NOT output the repeating item;
+  those instances are added separately.
+- Do NOT copy LMS items the outline never mentions; they are added separately.
+- A deadline given only as a week number ("week 7", "end of week 5"): leave the
+  real date null and put the computed date in suggested_date, with
+  suggestion_basis saying it was counted from the LMS term start.
+- Class days, times, rooms and the term dates still come from the outline.""".strip()
+
+
 def _parse_spur_json(content: str) -> ExtractedCoursesResponse:
     """Validate a JSON response from the OpenAI-compatible Spur endpoint."""
     content = (content or "").strip()
@@ -334,13 +447,17 @@ def _process_with_spur(extraction_prompt: str, file_path: str) -> dict:
         + text
     )
     payload = {
-        "model": os.getenv("SPUR_COURSE_PARSER_MODEL", "spur-glm-5-2"),
-        # GLM emits extensive reasoning unless bounded.  This leaves ample room
-        # for a 12-week outline while keeping upload requests predictable.
-        "max_tokens": int(os.getenv("SPUR_COURSE_PARSER_MAX_TOKENS", "6000")),
-        # Schedule extraction is a constrained transcription task. Disabling
-        # chain-of-thought keeps GLM's response latency and billed output low.
-        "reasoning_effort": os.getenv("SPUR_COURSE_PARSER_REASONING_EFFORT", "none"),
+        "model": os.getenv("SPUR_COURSE_PARSER_MODEL", "spur-glm-5-3"),
+        # max_tokens covers reasoning AND the answer. The JSON for a 13-week
+        # outline with ten assignments is ~1.5k tokens; the rest is headroom
+        # so a long outline can't be cut off mid-object.
+        "max_tokens": int(os.getenv("SPUR_COURSE_PARSER_MAX_TOKENS", "12000")),
+        # "low", not "none": Spur's GLM doesn't recognise "none" (nor
+        # `thinking: disabled` / `enable_thinking: false`) and falls back to
+        # full reasoning, which spent the entire 6000-token budget on a real
+        # outline and returned empty content — every outline upload failed.
+        # "low" is honoured: ~400 reasoning tokens, ~17s. Measured 2026-11-16.
+        "reasoning_effort": os.getenv("SPUR_COURSE_PARSER_REASONING_EFFORT", "low"),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
@@ -366,16 +483,30 @@ def _process_with_spur(extraction_prompt: str, file_path: str) -> dict:
         raise ValueError("Could not reach the Spur course-parsing service.") from exc
 
     try:
-        content = body["choices"][0]["message"]["content"]
+        choice = body["choices"][0]
+        content = choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("Spur returned no completion for the course outline.") from exc
+    if not (content or "").strip():
+        usage = body.get("usage") or {}
+        logger.warning(
+            "spur.empty_completion finish=%s completion_tokens=%s reasoning_tokens=%s",
+            choice.get("finish_reason"), usage.get("completion_tokens"),
+            (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+        )
+        if choice.get("finish_reason") == "length":
+            raise ValueError("The course parser ran out of room before answering. Try again.")
+        raise ValueError("The course parser returned an empty answer. Try again.")
     return _parse_spur_json(content).model_dump(mode="json")
 
 
-def process_course_outline(file_path: str, model: str = "gpt-5-mini", user_context: dict = None) -> dict:
+def process_course_outline(file_path: str, model: str = "gpt-5-mini", user_context: dict = None,
+                           lms_context: dict = None) -> dict:
     extraction_prompt = EXTRACTION_PROMPT
     if user_context and user_context.get("start_date"):
         extraction_prompt = EXTRACTION_PROMPT + "\n\n" + _refine_section(user_context)
+    if lms_context:
+        extraction_prompt = extraction_prompt + "\n\n" + _lms_section(lms_context)
 
     provider = os.getenv("COURSE_PARSER_PROVIDER", "openai").lower()
     if provider == "spur":

@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import lms
 from .mcp import oauth as mcp_oauth
 from .mcp.views import McpEndpointView
 
@@ -56,6 +57,14 @@ urlpatterns = [
     path('api/report-error/', views.ErrorReportView.as_view(), name='report-error'),
     path('api/courses/analyze/', views.CourseAnalyzeView.as_view(), name='course-analyze'),
     path('api/courses/finalize/', views.CourseFinalizeView.as_view(), name='course-finalize'),
+    # LMS sync (browser extension). Staging is OAuth (scope courses:import);
+    # review + apply are the student's own JWT session. See main/lms.py.
+    path('api/lms/imports/', lms.LmsImportCreateView.as_view(), name='lms-import-create'),
+    path('api/lms/imports/<uuid:pk>/outline/', lms.LmsImportOutlineView.as_view(), name='lms-import-outline'),
+    path('api/lms/imports/<uuid:pk>/reconcile/', lms.LmsImportReconcileView.as_view(), name='lms-import-reconcile'),
+    path('api/lms/imports/<uuid:pk>/', lms.LmsImportDetailView.as_view(), name='lms-import-detail'),
+    path('api/lms/imports/<uuid:pk>/apply/', lms.LmsImportApplyView.as_view(), name='lms-import-apply'),
+    path('api/exam-schedule/lookup/', lms.ExamScheduleLookupView.as_view(), name='exam-schedule-lookup'),
     # One-time .ics export. The link endpoint (JWT) mints a short-lived signed
     # URL; the .ics route is then opened as a plain navigation — iOS only offers
     # "Add to Calendar" for a real response, and a navigation can't carry the
