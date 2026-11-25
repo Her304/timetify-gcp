@@ -27,7 +27,10 @@ cloud-sql-proxy
 /legal_attention.md
 /swift.md
 /security.md
+/departure.md
 /club.md
+/Marigold.md
+/Daffodil.md
 /test_*.py
 /poc_*.py
 

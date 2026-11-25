@@ -123,7 +123,8 @@ export default function CalendarExport({
 
 // Per-course export dialog from the profile archive. Its selected categories
 // and reminders are embedded in the signed export link, so the `.ics` contains
-// only this course's requested events and calendar-native VALARMs.
+// only this course's (and its lab/tutorial sections') requested events and
+// calendar-native VALARMs. The server adds the sections.
 export function CourseCalendarExportModal({ course, onClose }) {
     const [include, setInclude] = useState({ classes: true, exams: true, assignments: true });
     const [reminders, setReminders] = useState({ classes: 15, exams: 60, assignments: 60 });

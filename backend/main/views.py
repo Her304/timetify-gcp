@@ -1030,6 +1030,12 @@ class CourseCalendarLinkView(APIView):
         if len(owned) != len(set(pks)):
             # Same answer for someone else's course as for a missing one.
             return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+        # A lab/tutorial is its own child Course with its own meeting times and
+        # items. The profile exports one row at a time, so exporting a main
+        # course brings its sections along; the Add page already sends them.
+        owned = sorted(set(owned) | set(
+            Course.objects.filter(user=request.user, parent_course_id__in=owned).values_list('pk', flat=True)
+        ))
 
         include = request.data.get('include')
         if include is None:  # Keeps exports made by the existing Add page whole.
